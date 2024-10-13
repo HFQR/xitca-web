@@ -1,5 +1,6 @@
 //! http/1 specific module for types and protocol utilities.
 
+pub mod dispatcher_unreal;
 pub mod proto;
 
 pub(crate) mod dispatcher;
@@ -15,6 +16,3 @@ pub use self::service::H1Service;
 
 #[cfg(feature = "io-uring")]
 mod dispatcher_uring;
-
-#[cfg(feature = "io-uring")]
-pub mod dispatcher_uring_unreal;

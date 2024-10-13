@@ -1,14 +1,16 @@
 use core::mem::MaybeUninit;
 
-use std::rc::Rc;
+use std::{io, rc::Rc};
 
 use http::StatusCode;
 use httparse::{Header, Status};
 use xitca_io::{
-    bytes::{Buf, BytesMut},
-    net::io_uring::TcpStream,
+    bytes::{Buf, BytesMut, PagedBytesMut},
+    io::{AsyncIo, Interest},
+    net::TcpStream,
 };
 use xitca_service::{AsyncFn, Service};
+use xitca_unsafe_collection::bytes::read_buf;
 
 use crate::date::{DateTime, DateTimeHandle, DateTimeService};
 
@@ -127,27 +129,29 @@ where
     type Response = ();
     type Error = Error;
 
-    async fn call(&self, stream: TcpStream) -> Result<Self::Response, Self::Error> {
-        let mut read_buf = BytesMut::with_capacity(4096);
-        let mut write_buf = BytesMut::with_capacity(4096);
+    async fn call(&self, mut stream: TcpStream) -> Result<Self::Response, Self::Error> {
+        let mut r_buf = PagedBytesMut::<4096>::new();
+        let mut w_buf = BytesMut::with_capacity(4096);
 
         loop {
-            read_buf.reserve(4096);
-
-            let (res, buf) = stream.read(read_buf).await;
-
-            if res? == 0 {
-                return Ok(());
+            match read_buf(&mut stream, &mut r_buf) {
+                Ok(0) if r_buf.is_empty() => return Ok(()),
+                Ok(_) => continue,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if r_buf.is_empty() {
+                        stream.ready(Interest::READABLE).await?;
+                        continue;
+                    }
+                }
+                Err(e) => return Err(e.into()),
             }
 
-            read_buf = buf;
-
-            'inner: loop {
-                let mut headers = [const { MaybeUninit::uninit() }; 8];
+            'decode: loop {
+                let mut headers = [const { MaybeUninit::uninit() }; 16];
 
                 let mut req = httparse::Request::new(&mut []);
 
-                match req.parse_with_uninit_headers(&read_buf, &mut headers)? {
+                match req.parse_with_uninit_headers(r_buf.chunk(), &mut headers)? {
                     Status::Complete(len) => {
                         let req = Request {
                             path: req.path.unwrap(),
@@ -156,23 +160,29 @@ where
                         };
 
                         let res = Response {
-                            buf: &mut write_buf,
+                            buf: &mut w_buf,
                             date: self.date.get(),
                             want_write_date: true,
                         };
 
                         self.handler.call((req, res, &self.ctx)).await;
 
-                        read_buf.advance(len);
+                        r_buf.advance(len);
                     }
-                    Status::Partial => break 'inner,
+                    Status::Partial => break 'decode,
                 };
             }
 
-            let (res, buf) = stream.write_all(write_buf).await;
-            res?;
-            write_buf = buf;
-            write_buf.clear();
+            while !w_buf.is_empty() {
+                match io::Write::write(&mut stream, w_buf.chunk()) {
+                    Ok(0) => return Err(io::Error::from(io::ErrorKind::WriteZero).into()),
+                    Ok(n) => w_buf.advance(n),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        stream.ready(Interest::WRITABLE).await?;
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
         }
     }
 }
