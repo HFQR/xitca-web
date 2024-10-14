@@ -258,7 +258,13 @@ async fn spawn_task<B>(
                 SelectOutput::A(None) => return Ok(()),
                 SelectOutput::B(_) => match un_answered_ping.cmp(&max_unanswered_ping) {
                     Ordering::Less => {
-                        tx.send(WsMessage::Ping(Bytes::new())).await?;
+                        if let Err(e) = tx.send(WsMessage::Ping(Bytes::new())).await {
+                            // continue ping timer when websocket is closed.
+                            // client may be lagging behind and not respond to close message immediately.
+                            if !matches!(e, ProtocolError::Closed) {
+                                return Err(e.into());
+                            }
+                        }
                         un_answered_ping += 1;
                         sleep.as_mut().reset(Instant::now() + ping_interval);
                     }
