@@ -5,7 +5,7 @@ use std::{io, rc::Rc};
 use http::StatusCode;
 use httparse::{Header, Status};
 use xitca_io::{
-    bytes::{Buf, BytesMut, PagedBytesMut},
+    bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
     net::TcpStream,
 };
@@ -25,7 +25,6 @@ pub struct Request<'a> {
 pub struct Response<'a, const STEP: usize = 1> {
     buf: &'a mut BytesMut,
     date: &'a DateTimeHandle,
-    want_write_date: bool,
 }
 
 impl<'a> Response<'a> {
@@ -44,17 +43,12 @@ impl<'a> Response<'a> {
         Response {
             buf: self.buf,
             date: self.date,
-            want_write_date: self.want_write_date,
         }
     }
 }
 
 impl<'a> Response<'a, 2> {
-    pub fn header(mut self, key: &str, val: &str) -> Self {
-        if key.eq_ignore_ascii_case("date") {
-            self.want_write_date = false;
-        }
-
+    pub fn header(self, key: &str, val: &str) -> Self {
         let key = key.as_bytes();
         let val = val.as_bytes();
 
@@ -66,43 +60,31 @@ impl<'a> Response<'a, 2> {
         self
     }
 
-    pub fn body(mut self, body: &[u8]) -> Response<'a, 3> {
-        self.try_write_date();
-
+    pub fn body(self, body: &[u8]) -> Response<'a, 3> {
         super::proto::encode::write_length_header(self.buf, body.len());
-        self.buf.extend_from_slice(b"\r\n\r\n");
-        self.buf.extend_from_slice(body);
-
-        Response {
-            buf: self.buf,
-            date: self.date,
-            want_write_date: self.want_write_date,
-        }
+        self.body_writer(|buf| buf.extend_from_slice(body))
     }
 
-    pub fn body_writer<F, E>(mut self, func: F) -> Result<Response<'a, 3>, E>
+    pub fn body_writer<F>(mut self, func: F) -> Response<'a, 3>
     where
-        F: for<'b> FnOnce(&'b mut BytesMut) -> Result<(), E>,
+        F: for<'b> FnOnce(&'b mut BytesMut),
     {
         self.try_write_date();
 
         self.buf.extend_from_slice(b"\r\n\r\n");
 
-        func(self.buf)?;
+        func(self.buf);
 
-        Ok(Response {
+        Response {
             buf: self.buf,
             date: self.date,
-            want_write_date: self.want_write_date,
-        })
+        }
     }
 
     fn try_write_date(&mut self) {
-        if self.want_write_date {
-            self.buf.reserve(DateTimeHandle::DATE_VALUE_LENGTH + 12);
-            self.buf.extend_from_slice(b"\r\ndate: ");
-            self.date.with_date(|date| self.buf.extend_from_slice(date));
-        }
+        self.buf.reserve(DateTimeHandle::DATE_VALUE_LENGTH + 12);
+        self.buf.extend_from_slice(b"\r\ndate: ");
+        self.date.with_date(|date| self.buf.extend_from_slice(date));
     }
 }
 
@@ -130,20 +112,19 @@ where
     type Error = Error;
 
     async fn call(&self, mut stream: TcpStream) -> Result<Self::Response, Self::Error> {
-        let mut r_buf = PagedBytesMut::<4096>::new();
+        let mut r_buf = BytesMut::with_capacity(4096);
         let mut w_buf = BytesMut::with_capacity(4096);
 
         loop {
-            match read_buf(&mut stream, &mut r_buf) {
-                Ok(0) if r_buf.is_empty() => return Ok(()),
-                Ok(_) => continue,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if r_buf.is_empty() {
-                        stream.ready(Interest::READABLE).await?;
-                        continue;
-                    }
+            stream.ready(Interest::READABLE).await?;
+
+            loop {
+                match read_buf(&mut stream, &mut r_buf) {
+                    Ok(0) if r_buf.is_empty() => return Ok(()),
+                    Ok(_) => {}
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) => return Err(e.into()),
                 }
-                Err(e) => return Err(e.into()),
             }
 
             'decode: loop {
@@ -162,7 +143,6 @@ where
                         let res = Response {
                             buf: &mut w_buf,
                             date: self.date.get(),
-                            want_write_date: true,
                         };
 
                         self.handler.call((req, res, &self.ctx)).await;
@@ -173,16 +153,20 @@ where
                 };
             }
 
-            while !w_buf.is_empty() {
-                match io::Write::write(&mut stream, w_buf.chunk()) {
+            let mut written = 0;
+
+            while written != w_buf.len() {
+                match io::Write::write(&mut stream, &w_buf[written..]) {
                     Ok(0) => return Err(io::Error::from(io::ErrorKind::WriteZero).into()),
-                    Ok(n) => w_buf.advance(n),
+                    Ok(n) => written += n,
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                         stream.ready(Interest::WRITABLE).await?;
                     }
                     Err(e) => return Err(e.into()),
                 }
             }
+
+            w_buf.clear();
         }
     }
 }
