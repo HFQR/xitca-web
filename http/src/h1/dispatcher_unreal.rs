@@ -16,10 +16,11 @@ use crate::date::{DateTime, DateTimeHandle, DateTimeService};
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-pub struct Request<'a> {
+pub struct Request<'a, C> {
     pub method: &'a str,
     pub path: &'a str,
     pub headers: &'a mut [Header<'a>],
+    pub ctx: &'a C,
 }
 
 pub struct Response<'a, const STEP: usize = 1> {
@@ -106,7 +107,7 @@ impl<F, C> Dispatcher<F, C> {
 
 impl<F, C> Service<TcpStream> for Dispatcher<F, C>
 where
-    F: for<'h, 'b> AsyncFn<(Request<'h>, Response<'h>, &'h C), Output = Response<'h, 3>>,
+    F: for<'h, 'b> AsyncFn<(Request<'h, C>, Response<'h>), Output = Response<'h, 3>>,
 {
     type Response = ();
     type Error = Error;
@@ -127,7 +128,7 @@ where
                 }
             }
 
-            'decode: loop {
+            loop {
                 let mut headers = [const { MaybeUninit::uninit() }; 16];
 
                 let mut req = httparse::Request::new(&mut []);
@@ -138,6 +139,7 @@ where
                             path: req.path.unwrap(),
                             method: req.method.unwrap(),
                             headers: req.headers,
+                            ctx: &self.ctx,
                         };
 
                         let res = Response {
@@ -145,11 +147,11 @@ where
                             date: self.date.get(),
                         };
 
-                        self.handler.call((req, res, &self.ctx)).await;
+                        self.handler.call((req, res)).await;
 
                         r_buf.advance(len);
                     }
-                    Status::Partial => break 'decode,
+                    Status::Partial => break,
                 };
             }
 
