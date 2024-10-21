@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.4.2
+## Fix
+- relax trait bound of `io_uring::write_all`
 
 # 0.4.1
 ## Fix
