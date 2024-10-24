@@ -203,23 +203,23 @@ where
                 loop {
                     let buf = &mut *self.write_buf;
 
-                    if buf.len() < W_LIMIT {
-                        let res = poll_fn(|cx| match body.as_mut().poll_next(cx) {
-                            Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
-                            Poll::Pending if buf.is_empty() => Poll::Pending,
-                            Poll::Pending => Poll::Ready(SelectOutput::B(())),
-                        })
-                        .await;
+                    let res = poll_fn(|cx| match body.as_mut().poll_next(cx) {
+                        Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
+                        Poll::Pending if buf.is_empty() => Poll::Pending,
+                        Poll::Pending => Poll::Ready(SelectOutput::B(())),
+                    })
+                    .await;
 
-                        match res {
-                            SelectOutput::A(Some(Ok(bytes))) => {
-                                encoder.encode(bytes, buf);
+                    match res {
+                        SelectOutput::A(Some(Ok(bytes))) => {
+                            encoder.encode(bytes, buf);
+                            if buf.len() < W_LIMIT {
                                 continue;
                             }
-                            SelectOutput::A(Some(Err(e))) => return self.on_body_error(e).await,
-                            SelectOutput::A(None) => break encoder.encode_eof(buf),
-                            SelectOutput::B(_) => {}
                         }
+                        SelectOutput::A(Some(Err(e))) => return self.on_body_error(e).await,
+                        SelectOutput::A(None) => break encoder.encode_eof(buf),
+                        SelectOutput::B(_) => {}
                     }
 
                     self.write_buf.write_io(&*self.io).await?;
@@ -444,19 +444,17 @@ impl<T> Notify<T> {
         Notifier(self.0.clone())
     }
 
-    async fn wait(&mut self) -> Option<T> {
+    fn wait(&mut self) -> impl Future<Output = Option<T>> + '_ {
         poll_fn(|cx| {
-            let strong_count = Rc::strong_count(&self.0);
             let mut inner = self.0.borrow_mut();
             if let Some(val) = inner.val.take() {
                 return Poll::Ready(Some(val));
-            } else if strong_count == 1 {
+            } else if Rc::strong_count(&self.0) == 1 {
                 return Poll::Ready(None);
             }
             inner.waker = Some(cx.waker().clone());
             Poll::Pending
         })
-        .await
     }
 }
 
