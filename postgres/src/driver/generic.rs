@@ -92,7 +92,7 @@ pub(crate) struct SharedState {
 }
 
 impl SharedState {
-    async fn wait(&self) -> WaitState {
+    fn wait(&self) -> impl Future<Output = WaitState> + '_ {
         poll_fn(|cx| {
             let inner = self.guarded.lock().unwrap();
             if !inner.buf.is_empty() {
@@ -105,7 +105,6 @@ impl SharedState {
                 Poll::Pending
             }
         })
-        .await
     }
 }
 
@@ -272,34 +271,41 @@ where
     }
 
     fn try_write(&mut self) -> io::Result<()> {
-        loop {
-            match self.write_state {
-                WriteState::WantFlush => {
-                    match io::Write::flush(&mut self.io) {
-                        Ok(_) => self.write_state = WriteState::Waiting,
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                        Err(e) => return Err(e),
-                    }
-                    break;
-                }
-                WriteState::WantWrite => {
-                    let mut inner = self.shared_state.guarded.lock().unwrap();
+        debug_assert!(
+            matches!(self.write_state, WriteState::WantWrite | WriteState::WantFlush),
+            "try_write must not be called when WriteState is Wait or Closed"
+        );
 
-                    match io::Write::write(&mut self.io, &inner.buf) {
-                        Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-                        Ok(n) => {
-                            inner.buf.advance(n);
+        if matches!(self.write_state, WriteState::WantWrite) {
+            let mut inner = self.shared_state.guarded.lock().unwrap();
 
-                            if inner.buf.is_empty() {
-                                self.write_state = WriteState::WantFlush;
-                            }
+            let mut written = 0;
+
+            loop {
+                match io::Write::write(&mut self.io, &inner.buf[written..]) {
+                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                    Ok(n) => {
+                        written += n;
+
+                        if written == inner.buf.len() {
+                            inner.buf.clear();
+                            self.write_state = WriteState::WantFlush;
+                            break;
                         }
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                        Err(e) => return Err(e),
                     }
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        inner.buf.advance(written);
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
                 }
-                _ => unreachable!("try_write must not be called when WriteState is wait or closed"),
             }
+        }
+
+        match io::Write::flush(&mut self.io) {
+            Ok(_) => self.write_state = WriteState::Waiting,
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(e) => return Err(e),
         }
 
         Ok(())
