@@ -116,12 +116,19 @@ where
         let mut r_buf = BytesMut::with_capacity(4096);
         let mut w_buf = BytesMut::with_capacity(4096);
 
+        let mut read_closed = false;
+
         loop {
             stream.ready(Interest::READABLE).await?;
 
             loop {
                 match read_buf(&mut stream, &mut r_buf) {
-                    Ok(0) if r_buf.is_empty() => return Ok(()),
+                    Ok(0) => {
+                        if core::mem::replace(&mut read_closed, true) {
+                            return Ok(());
+                        }
+                        break;
+                    }
                     Ok(_) => {}
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     Err(e) => return Err(e.into()),
