@@ -332,10 +332,10 @@ where
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
+        let mut inner = self.shared_state.guarded.lock().unwrap();
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal(mut msg) => {
-                    let mut inner = self.shared_state.guarded.lock().unwrap();
                     let front = inner.res.front_mut().ok_or_else(|| msg.parse_error())?;
                     match front.send(msg) {
                         SenderState::Finish => {
