@@ -146,33 +146,13 @@ mod test {
         where
             S: Service<&'static str, Response = &'static str, Error = ()>,
         {
-            let res = service.call(req).now_or_panic()?;
+            let res = service.call(req).await?;
             assert_eq!(res, "996");
             Ok("251")
         }
 
         let res = fn_service(index)
             .enclosed_fn(enclosed)
-            .call(())
-            .now_or_panic()
-            .unwrap()
-            .call("996")
-            .now_or_panic()
-            .ok()
-            .unwrap();
-
-        assert_eq!(res, "251");
-    }
-
-    #[cfg(feature = "nightly")]
-    #[test]
-    fn enclosed_fn_async_closure() {
-        let res = fn_service(index)
-            .enclosed_fn(async |service, req| {
-                let res = service.call(req).now_or_panic()?;
-                assert_eq!(res, "996");
-                Ok::<_, ()>("251")
-            })
             .call(())
             .now_or_panic()
             .unwrap()
