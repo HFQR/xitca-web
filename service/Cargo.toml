@@ -15,6 +15,7 @@ workspace = true
 [features]
 alloc = []
 std = []
+nightly = []
 
 [dev-dependencies]
 xitca-unsafe-collection = "0.2.0"
