@@ -36,7 +36,6 @@
 //! ```
 #![no_std]
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "nightly", feature(async_closure))]
 
 #[cfg(not(feature = "nightly"))]
 mod async_fn;
