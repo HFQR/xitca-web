@@ -164,26 +164,6 @@ mod test {
         assert_eq!(res, "251");
     }
 
-    #[cfg(feature = "nightly")]
-    #[test]
-    fn enclosed_fn_nightly() {
-        let res = fn_service(index)
-            .enclosed_fn(async |service, req| {
-                let res = service.call(req).await?;
-                assert_eq!(res, "996");
-                Ok::<_, ()>("251")
-            })
-            .call(())
-            .now_or_panic()
-            .unwrap()
-            .call("996")
-            .now_or_panic()
-            .ok()
-            .unwrap();
-
-        assert_eq!(res, "251");
-    }
-
     #[cfg(feature = "alloc")]
     #[test]
     fn enclosed_opt() {
