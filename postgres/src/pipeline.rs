@@ -383,7 +383,7 @@ impl<'a> Columns<'a> {
     }
 }
 
-impl<'a> AsyncLendingIterator for PipelineStream<'a> {
+impl AsyncLendingIterator for PipelineStream<'_> {
     type Ok<'i>
         = PipelineItem<'i>
     where
