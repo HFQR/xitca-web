@@ -32,6 +32,32 @@ async fn h3_get() -> Result<(), Error> {
 }
 
 #[tokio::test]
+async fn h3_no_host_header() -> Result<(), Error> {
+    let mut handle = test_h3_server(fn_service(handle))?;
+
+    let server_url = format!("https://{}/host", handle.ip_port_string());
+
+    let c = Client::new();
+
+    for _ in 0..3 {
+        let mut req = c.get(&server_url).version(Version::HTTP_3);
+        req.headers_mut().insert(header::HOST, "localhost".parse().unwrap());
+
+        let mut res = req.send().await?;
+        assert_eq!(res.status().as_u16(), 200);
+        assert!(!res.can_close_connection());
+        let body = res.string().await?;
+        assert_eq!("", body);
+    }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn h3_post() -> Result<(), Error> {
     let mut handle = test_h3_server(fn_service(handle))?;
 
@@ -64,6 +90,15 @@ async fn handle(req: Request<RequestExt<h3::RequestBody>>) -> Result<Response<Re
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => Ok(Response::new(Bytes::from("GET Response").into())),
+        (&Method::GET, "/host") => Ok(Response::new(
+            Bytes::from(
+                req.headers()
+                    .get(header::HOST)
+                    .map(|v| v.to_str().unwrap().to_string())
+                    .unwrap_or_default(),
+            )
+            .into(),
+        )),
         (&Method::POST, "/") => {
             let (parts, mut body) = req.into_parts();
 
