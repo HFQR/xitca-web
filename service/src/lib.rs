@@ -37,7 +37,13 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+#[cfg(not(feature = "nightly"))]
 mod async_fn;
+#[cfg(feature = "nightly")]
+mod async_fn {
+    pub use core::ops::AsyncFn;
+}
+
 mod service;
 
 pub mod middleware;

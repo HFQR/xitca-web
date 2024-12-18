@@ -17,10 +17,21 @@ pub trait ServiceExt<Arg>: Service<Arg> {
         PipelineT::new(self, build)
     }
 
+    #[cfg(not(feature = "nightly"))]
     /// Function version of [Self::enclosed] method.
     fn enclosed_fn<T, Req>(self, func: T) -> PipelineT<Self, middleware::AsyncFn<T>, marker::BuildEnclosed>
     where
         T: for<'s> async_fn::AsyncFn<(&'s Self::Response, Req)> + Clone,
+        Self: Sized,
+    {
+        self.enclosed(middleware::AsyncFn(func))
+    }
+
+    #[cfg(feature = "nightly")]
+    /// Function version of [Self::enclosed] method.
+    fn enclosed_fn<T, Req, O>(self, func: T) -> PipelineT<Self, middleware::AsyncFn<T>, marker::BuildEnclosed>
+    where
+        T: for<'s> async_fn::AsyncFn(&'s Self::Response, Req) -> O + Clone,
         Self: Sized,
     {
         self.enclosed(middleware::AsyncFn(func))
@@ -135,7 +146,7 @@ mod test {
         where
             S: Service<&'static str, Response = &'static str, Error = ()>,
         {
-            let res = service.call(req).now_or_panic()?;
+            let res = service.call(req).await?;
             assert_eq!(res, "996");
             Ok("251")
         }

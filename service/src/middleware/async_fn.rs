@@ -22,6 +22,7 @@ where
     }
 }
 
+#[cfg(not(feature = "nightly"))]
 impl<S, Req, F, Res, Err> Service<Req> for PipelineT<S, F, marker::AsyncFn>
 where
     F: for<'s> async_fn::AsyncFn<(&'s S, Req), Output = Result<Res, Err>>,
@@ -32,5 +33,19 @@ where
     #[inline]
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
         self.second.call((&self.first, req)).await
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<S, Req, F, Res, Err> Service<Req> for PipelineT<S, F, marker::AsyncFn>
+where
+    F: for<'s> async_fn::AsyncFn(&'s S, Req) -> Result<Res, Err>,
+{
+    type Response = Res;
+    type Error = Err;
+
+    #[inline]
+    async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
+        (self.second)(&self.first, req).await
     }
 }
