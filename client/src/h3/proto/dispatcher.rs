@@ -1,19 +1,18 @@
 use core::{future::poll_fn, net::SocketAddr, pin::pin};
 
-use ::h3_quinn::quinn::Endpoint;
-use futures_core::stream::Stream;
-use xitca_http::date::DateTime;
-
 use crate::{
     body::{BodyError, BodySize, ResponseBody},
     bytes::{Buf, Bytes},
     date::DateTimeHandle,
     h3::{Connection, Error},
     http::{
-        header::{HeaderValue, CONTENT_LENGTH, DATE},
+        header::{HeaderValue, CONTENT_LENGTH, DATE, HOST},
         Method, Request, Response,
     },
 };
+use ::h3_quinn::quinn::Endpoint;
+use futures_core::stream::Stream;
+use xitca_http::date::DateTime;
 
 pub(crate) async fn send<B, E>(
     stream: &mut Connection,
@@ -48,6 +47,9 @@ where
             false
         }
     };
+
+    // remove host header if present, some web server may send 400 bad request if host header is present.
+    req.headers_mut().remove(HOST);
 
     if !req.headers().contains_key(DATE) {
         let date = date.with_date(HeaderValue::from_bytes).unwrap();
