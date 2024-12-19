@@ -1,5 +1,6 @@
+use std::cell::RefCell;
 use crate::peer_resolver::HttpPeerResolver;
-use crate::service::ProxyService;
+use crate::service::{ProxyService, ProxyServiceCompat};
 use crate::HttpPeer;
 use std::convert::Infallible;
 use std::rc::Rc;
@@ -33,13 +34,13 @@ impl Proxy {
 }
 
 impl Service for Proxy {
-    type Response = ProxyService;
+    type Response = ProxyServiceCompat;
     type Error = Infallible;
 
     async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
-        Ok(ProxyService {
+        Ok(ProxyServiceCompat(RefCell::new(ProxyService {
             peer_resolver: Rc::new(HttpPeerResolver::Static(Rc::new(self.peer.clone()))),
-            client: Rc::new(xitca_client::ClientBuilder::new().openssl().finish()),
-        })
+            client: Rc::new(xitca_client::ClientBuilder::new().rustls().finish()),
+        })))
     }
 }
