@@ -77,7 +77,7 @@ impl Client {
     #[inline]
     pub fn request<B, E>(&self, req: http::Request<B>) -> RequestBuilder<'_>
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Stream<Item = Result<Bytes, E>> + 'static,
         BodyError: From<E>,
     {
         RequestBuilder::new(req, self)
@@ -391,8 +391,6 @@ mod test {
     #[tokio::test]
     async fn connect_google() {
         let res = Client::builder()
-            .middleware(crate::middleware::FollowRedirect::new)
-            .middleware(crate::middleware::Decompress::new)
             .openssl()
             .finish()
             .get("https://www.google.com/")

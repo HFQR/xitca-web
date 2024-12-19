@@ -9,7 +9,7 @@ use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
 use tracing::debug;
 use xitca_http::{bytes::BytesMut, http};
-
+use xitca_http::http::response::Parts;
 use crate::{
     body::ResponseBody,
     error::{Error, TimeoutError},
@@ -84,6 +84,11 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
             timer: self.timer,
             timeout: dur,
         }
+    }
+    /// Collect response body as String. Response is consumed.
+    #[inline]
+    pub fn into_parts(self) -> (Parts, ResponseBody<'a>) {
+        self.res.into_parts()
     }
 
     /// Collect response body as String. Response is consumed.

@@ -11,14 +11,14 @@ use crate::{
     uri::Uri,
 };
 
-type BoxFuture<'f, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'f>>;
+type BoxFuture<'f, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + 'f>>;
 
 /// trait for composable http services. Used for middleware,resolver and tls connector.
 pub trait Service<Req> {
     type Response;
     type Error;
 
-    fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>> + Send;
+    fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>>;
 }
 
 pub trait ServiceDyn<Req> {
@@ -48,8 +48,7 @@ where
 
 impl<I, Req> Service<Req> for Box<I>
 where
-    Req: Send,
-    I: ServiceDyn<Req> + ?Sized + Send + Sync,
+    I: ServiceDyn<Req> + ?Sized,
 {
     type Response = I::Response;
     type Error = I::Error;
@@ -72,7 +71,7 @@ pub struct ServiceRequest<'r, 'c> {
 
 /// type alias for object safe wrapper of type implement [Service] trait.
 pub type HttpService =
-    Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync>;
+    Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error>>;
 
 pub(crate) fn base_service() -> HttpService {
     struct HttpService;
