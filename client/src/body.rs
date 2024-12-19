@@ -86,7 +86,7 @@ impl Stream for ResponseBody {
 }
 
 /// type erased stream body.
-pub struct BoxBody(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + 'static>>);
+pub struct BoxBody(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + 'static>>);
 
 impl Default for BoxBody {
     fn default() -> Self {
@@ -98,7 +98,7 @@ impl BoxBody {
     #[inline]
     pub fn new<B, E>(body: B) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Stream<Item = Result<Bytes, E>> + 'static,
         E: Into<BodyError>,
     {
         Self(Box::pin(BoxStreamMapErr { body }))

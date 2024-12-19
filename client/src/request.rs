@@ -81,7 +81,7 @@ impl RequestBuilder<'_, marker::Http> {
     #[inline]
     pub fn stream<B, E>(self, body: B) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Stream<Item = Result<Bytes, E>> + 'static,
         E: Into<BodyError>,
     {
         self.map_body(body)
@@ -96,7 +96,7 @@ impl RequestBuilder<'_, marker::Http> {
 impl<'a, M> RequestBuilder<'a, M> {
     pub(crate) fn new<B, E>(req: http::Request<B>, client: &'a Client) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Stream<Item = Result<Bytes, E>> + 'static,
         E: Into<BodyError>,
     {
         Self {
@@ -212,7 +212,7 @@ impl<'a, M> RequestBuilder<'a, M> {
 
     fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a, M>
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Stream<Item = Result<Bytes, E>> + 'static,
         E: Into<BodyError>,
     {
         self.req = self.req.map(|_| BoxBody::new(b));

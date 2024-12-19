@@ -1,0 +1,19 @@
+[package]
+name = "redirectionio-xitca-proxy"
+version = "0.1.0"
+authors = ["Joel Wurtz <joel.wurtz@gmail.com>"]
+edition = "2021"
+description = "Xitca web reverse HTTP and Websocket proxy"
+
+[dependencies]
+bytes = "1.9.0"
+lazy_static = "1.5.0"
+xitca-client = { version = "0.1.0", features = ["dangerous", "openssl"] }
+xitca-http = "0.7.0"
+xitca-web = "0.7.0"
+
+[dev-dependencies]
+tokio = { version = "1.42.0", features = ["full"] }
+
+[[example]]
+name = "http_proxy"
