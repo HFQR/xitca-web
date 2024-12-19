@@ -49,7 +49,7 @@ impl fmt::Debug for ResponseBody<'_> {
 }
 
 impl ResponseBody<'_> {
-    pub(crate) fn into_owned(self) -> ResponseBody<'static> {
+    pub fn into_owned(self) -> ResponseBody<'static> {
         match self {
             #[cfg(feature = "http1")]
             Self::H1(body) => ResponseBody::H1Owned(body.map_conn(Into::into)),
