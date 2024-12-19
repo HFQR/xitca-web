@@ -4,6 +4,8 @@ use xitca_web::App;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider().install_default().ok();
+
     let address = "github.com:443"
         .to_socket_addrs()
         .expect("error getting addresses")

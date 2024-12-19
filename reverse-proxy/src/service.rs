@@ -1,16 +1,21 @@
+use std::cell::{RefCell};
 use crate::forwarder::{ForwardError};
 use crate::peer_resolver::HttpPeerResolver;
 use crate::HttpPeer;
 use bytes::Bytes;
 use std::collections::HashSet;
+use std::ops::{DerefMut};
 use std::rc::Rc;
 use std::str::FromStr;
+use futures::Stream;
+use futures_util::StreamExt;
 use xitca_client::{Client};
-use xitca_http::body::BoxBody;
-use xitca_http::BodyError;
+use xitca_http::body::{BoxBody};
+use xitca_http::{BodyError};
 use xitca_http::http::header::AsHeaderName;
 use xitca_http::http::{StatusCode, Version};
 use xitca_http::util::service::RouterError;
+use xitca_unsafe_collection::fake::{FakeSend, FakeSync};
 use xitca_web::error::ErrorStatus;
 use xitca_web::http::uri::Scheme;
 use xitca_web::http::{header, HeaderMap, HeaderName, Request, Uri, WebResponse};
@@ -35,29 +40,83 @@ lazy_static! {
     };
 }
 
-#[derive(Clone)]
-pub struct ProxyService {
-    pub(crate) peer_resolver: Rc<HttpPeerResolver>,
-    pub(crate) client: Rc<Client>,
-}
+pub struct ProxyServiceCompat(pub RefCell<ProxyService>);
 
-impl<'r, C, B> Service<WebContext<'r, C, B>> for ProxyService
+impl<'r, C, B> Service<WebContext<'r, C, B>> for ProxyServiceCompat
 where
-    C: 'static,
-    B: BodyStream<Chunk = Bytes, Error = BodyError> + Default + 'static,
+    C: Clone + 'static  + Unpin,
+    B: BodyStream<Chunk = Bytes, Error = BodyError> + Default + 'static + Unpin,
 {
     type Response = WebResponse<BoxBody>;
     type Error = RouterError<ErrorStatus>;
 
     async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let downstream_request = ctx.take_request();
-        let (downstream_request_head, _downstream_body) = downstream_request.into_parts();
+        let (parts, _ext) = ctx.take_request().into_parts();
+        let ctx = ctx.state().clone();
+        // @TODO this doesn't work when body is empty on HTTP 1.1, as we don't know the size which induce a chunked encoding, and eof is called on that which makes it panics
+        // Need to buffer or add a size hint to the body
+        let req = Request::from_parts(parts, CompatReqBody::new(BoxBody::default(), ctx));
+        let fut = ProxyService::call(&mut *self.0.borrow_mut(), req).await;
+
+        fut
+    }
+}
+
+pub struct CompatReqBody<B, C> {
+    body: FakeSend<B>,
+    ctx: FakeSend<FakeSync<C>>,
+}
+
+impl<B, C> CompatReqBody<B, C> {
+    #[inline]
+    pub fn new(body: B, ctx: C) -> Self {
+        Self {
+            body: FakeSend::new(body),
+            ctx: FakeSend::new(FakeSync::new(ctx)),
+        }
+    }
+
+    /// destruct compat body into owned value of body and state context
+    ///
+    /// # Panics
+    /// - When called from a thread not where B is originally constructed.
+    #[inline]
+    pub fn into_parts(self) -> (B, C) {
+        (self.body.into_inner(), self.ctx.into_inner().into_inner())
+    }
+}
+
+impl<B, C> Stream for CompatReqBody<B, C> where B: Stream<Item = Result<Bytes, BodyError>> + Unpin, C: Unpin {
+    type Item = Result<Bytes, BodyError>;
+
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        self.get_mut().body.deref_mut().poll_next_unpin(cx)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.body.size_hint()
+    }
+}
+
+pub struct ProxyService {
+    pub(crate) peer_resolver: Rc<HttpPeerResolver>,
+    pub(crate) client: Rc<Client>,
+}
+
+impl<C, B> Service<Request<CompatReqBody<B, C>>> for ProxyService
+where
+    C: 'static  + Unpin,
+    B: BodyStream<Chunk = Bytes, Error = BodyError> + Default + 'static + Unpin,
+{
+    type Response = WebResponse<BoxBody>;
+    type Error = RouterError<ErrorStatus>;
+
+    async fn call(&self, downstream_request: Request<CompatReqBody<B, C>>) -> Result<Self::Response, Self::Error> {
+        let (downstream_request_head, downstream_body) = downstream_request.into_parts();
 
         let peer = self.peer_resolver.resolve(&downstream_request_head).await.unwrap();
 
-        // @TODO this doesn't work when body is empty, as we don't know the size which induce a chunked encoding, and eof is called on that which makes it panics
-        // let mut upstream_request = Request::new(_downstream_body);
-        let mut upstream_request = Request::new(BoxBody::default());
+        let mut upstream_request = Request::new(downstream_body);
         *upstream_request.method_mut() = downstream_request_head.method;
         *upstream_request.uri_mut() = match Uri::builder()
             .path_and_query(match downstream_request_head.uri.path_and_query() {
@@ -129,28 +188,29 @@ where
             .insert(header::HOST, peer.request_host.parse().unwrap());
 
         // @TODO Get them from forwaded headers if available
-        let addr = ctx.req().body().socket_addr().ip().to_string();
+        // let addr = downstream_body.body.socket_addr().ip().to_string();
         let scheme = downstream_request_head.uri.scheme().cloned().unwrap_or(Scheme::HTTP);
 
         peer.forward_for
-            .apply(upstream_request.headers_mut(), addr.as_str(), current_host, scheme);
+            .apply(upstream_request.headers_mut(), "", current_host, scheme);
 
         // @TODO Handle upgrade request
-
-        // @TODO Handle invalid certificates
-        let client = self.client.clone();
-        let mut upstream_request = client.request(upstream_request);
+        *upstream_request.version_mut() = Version::HTTP_2;
 
         // @TODO Need to set the correct address
         //        upstream_request = upstream_request.address(peer.address);
 
-        if let Some(timeout) = peer.timeout {
-            upstream_request = upstream_request.timeout(timeout);
-        }
-
         // @TODO check bug with http 1.0
 
-        let upstream_response = match upstream_request.send().await {
+        // @TODO Handle invalid certificates
+        let client = self.client.as_ref();
+        let mut upstream_request_builder = client.request(upstream_request);
+
+        if let Some(timeout) = peer.timeout {
+            upstream_request_builder = upstream_request_builder.timeout(timeout);
+        }
+
+        let upstream_response = match upstream_request_builder.send().await {
             Ok(res) => res,
             Err(err) => {
                 println!("error: {:?}", err);

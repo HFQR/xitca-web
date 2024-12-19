@@ -85,7 +85,7 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
             timeout: dur,
         }
     }
-    /// Collect response body as String. Response is consumed.
+
     #[inline]
     pub fn into_parts(self) -> (Parts, ResponseBody<'a>) {
         self.res.into_parts()
