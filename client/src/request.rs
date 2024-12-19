@@ -19,6 +19,7 @@ use crate::{
 /// builder type for [http::Request] with extended functionalities.
 pub struct RequestBuilder<'a, M = marker::Http> {
     pub(crate) req: http::Request<BoxBody>,
+    version: Option<Version>,
     err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
@@ -101,6 +102,7 @@ impl<'a, M> RequestBuilder<'a, M> {
     {
         Self {
             req: req.map(BoxBody::new),
+            version: None,
             err: Vec::new(),
             client,
             timeout: client.timeout_config.request_timeout,
@@ -111,6 +113,7 @@ impl<'a, M> RequestBuilder<'a, M> {
     pub(crate) fn mutate_marker<M2>(self) -> RequestBuilder<'a, M2> {
         RequestBuilder {
             req: self.req,
+            version: self.version,
             err: self.err,
             client: self.client,
             timeout: self.timeout,
@@ -122,6 +125,7 @@ impl<'a, M> RequestBuilder<'a, M> {
     pub(crate) async fn _send(self) -> Result<Response, Error> {
         let Self {
             mut req,
+            version,
             err,
             client,
             timeout,
@@ -136,6 +140,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             .service
             .call(ServiceRequest {
                 req: &mut req,
+                version,
                 client,
                 timeout,
             })
@@ -172,7 +177,9 @@ impl<'a, M> RequestBuilder<'a, M> {
 
     /// Set HTTP version of this request.
     ///
-    /// By default request's HTTP version depends on network stream
+    /// By default request's HTTP version will use the maximum version supported by the client.
+    /// If the network does not support the version, the client will downgrade to the highest
+    /// version supported by the network.
     ///
     /// # Panic
     /// - when received a version beyond the range crate is able to handle.
@@ -195,6 +202,7 @@ impl<'a, M> RequestBuilder<'a, M> {
     /// ```
     pub fn version(mut self, version: Version) -> Self {
         crate::builder::version_check(version);
+        self.version = Some(version);
         *self.req.version_mut() = version;
         self
     }
