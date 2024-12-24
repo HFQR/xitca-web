@@ -99,7 +99,6 @@ async fn h2_connect() -> Result<(), Error> {
         .version(Version::HTTP_2)
         .send()
         .await?
-        .leak()
         .into_inner();
 
     use xitca_io::io::{AsyncIo, Interest};

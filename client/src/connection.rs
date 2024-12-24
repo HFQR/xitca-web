@@ -6,7 +6,7 @@ use super::{tls::TlsStream, uri::Uri};
 
 #[cfg(feature = "http1")]
 /// A convince type alias for typing connection without interacting with pool.
-pub type H1ConnectionWithKey<'a> = crate::pool::exclusive::Conn<'a, ConnectionKey, ConnectionExclusive>;
+pub type H1ConnectionWithKey = crate::pool::exclusive::Conn<ConnectionKey, ConnectionExclusive>;
 
 #[cfg(feature = "http1")]
 /// A convince type alias for typing connection without interacting with pool.

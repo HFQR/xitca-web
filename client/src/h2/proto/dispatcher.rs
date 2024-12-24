@@ -24,7 +24,7 @@ pub(crate) async fn send<B, E>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
     req: http::Request<B>,
-) -> Result<http::Response<ResponseBody<'static>>, Error>
+) -> Result<http::Response<ResponseBody>, Error>
 where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
