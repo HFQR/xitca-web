@@ -27,7 +27,7 @@ mod marker {
     pub struct Connect;
 }
 
-impl<'a> HttpTunnelRequest<'a> {
+impl HttpTunnelRequest<'_> {
     /// Send the request and wait for response asynchronously.
     pub async fn send(self) -> Result<Tunnel<HttpTunnel>, Error> {
         let res = self._send().await?;

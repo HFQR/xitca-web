@@ -49,11 +49,6 @@ jobs:
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-http"
 
-    - name: Clear the cargo caches
-      run: |
-        cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
-        cargo-cache
-
   check_web:
     strategy:
       matrix:
@@ -95,11 +90,6 @@ jobs:
       if: matrix.target.os == 'ubuntu-latest'
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-web"
-
-    - name: Clear the cargo caches
-      run: |
-        cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
-        cargo-cache
 
   check_client:
     strategy:
@@ -143,11 +133,6 @@ jobs:
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-client"
 
-    - name: Clear the cargo caches
-      run: |
-        cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
-        cargo-cache      
-
   check_other:
     strategy:
       matrix:
@@ -188,12 +173,7 @@ jobs:
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
         run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"     
-
-      - name: Clear the cargo caches
-        run: |
-          cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
-          cargo-cache
+          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"
 
   test_linux:
     strategy:
@@ -250,11 +230,6 @@ jobs:
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-test"  
 
-    - name: Clear the cargo caches
-      run: |
-        cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
-        cargo-cache
-
   check_examples:
     strategy:
       matrix:
@@ -300,9 +275,4 @@ jobs:
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
         run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && cd examples && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-examples"     
-
-      - name: Clear the cargo caches
-        run: |
-          cargo install cargo-cache --version 0.6.2 --no-default-features --features ci-autoclean
-          cargo-cache
+          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && cd examples && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-examples"

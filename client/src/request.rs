@@ -30,7 +30,7 @@ mod marker {
     pub struct Http;
 }
 
-impl<'a> RequestBuilder<'a, marker::Http> {
+impl RequestBuilder<'_, marker::Http> {
     /// Set HTTP method of this request.
     #[inline]
     pub fn method(mut self, method: Method) -> Self {

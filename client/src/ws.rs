@@ -43,7 +43,7 @@ pub type WebSocketSink<'a> = TunnelSink<'a, WebSocketTunnel>;
 /// [Stream] trait is used to asynchronously receive message.
 pub type WebSocketReader<'a> = TunnelStream<'a, WebSocketTunnel>;
 
-impl<'a> WsRequest<'a> {
+impl WsRequest<'_> {
     /// Send the request and wait for response asynchronously.
     pub async fn send(mut self) -> Result<WebSocket, Error> {
         http_ws::client_request_extend(&mut self.req);
