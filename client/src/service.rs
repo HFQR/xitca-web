@@ -66,6 +66,7 @@ where
 /// [RequestBuilder]: crate::request::RequestBuilder
 pub struct ServiceRequest<'r, 'c> {
     pub req: &'r mut Request<BoxBody>,
+    pub version: Option<Version>,
     pub client: &'c Client,
     pub timeout: Duration,
 }
@@ -85,14 +86,19 @@ pub(crate) fn base_service() -> HttpService {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
             use crate::{error::TimeoutError, timeout::Timeout};
 
-            let ServiceRequest { req, client, timeout } = req;
+            let ServiceRequest {
+                req,
+                version,
+                client,
+                timeout,
+            } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
             // temporary version to record possible version downgrade/upgrade happens when making connections.
             // alpn protocol and alt-svc header are possible source of version change.
             #[allow(unused_mut)]
-            let mut version = req.version();
+            let mut version = version.unwrap_or(client.max_http_version);
 
             let mut connect = Connect::new(uri);
 
