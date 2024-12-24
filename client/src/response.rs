@@ -19,45 +19,50 @@ use crate::{
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
 
 /// new type of [http::Response] with extended functionalities.
-pub struct Response<'a, const PAYLOAD_LIMIT: usize = DEFAULT_PAYLOAD_LIMIT> {
-    pub(crate) res: http::Response<ResponseBody<'a>>,
+pub struct Response<const PAYLOAD_LIMIT: usize = DEFAULT_PAYLOAD_LIMIT> {
+    pub(crate) res: http::Response<ResponseBody>,
     timer: Pin<Box<Sleep>>,
     timeout: Duration,
 }
 
-impl<'a, const PAYLOAD_LIMIT: usize> Deref for Response<'a, PAYLOAD_LIMIT> {
-    type Target = http::Response<ResponseBody<'a>>;
+impl<const PAYLOAD_LIMIT: usize> Deref for Response<PAYLOAD_LIMIT> {
+    type Target = http::Response<ResponseBody>;
 
     fn deref(&self) -> &Self::Target {
         &self.res
     }
 }
 
-impl<const PAYLOAD_LIMIT: usize> DerefMut for Response<'_, PAYLOAD_LIMIT> {
+impl<const PAYLOAD_LIMIT: usize> DerefMut for Response<PAYLOAD_LIMIT> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.res
     }
 }
 
-impl<const PAYLOAD_LIMIT: usize> fmt::Debug for Response<'_, PAYLOAD_LIMIT> {
+impl<const PAYLOAD_LIMIT: usize> fmt::Debug for Response<PAYLOAD_LIMIT> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.res)
     }
 }
 
-impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
+impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
     #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
-    pub(crate) fn new(res: http::Response<ResponseBody<'a>>, timer: Pin<Box<Sleep>>, timeout: Duration) -> Self {
+    pub(crate) fn new(res: http::Response<ResponseBody>, timer: Pin<Box<Sleep>>, timeout: Duration) -> Self {
         Self { res, timer, timeout }
     }
 
+    /// Get ownership the inner response type.
+    pub fn into_inner(self) -> http::Response<ResponseBody> {
+        self.res
+    }
+
     /// Get a reference of the inner response type.
-    pub fn inner(&self) -> &http::Response<ResponseBody<'a>> {
+    pub fn inner(&self) -> &http::Response<ResponseBody> {
         &self.res
     }
 
     /// Get a mutable reference of the inner response type.
-    pub fn inner_mut(&mut self) -> &mut http::Response<ResponseBody<'a>> {
+    pub fn inner_mut(&mut self) -> &mut http::Response<ResponseBody> {
         &mut self.res
     }
 
@@ -65,7 +70,7 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
     ///
     /// Default to 8 Mb.
     #[inline]
-    pub fn limit<const PAYLOAD_LIMIT_2: usize>(self) -> Response<'a, PAYLOAD_LIMIT_2> {
+    pub fn limit<const PAYLOAD_LIMIT_2: usize>(self) -> Response<PAYLOAD_LIMIT_2> {
         Response {
             res: self.res,
             timer: self.timer,
@@ -78,8 +83,8 @@ impl<'a, const PAYLOAD_LIMIT: usize> Response<'a, PAYLOAD_LIMIT> {
     ///
     /// Default to 15 seconds.
     #[inline]
-    pub fn timeout(self, dur: Duration) -> Response<'a, PAYLOAD_LIMIT> {
-        Response {
+    pub fn timeout(self, dur: Duration) -> Self {
+        Self {
             res: self.res,
             timer: self.timer,
             timeout: dur,

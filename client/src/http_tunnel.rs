@@ -18,7 +18,7 @@ use super::{
     error::{Error, ErrorResponse},
     http::StatusCode,
     request::RequestBuilder,
-    tunnel::{Leak, Tunnel},
+    tunnel::Tunnel,
 };
 
 pub type HttpTunnelRequest<'a> = RequestBuilder<'a, marker::Connect>;
@@ -27,9 +27,9 @@ mod marker {
     pub struct Connect;
 }
 
-impl<'a> HttpTunnelRequest<'a> {
+impl HttpTunnelRequest<'_> {
     /// Send the request and wait for response asynchronously.
-    pub async fn send(self) -> Result<Tunnel<HttpTunnel<'a>>, Error> {
+    pub async fn send(self) -> Result<Tunnel<HttpTunnel>, Error> {
         let res = self._send().await?;
 
         let status = res.status();
@@ -50,8 +50,8 @@ impl<'a> HttpTunnelRequest<'a> {
     }
 }
 
-pub struct HttpTunnel<'b> {
-    body: ResponseBody<'b>,
+pub struct HttpTunnel {
+    body: ResponseBody,
     io: TunnelIo,
 }
 
@@ -73,18 +73,7 @@ struct TunnelIoAdaptor {
     read_closed: bool,
 }
 
-impl Leak for HttpTunnel<'_> {
-    type Target = HttpTunnel<'static>;
-
-    fn leak(self) -> Self::Target {
-        HttpTunnel {
-            body: self.body.into_owned(),
-            io: self.io,
-        }
-    }
-}
-
-impl<M> Sink<M> for HttpTunnel<'_>
+impl<M> Sink<M> for HttpTunnel
 where
     M: AsRef<[u8]>,
 {
@@ -172,7 +161,7 @@ where
     }
 }
 
-impl Stream for HttpTunnel<'_> {
+impl Stream for HttpTunnel {
     type Item = Result<Bytes, Error>;
 
     #[inline]
@@ -181,7 +170,7 @@ impl Stream for HttpTunnel<'_> {
     }
 }
 
-impl AsyncIo for HttpTunnel<'_> {
+impl AsyncIo for HttpTunnel {
     async fn ready(&mut self, _interest: Interest) -> io::Result<Ready> {
         match self.body {
             #[cfg(feature = "http1")]
@@ -230,7 +219,7 @@ impl AsyncIo for HttpTunnel<'_> {
     }
 }
 
-impl io::Read for HttpTunnel<'_> {
+impl io::Read for HttpTunnel {
     fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
         match self.body {
             #[cfg(feature = "http1")]
@@ -244,7 +233,7 @@ impl io::Read for HttpTunnel<'_> {
     }
 }
 
-impl io::Write for HttpTunnel<'_> {
+impl io::Write for HttpTunnel {
     fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
         match self.body {
             #[cfg(feature = "http1")]

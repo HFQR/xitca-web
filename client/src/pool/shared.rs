@@ -9,7 +9,15 @@ use tokio::sync::Notify;
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
-    conns: Mutex<HashMap<K, PooledConnection<C>>>,
+    conns: Arc<Mutex<HashMap<K, PooledConnection<C>>>>,
+}
+
+impl<K, C> Clone for Pool<K, C> {
+    fn clone(&self) -> Self {
+        Self {
+            conns: self.conns.clone(),
+        }
+    }
 }
 
 impl<K, C> Pool<K, C>
@@ -19,7 +27,7 @@ where
 {
     pub(crate) fn with_capacity(_: usize) -> Self {
         Self {
-            conns: Mutex::new(HashMap::new()),
+            conns: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -34,7 +42,7 @@ where
                 match conns.get(&key) {
                     Some(PooledConnection::Conn(c)) => {
                         return AcquireOutput::Conn(Conn {
-                            pool: self,
+                            pool: self.clone(),
                             key,
                             conn: c.clone(),
                             destroy_on_drop: false,
@@ -67,15 +75,15 @@ pub(crate) enum AcquireOutput<'a, K, C>
 where
     K: Eq + Hash + Clone,
 {
-    Conn(Conn<'a, K, C>),
+    Conn(Conn<K, C>),
     Spawner(Spawner<'a, K, C>),
 }
 
-pub(crate) struct Conn<'a, K, C>
+pub(crate) struct Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
-    pool: &'a Pool<K, C>,
+    pool: Pool<K, C>,
     key: K,
     pub(crate) conn: C,
     destroy_on_drop: bool,
@@ -91,7 +99,7 @@ where
     fulfilled: bool,
 }
 
-impl<K, C> Drop for Conn<'_, K, C>
+impl<K, C> Drop for Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
@@ -136,7 +144,7 @@ where
     }
 }
 
-impl<K, C> Conn<'_, K, C>
+impl<K, C> Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {

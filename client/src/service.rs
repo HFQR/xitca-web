@@ -72,13 +72,13 @@ pub struct ServiceRequest<'r, 'c> {
 
 /// type alias for object safe wrapper of type implement [Service] trait.
 pub type HttpService =
-    Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync>;
+    Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync>;
 
 pub(crate) fn base_service() -> HttpService {
     struct HttpService;
 
     impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for HttpService {
-        type Response = Response<'c>;
+        type Response = Response;
         type Error = Error;
 
         async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {

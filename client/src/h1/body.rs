@@ -31,17 +31,6 @@ impl<C> ResponseBody<C> {
     pub(crate) fn conn_mut(&mut self) -> &mut C {
         &mut self.conn
     }
-
-    pub(crate) fn map_conn<F, O>(self, func: F) -> ResponseBody<O>
-    where
-        F: FnOnce(C) -> O,
-    {
-        ResponseBody {
-            conn: func(self.conn),
-            buf: self.buf,
-            decoder: self.decoder,
-        }
-    }
 }
 
 impl<C> Stream for ResponseBody<C>
