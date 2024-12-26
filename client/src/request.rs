@@ -22,6 +22,7 @@ pub struct RequestBuilder<'a, M = marker::Http> {
     err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
+    sni_hostname: Option<String>,
     _marker: PhantomData<M>,
 }
 
@@ -104,6 +105,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             err: Vec::new(),
             client,
             timeout: client.timeout_config.request_timeout,
+            sni_hostname: None,
             _marker: PhantomData,
         }
     }
@@ -114,6 +116,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             err: self.err,
             client: self.client,
             timeout: self.timeout,
+            sni_hostname: self.sni_hostname,
             _marker: PhantomData,
         }
     }
@@ -138,6 +141,7 @@ impl<'a, M> RequestBuilder<'a, M> {
                 req: &mut req,
                 client,
                 timeout,
+                sni_hostname: self.sni_hostname.as_deref(),
             })
             .await
     }
@@ -207,6 +211,13 @@ impl<'a, M> RequestBuilder<'a, M> {
     #[inline]
     pub fn timeout(mut self, dur: Duration) -> Self {
         self.timeout = dur;
+        self
+    }
+
+    /// Set SNI hostname of this request.
+    #[inline]
+    pub fn sni_hostname(mut self, sni_hostname: String) -> Self {
+        self.sni_hostname = Some(sni_hostname);
         self
     }
 

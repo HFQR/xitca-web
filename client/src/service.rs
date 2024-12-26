@@ -68,6 +68,7 @@ pub struct ServiceRequest<'r, 'c> {
     pub req: &'r mut Request<BoxBody>,
     pub client: &'c Client,
     pub timeout: Duration,
+    pub sni_hostname: Option<&'r str>,
 }
 
 /// type alias for object safe wrapper of type implement [Service] trait.
@@ -85,7 +86,12 @@ pub(crate) fn base_service() -> HttpService {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
             use crate::{error::TimeoutError, timeout::Timeout};
 
-            let ServiceRequest { req, client, timeout } = req;
+            let ServiceRequest {
+                req,
+                client,
+                timeout,
+                sni_hostname,
+            } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
@@ -94,13 +100,13 @@ pub(crate) fn base_service() -> HttpService {
             #[allow(unused_mut)]
             let mut version = req.version();
 
-            let mut connect = Connect::new(uri);
+            let mut connect = Connect::new(uri, sni_hostname);
 
             let _date = client.date_service.handle();
 
             loop {
                 match version {
-                    Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
+                    Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect).await {
                         shared::AcquireOutput::Conn(mut _conn) => {
                             let mut _timer = Box::pin(tokio::time::sleep(timeout));
                             *req.version_mut() = version;
@@ -155,7 +161,7 @@ pub(crate) fn base_service() -> HttpService {
                                     if let Ok(Ok(conn)) = crate::h3::proto::connect(
                                         &client.h3_client,
                                         connect.addrs(),
-                                        connect.hostname(),
+                                        connect.sni_hostname(),
                                     )
                                     .timeout(timer.as_mut())
                                     .await
@@ -197,7 +203,7 @@ pub(crate) fn base_service() -> HttpService {
 
                                         #[cfg(feature = "http1")]
                                         {
-                                            client.exclusive_pool.try_add(&connect.uri, conn);
+                                            client.exclusive_pool.try_add(&connect, conn);
                                             // downgrade request version to what alpn protocol suggested from make_exclusive.
                                             version = alpn_version;
                                         }
@@ -212,7 +218,7 @@ pub(crate) fn base_service() -> HttpService {
                             _ => unreachable!("outer match didn't  handle version correctly."),
                         },
                     },
-                    version => match client.exclusive_pool.acquire(&connect.uri).await {
+                    version => match client.exclusive_pool.acquire(&connect).await {
                         exclusive::AcquireOutput::Conn(mut _conn) => {
                             *req.version_mut() = version;
 
