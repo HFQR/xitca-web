@@ -28,12 +28,23 @@ where
     type Error = Error;
 
     async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
-        let ServiceRequest { req, client, timeout } = req;
+        let ServiceRequest {
+            req,
+            client,
+            timeout_config,
+        } = req;
         let mut headers = req.headers().clone();
         let mut method = req.method().clone();
         let mut uri = req.uri().clone();
         loop {
-            let mut res = self.service.call(ServiceRequest { req, client, timeout }).await?;
+            let mut res = self
+                .service
+                .call(ServiceRequest {
+                    req,
+                    client,
+                    timeout_config: timeout_config.clone(),
+                })
+                .await?;
             match res.status() {
                 StatusCode::MOVED_PERMANENTLY | StatusCode::FOUND | StatusCode::SEE_OTHER => {
                     if method != Method::HEAD {

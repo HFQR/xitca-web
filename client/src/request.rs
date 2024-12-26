@@ -14,14 +14,15 @@ use crate::{
     },
     response::Response,
     service::ServiceRequest,
+    timeout::PartialTimeoutConfig,
 };
 
 /// builder type for [http::Request] with extended functionalities.
 pub struct RequestBuilder<'a, M = marker::Http> {
     pub(crate) req: http::Request<BoxBody>,
     err: Vec<Error>,
+    timeout_config: PartialTimeoutConfig,
     client: &'a Client,
-    timeout: Duration,
     _marker: PhantomData<M>,
 }
 
@@ -103,7 +104,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             req: req.map(BoxBody::new),
             err: Vec::new(),
             client,
-            timeout: client.timeout_config.request_timeout,
+            timeout_config: PartialTimeoutConfig::new(),
             _marker: PhantomData,
         }
     }
@@ -113,7 +114,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             req: self.req,
             err: self.err,
             client: self.client,
-            timeout: self.timeout,
+            timeout_config: self.timeout_config,
             _marker: PhantomData,
         }
     }
@@ -124,7 +125,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             mut req,
             err,
             client,
-            timeout,
+            timeout_config,
             ..
         } = self;
 
@@ -137,7 +138,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             .call(ServiceRequest {
                 req: &mut req,
                 client,
-                timeout,
+                timeout_config: timeout_config.to_timeout_config(&client.timeout_config),
             })
             .await
     }
@@ -199,14 +200,43 @@ impl<'a, M> RequestBuilder<'a, M> {
         self
     }
 
-    /// Set timeout of this request.
+    /// Set timeout for DNS resolve.
     ///
-    /// The value passed would override global [ClientBuilder::set_request_timeout].
+    /// Default to client's [TimeoutConfig::resolve_timeout].
+    pub fn set_resolve_timeout(mut self, dur: Duration) -> Self {
+        self.timeout_config.resolve_timeout = Some(dur);
+        self
+    }
+
+    /// Set timeout for establishing connection.
     ///
-    /// [ClientBuilder::set_request_timeout]: crate::builder::ClientBuilder::set_request_timeout
-    #[inline]
-    pub fn timeout(mut self, dur: Duration) -> Self {
-        self.timeout = dur;
+    /// Default to client's [TimeoutConfig::connect_timeout].
+    pub fn set_connect_timeout(mut self, dur: Duration) -> Self {
+        self.timeout_config.connect_timeout = Some(dur);
+        self
+    }
+
+    /// Set timeout for tls handshake.
+    ///
+    /// Default to client's [TimeoutConfig::tls_connect_timeout].
+    pub fn set_tls_connect_timeout(mut self, dur: Duration) -> Self {
+        self.timeout_config.tls_connect_timeout = Some(dur);
+        self
+    }
+
+    /// Set timeout for request.
+    ///
+    /// Default to client's [TimeoutConfig::request_timeout].
+    pub fn set_request_timeout(mut self, dur: Duration) -> Self {
+        self.timeout_config.request_timeout = Some(dur);
+        self
+    }
+
+    /// Set timeout for collecting response body.
+    ///
+    /// Default to client's [TimeoutConfig::response_timeout].
+    pub fn set_response_timeout(mut self, dur: Duration) -> Self {
+        self.timeout_config.response_timeout = Some(dur);
         self
     }
 

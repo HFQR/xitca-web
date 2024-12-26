@@ -1,4 +1,4 @@
-use core::{net::SocketAddr, pin::Pin};
+use core::{net::SocketAddr, pin::Pin, time::Duration};
 
 use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
@@ -254,18 +254,18 @@ impl Client {
         connect: &mut Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
         expected_version: Version,
+        connect_timeout: Duration,
+        tls_connect_timeout: Duration,
     ) -> Result<(ConnectionExclusive, Version), Error> {
         match connect.uri {
             Uri::Tcp(_) | Uri::Tls(_) => {
-                let conn = self.make_tcp(connect, timer).await?;
+                let conn = self.make_tcp(connect, timer, connect_timeout).await?;
 
                 if matches!(connect.uri, Uri::Tcp(_)) {
                     return Ok((conn, expected_version));
                 }
 
-                timer
-                    .as_mut()
-                    .reset(Instant::now() + self.timeout_config.tls_connect_timeout);
+                timer.as_mut().reset(Instant::now() + tls_connect_timeout);
 
                 let (conn, version) = self
                     .connector
@@ -277,7 +277,7 @@ impl Client {
                 Ok((conn, version))
             }
             Uri::Unix(_) => self
-                .make_unix(connect, timer)
+                .make_unix(connect, timer, connect_timeout)
                 .await
                 .map(|conn| (conn, expected_version)),
         }
@@ -287,6 +287,7 @@ impl Client {
         &self,
         connect: &mut Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
+        connect_timeout: Duration,
     ) -> Result<ConnectionExclusive, Error> {
         self.resolver
             .call(connect)
@@ -294,9 +295,7 @@ impl Client {
             .await
             .map_err(|_| TimeoutError::Resolve)??;
 
-        timer
-            .as_mut()
-            .reset(Instant::now() + self.timeout_config.connect_timeout);
+        timer.as_mut().reset(Instant::now() + connect_timeout);
 
         let stream = self
             .make_tcp_inner(connect)
@@ -354,10 +353,9 @@ impl Client {
         &self,
         _connect: &Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
+        connect_timeout: Duration,
     ) -> Result<ConnectionExclusive, Error> {
-        timer
-            .as_mut()
-            .reset(Instant::now() + self.timeout_config.connect_timeout);
+        timer.as_mut().reset(Instant::now() + connect_timeout);
 
         #[cfg(unix)]
         {
