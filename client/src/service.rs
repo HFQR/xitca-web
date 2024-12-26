@@ -1,4 +1,4 @@
-use core::{future::Future, pin::Pin, time::Duration};
+use core::{future::Future, pin::Pin};
 
 use crate::{
     body::BoxBody,
@@ -8,6 +8,7 @@ use crate::{
     http::{Request, Version},
     pool::{exclusive, shared},
     response::Response,
+    timeout::TimeoutConfig,
     uri::Uri,
 };
 
@@ -67,7 +68,7 @@ where
 pub struct ServiceRequest<'r, 'c> {
     pub req: &'r mut Request<BoxBody>,
     pub client: &'c Client,
-    pub timeout: Duration,
+    pub timeout_config: TimeoutConfig,
 }
 
 /// type alias for object safe wrapper of type implement [Service] trait.
@@ -85,7 +86,11 @@ pub(crate) fn base_service() -> HttpService {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
             use crate::{error::TimeoutError, timeout::Timeout};
 
-            let ServiceRequest { req, client, timeout } = req;
+            let ServiceRequest {
+                req,
+                client,
+                timeout_config,
+            } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
@@ -102,7 +107,7 @@ pub(crate) fn base_service() -> HttpService {
                 match version {
                     Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
                         shared::AcquireOutput::Conn(mut _conn) => {
-                            let mut _timer = Box::pin(tokio::time::sleep(timeout));
+                            let mut _timer = Box::pin(tokio::time::sleep(timeout_config.request_timeout));
                             *req.version_mut() = version;
                             #[allow(unreachable_code)]
                             return match _conn.conn {
@@ -113,7 +118,7 @@ pub(crate) fn base_service() -> HttpService {
                                         .await
                                     {
                                         Ok(Ok(res)) => {
-                                            let timeout = client.timeout_config.response_timeout;
+                                            let timeout = timeout_config.response_timeout;
                                             Ok(Response::new(res, _timer, timeout))
                                         }
                                         Ok(Err(e)) => {
@@ -133,7 +138,7 @@ pub(crate) fn base_service() -> HttpService {
                                         .await
                                         .map_err(|_| TimeoutError::Request)??;
 
-                                    let timeout = client.timeout_config.response_timeout;
+                                    let timeout = timeout_config.response_timeout;
                                     Ok(Response::new(res, _timer, timeout))
                                 }
                             };
@@ -142,7 +147,7 @@ pub(crate) fn base_service() -> HttpService {
                             Version::HTTP_3 => {
                                 #[cfg(feature = "http3")]
                                 {
-                                    let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
+                                    let mut timer = Box::pin(tokio::time::sleep(timeout_config.resolve_timeout));
 
                                     Service::call(&client.resolver, &mut connect)
                                         .timeout(timer.as_mut())
@@ -150,7 +155,7 @@ pub(crate) fn base_service() -> HttpService {
                                         .map_err(|_| TimeoutError::Resolve)??;
                                     timer
                                         .as_mut()
-                                        .reset(tokio::time::Instant::now() + client.timeout_config.connect_timeout);
+                                        .reset(tokio::time::Instant::now() + timeout_config.connect_timeout);
 
                                     if let Ok(Ok(conn)) = crate::h3::proto::connect(
                                         &client.h3_client,
@@ -182,9 +187,16 @@ pub(crate) fn base_service() -> HttpService {
                             Version::HTTP_2 => {
                                 #[cfg(feature = "http2")]
                                 {
-                                    let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
-                                    let (conn, alpn_version) =
-                                        client.make_exclusive(&mut connect, &mut timer, Version::HTTP_2).await?;
+                                    let mut timer = Box::pin(tokio::time::sleep(timeout_config.resolve_timeout));
+                                    let (conn, alpn_version) = client
+                                        .make_exclusive(
+                                            &mut connect,
+                                            &mut timer,
+                                            Version::HTTP_2,
+                                            timeout_config.connect_timeout,
+                                            timeout_config.tls_connect_timeout,
+                                        )
+                                        .await?;
 
                                     if alpn_version == Version::HTTP_2 {
                                         let conn = crate::h2::proto::handshake(conn).await?;
@@ -218,7 +230,7 @@ pub(crate) fn base_service() -> HttpService {
 
                             #[cfg(feature = "http1")]
                             {
-                                let mut timer = Box::pin(tokio::time::sleep(timeout));
+                                let mut timer = Box::pin(tokio::time::sleep(timeout_config.request_timeout));
                                 let res = crate::h1::proto::send(&mut *_conn, _date, req)
                                     .timeout(timer.as_mut())
                                     .await;
@@ -230,7 +242,7 @@ pub(crate) fn base_service() -> HttpService {
                                         }
                                         let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
                                         let res = res.map(|_| crate::body::ResponseBody::H1(body));
-                                        let timeout = client.timeout_config.response_timeout;
+                                        let timeout = timeout_config.response_timeout;
                                         Ok(Response::new(res, timer, timeout))
                                     }
                                     Ok(Err(e)) => {
@@ -250,8 +262,16 @@ pub(crate) fn base_service() -> HttpService {
                             }
                         }
                         exclusive::AcquireOutput::Spawner(_spawner) => {
-                            let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
-                            let (conn, _) = client.make_exclusive(&mut connect, &mut timer, version).await?;
+                            let mut timer = Box::pin(tokio::time::sleep(timeout_config.resolve_timeout));
+                            let (conn, _) = client
+                                .make_exclusive(
+                                    &mut connect,
+                                    &mut timer,
+                                    version,
+                                    timeout_config.connect_timeout,
+                                    timeout_config.tls_connect_timeout,
+                                )
+                                .await?;
                             _spawner.spawned(conn);
                         }
                     },
