@@ -106,7 +106,7 @@ pub(crate) fn base_service() -> HttpService {
 
             loop {
                 match version {
-                    Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
+                    Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect).await {
                         shared::AcquireOutput::Conn(mut _conn) => {
                             let mut _timer = Box::pin(tokio::time::sleep(timeout));
                             *req.version_mut() = version;
@@ -203,7 +203,7 @@ pub(crate) fn base_service() -> HttpService {
 
                                         #[cfg(feature = "http1")]
                                         {
-                                            client.exclusive_pool.try_add(&connect.uri, conn);
+                                            client.exclusive_pool.try_add(&connect, conn);
                                             // downgrade request version to what alpn protocol suggested from make_exclusive.
                                             version = alpn_version;
                                         }
@@ -218,7 +218,7 @@ pub(crate) fn base_service() -> HttpService {
                             _ => unreachable!("outer match didn't  handle version correctly."),
                         },
                     },
-                    version => match client.exclusive_pool.acquire(&connect.uri).await {
+                    version => match client.exclusive_pool.acquire(&connect).await {
                         exclusive::AcquireOutput::Conn(mut _conn) => {
                             *req.version_mut() = version;
 
