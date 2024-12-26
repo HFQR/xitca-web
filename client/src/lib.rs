@@ -61,6 +61,7 @@ pub mod error;
 pub mod http_tunnel;
 pub mod middleware;
 
+pub use self::body::ResponseBody;
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
 pub use self::connect::Connect;
