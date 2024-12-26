@@ -1,3 +1,8 @@
+use crate::{
+    body::ResponseBody,
+    error::{Error, TimeoutError},
+    timeout::Timeout,
+};
 use core::{
     fmt,
     future::poll_fn,
@@ -8,13 +13,8 @@ use core::{
 use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
 use tracing::debug;
-use xitca_http::{bytes::BytesMut, http};
 use xitca_http::http::response::Parts;
-use crate::{
-    body::ResponseBody,
-    error::{Error, TimeoutError},
-    timeout::Timeout,
-};
+use xitca_http::{bytes::BytesMut, http};
 
 const DEFAULT_PAYLOAD_LIMIT: usize = 1024 * 1024 * 8;
 
@@ -92,7 +92,7 @@ impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
     }
 
     #[inline]
-    pub fn into_parts(self) -> (Parts, ResponseBody<'a>) {
+    pub fn into_parts(self) -> (Parts, ResponseBody) {
         self.res.into_parts()
     }
 

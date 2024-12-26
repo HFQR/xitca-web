@@ -183,7 +183,10 @@ mod tests {
         let strategy = ForwardedHeaderStrategy::Legacy;
         strategy.apply(&mut headers, "by", "192.168.0.1", "test.com".to_string(), Scheme::HTTP);
 
-        assert_eq!(headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(), "127.0.0.1, 192.168.0.1");
+        assert_eq!(
+            headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(),
+            "127.0.0.1, 192.168.0.1"
+        );
         assert_eq!(headers.get(X_FORWARDED_PROTO).unwrap().to_str().unwrap(), "https");
         assert_eq!(headers.get(X_FORWARDED_HOST).unwrap().to_str().unwrap(), "localhost");
     }
@@ -244,7 +247,10 @@ mod tests {
         let strategy = ForwardedHeaderStrategy::Legacy;
         strategy.apply(&mut headers, "by", "192.168.0.1", "test.com".to_string(), Scheme::HTTP);
 
-        assert_eq!(headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(), "127.0.0.1, 192.168.0.1");
+        assert_eq!(
+            headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(),
+            "127.0.0.1, 192.168.0.1"
+        );
         assert_eq!(headers.get(X_FORWARDED_PROTO).unwrap().to_str().unwrap(), "http");
         assert_eq!(headers.get(X_FORWARDED_HOST).unwrap().to_str().unwrap(), "localhost");
         assert!(!headers.contains_key(header::FORWARDED));
@@ -259,7 +265,10 @@ mod tests {
         let strategy = ForwardedHeaderStrategy::Legacy;
         strategy.apply(&mut headers, "by", "192.168.0.1", "test.com".to_string(), Scheme::HTTP);
 
-        assert_eq!(headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(), "127.0.0.1, 192.168.0.1");
+        assert_eq!(
+            headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(),
+            "127.0.0.1, 192.168.0.1"
+        );
         assert_eq!(headers.get(X_FORWARDED_PROTO).unwrap().to_str().unwrap(), "http");
         assert_eq!(headers.get(X_FORWARDED_HOST).unwrap().to_str().unwrap(), "test.com");
         assert!(!headers.contains_key(header::FORWARDED));
@@ -306,7 +315,10 @@ mod tests {
         let strategy = ForwardedHeaderStrategy::Auto;
         strategy.apply(&mut headers, "by", "192.168.0.1", "test.com".to_string(), Scheme::HTTP);
 
-        assert_eq!(headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(), "127.0.0.1, 192.168.0.1");
+        assert_eq!(
+            headers.get(X_FORWARDED_FOR).unwrap().to_str().unwrap(),
+            "127.0.0.1, 192.168.0.1"
+        );
         assert_eq!(headers.get(X_FORWARDED_PROTO).unwrap().to_str().unwrap(), "https");
         assert_eq!(headers.get(X_FORWARDED_HOST).unwrap().to_str().unwrap(), "localhost");
         assert!(!headers.contains_key(header::FORWARDED));

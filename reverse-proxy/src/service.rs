@@ -1,20 +1,20 @@
-use std::cell::{RefCell};
-use crate::forwarder::{ForwardError};
+use crate::forwarder::ForwardError;
 use crate::peer_resolver::HttpPeerResolver;
 use crate::HttpPeer;
 use bytes::Bytes;
-use std::collections::HashSet;
-use std::ops::{DerefMut};
-use std::rc::Rc;
-use std::str::FromStr;
 use futures::Stream;
 use futures_util::StreamExt;
-use xitca_client::{Client};
-use xitca_http::body::{BoxBody};
-use xitca_http::{BodyError};
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::ops::DerefMut;
+use std::rc::Rc;
+use std::str::FromStr;
+use xitca_client::Client;
+use xitca_http::body::BoxBody;
 use xitca_http::http::header::AsHeaderName;
 use xitca_http::http::{StatusCode, Version};
 use xitca_http::util::service::RouterError;
+use xitca_http::BodyError;
 use xitca_unsafe_collection::fake::{FakeSend, FakeSync};
 use xitca_web::error::ErrorStatus;
 use xitca_web::http::uri::Scheme;
@@ -44,18 +44,26 @@ pub struct ProxyServiceCompat(pub RefCell<ProxyService>);
 
 impl<'r, C, B> Service<WebContext<'r, C, B>> for ProxyServiceCompat
 where
-    C: Clone + 'static  + Unpin,
+    C: Clone + 'static + Unpin,
     B: BodyStream<Chunk = Bytes, Error = BodyError> + Default + 'static + Unpin,
 {
     type Response = WebResponse<BoxBody>;
     type Error = RouterError<ErrorStatus>;
 
     async fn call(&self, mut ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let (parts, _ext) = ctx.take_request().into_parts();
+        let (parts, ext) = ctx.take_request().into_parts();
         let ctx = ctx.state().clone();
-        // @TODO this doesn't work when body is empty on HTTP 1.1, as we don't know the size which induce a chunked encoding, and eof is called on that which makes it panics
-        // Need to buffer or add a size hint to the body
-        let req = Request::from_parts(parts, CompatReqBody::new(BoxBody::default(), ctx));
+
+        let body = if !parts.headers.contains_key(header::CONTENT_LENGTH)
+            && parts.headers.get(header::TRANSFER_ENCODING) != Some(&"chunked".parse().unwrap())
+            && parts.version < Version::HTTP_2
+        {
+            BoxBody::default()
+        } else {
+            BoxBody::new(ext)
+        };
+
+        let req = Request::from_parts(parts, CompatReqBody::new(body, ctx));
         let fut = ProxyService::call(&mut *self.0.borrow_mut(), req).await;
 
         fut
@@ -86,10 +94,17 @@ impl<B, C> CompatReqBody<B, C> {
     }
 }
 
-impl<B, C> Stream for CompatReqBody<B, C> where B: Stream<Item = Result<Bytes, BodyError>> + Unpin, C: Unpin {
+impl<B, C> Stream for CompatReqBody<B, C>
+where
+    B: Stream<Item = Result<Bytes, BodyError>> + Unpin,
+    C: Unpin,
+{
     type Item = Result<Bytes, BodyError>;
 
-    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
         self.get_mut().body.deref_mut().poll_next_unpin(cx)
     }
 
@@ -105,7 +120,7 @@ pub struct ProxyService {
 
 impl<C, B> Service<Request<CompatReqBody<B, C>>> for ProxyService
 where
-    C: 'static  + Unpin,
+    C: 'static + Unpin,
     B: BodyStream<Chunk = Bytes, Error = BodyError> + Default + 'static + Unpin,
 {
     type Response = WebResponse<BoxBody>;
@@ -153,7 +168,9 @@ where
         }
 
         if contain_value(&downstream_request_head.headers, header::TE, "trailers") {
-            upstream_request.headers_mut().insert(header::TE, "trailers".parse().unwrap());
+            upstream_request
+                .headers_mut()
+                .insert(header::TE, "trailers".parse().unwrap());
         }
 
         if let Some(via) = &peer.via {
@@ -168,9 +185,10 @@ where
                 };
 
                 if let Some(version_str) = version {
-                    upstream_request
-                        .headers_mut()
-                        .append(header::VIA, format!("HTTP/{} {}", version_str, via.name).parse().unwrap());
+                    upstream_request.headers_mut().append(
+                        header::VIA,
+                        format!("HTTP/{} {}", version_str, via.name).parse().unwrap(),
+                    );
                 }
             }
         }
@@ -213,9 +231,11 @@ where
         let upstream_response = match upstream_request_builder.send().await {
             Ok(res) => res,
             Err(err) => {
-                println!("error: {:?}", err);
+                println!("upstream error: {:?}", err);
                 // @TODO handle better error
-                return Err(RouterError::Service(ErrorStatus::from(StatusCode::from_u16(503).unwrap())));
+                return Err(RouterError::Service(ErrorStatus::from(
+                    StatusCode::from_u16(503).unwrap(),
+                )));
             }
         };
 
@@ -223,16 +243,28 @@ where
 
         // @TODO body into owned is a bad thing, since we lost the capability to having a pool of connections for the client (each request will be a new connection)
         // However without that since we don't have the client in the response we can't have a pool of connections for the client
-        let mut response = WebResponse::new(BoxBody::new(body.into_owned()));
+        let mut response = WebResponse::new(BoxBody::new(body));
         *response.status_mut() = parts.status.clone();
 
-        map_headers(peer, response.headers_mut(), parts.version, parts.status, &parts.headers);
+        map_headers(
+            peer,
+            response.headers_mut(),
+            parts.version,
+            parts.status,
+            &parts.headers,
+        );
 
         Ok(response)
     }
 }
 
-fn map_headers(peer: Rc<HttpPeer>, downstream_headers: &mut HeaderMap, version: Version, status: StatusCode, upstream_headers: &HeaderMap) {
+fn map_headers(
+    peer: Rc<HttpPeer>,
+    downstream_headers: &mut HeaderMap,
+    version: Version,
+    status: StatusCode,
+    upstream_headers: &HeaderMap,
+) {
     let response_connection_headers = get_connection_headers(upstream_headers);
 
     for (name, value) in upstream_headers {
@@ -266,7 +298,10 @@ fn map_headers(peer: Rc<HttpPeer>, downstream_headers: &mut HeaderMap, version: 
             };
 
             if let Some(via_version_str) = via_version {
-                downstream_headers.append(header::VIA, format!("HTTP/{} {}", via_version_str, via.name).parse().unwrap());
+                downstream_headers.append(
+                    header::VIA,
+                    format!("HTTP/{} {}", via_version_str, via.name).parse().unwrap(),
+                );
             }
         }
     }

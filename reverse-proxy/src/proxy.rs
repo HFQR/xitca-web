@@ -1,7 +1,7 @@
-use std::cell::RefCell;
 use crate::peer_resolver::HttpPeerResolver;
 use crate::service::{ProxyService, ProxyServiceCompat};
 use crate::HttpPeer;
+use std::cell::RefCell;
 use std::convert::Infallible;
 use std::rc::Rc;
 use xitca_http::util::service::router::{PathGen, RouteGen};
