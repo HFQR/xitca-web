@@ -2,7 +2,7 @@ use core::hash::{Hash, Hasher};
 
 use xitca_http::http::uri::{Authority, PathAndQuery};
 
-use super::{tls::TlsStream, uri::Uri};
+use super::{connect::Connect, request::SniHostname, tls::TlsStream, uri::Uri};
 
 /// exclusive connection for http1 and in certain case they can be upgraded to [ConnectionShared]
 pub type ConnectionExclusive = TlsStream;
@@ -34,8 +34,15 @@ impl From<crate::h3::Connection> for ConnectionShared {
 #[doc(hidden)]
 #[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub enum ConnectionKey {
-    Regular(Authority),
+    Regular(AuthorityWithSni),
     Unix(AuthorityWithPath),
+}
+
+#[doc(hidden)]
+#[derive(PartialEq, Eq, Debug, Clone, Hash)]
+pub struct AuthorityWithSni {
+    authority: Authority,
+    sni: Option<SniHostname>,
 }
 
 #[doc(hidden)]
@@ -58,10 +65,13 @@ impl Hash for AuthorityWithPath {
     }
 }
 
-impl From<&Uri<'_>> for ConnectionKey {
-    fn from(uri: &Uri<'_>) -> Self {
-        match *uri {
-            Uri::Tcp(uri) | Uri::Tls(uri) => ConnectionKey::Regular(uri.authority().unwrap().clone()),
+impl From<&Connect<'_>> for ConnectionKey {
+    fn from(connect: &Connect<'_>) -> Self {
+        match connect.uri {
+            Uri::Tcp(uri) | Uri::Tls(uri) => ConnectionKey::Regular(AuthorityWithSni {
+                authority: uri.authority().unwrap().clone(),
+                sni: connect.sni_hostname.cloned(),
+            }),
             Uri::Unix(uri) => ConnectionKey::Unix(AuthorityWithPath {
                 authority: uri.authority().unwrap().clone(),
                 path_and_query: uri.path_and_query().unwrap().clone(),

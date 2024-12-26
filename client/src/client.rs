@@ -328,7 +328,7 @@ impl Client {
 
                 let (conn, version) = self
                     .connector
-                    .call((connect.hostname(), conn))
+                    .call((connect.sni_hostname(), conn))
                     .timeout(timer.as_mut())
                     .await
                     .map_err(|_| TimeoutError::TlsHandshake)??;
