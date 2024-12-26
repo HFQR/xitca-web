@@ -347,11 +347,13 @@ impl Client {
         connect: &mut Connect<'_>,
         timer: &mut Pin<Box<Sleep>>,
     ) -> Result<ConnectionExclusive, Error> {
-        self.resolver
-            .call(connect)
-            .timeout(timer.as_mut())
-            .await
-            .map_err(|_| TimeoutError::Resolve)??;
+        if !connect.is_resolved() {
+            self.resolver
+                .call(connect)
+                .timeout(timer.as_mut())
+                .await
+                .map_err(|_| TimeoutError::Resolve)??;
+        }
 
         timer
             .as_mut()
