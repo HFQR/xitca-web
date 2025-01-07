@@ -241,7 +241,7 @@ where
         let (parts, body) = upstream_response.into_parts();
 
         let mut response = WebResponse::new(BoxBody::new(body));
-        *response.status_mut() = parts.status.clone();
+        *response.status_mut() = parts.status;
 
         map_headers(
             peer,
