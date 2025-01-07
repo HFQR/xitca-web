@@ -43,6 +43,7 @@ mod service;
 mod timeout;
 mod tls;
 mod tunnel;
+mod upgrade;
 mod uri;
 
 #[cfg(feature = "http1")]
@@ -60,7 +61,6 @@ pub mod ws;
 pub mod error;
 pub mod http_tunnel;
 pub mod middleware;
-pub mod upgrade;
 
 pub use self::body::ResponseBody;
 pub use self::builder::ClientBuilder;

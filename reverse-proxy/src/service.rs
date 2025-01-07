@@ -10,7 +10,6 @@ use std::str::FromStr;
 use std::task::{Context, Poll};
 use tokio::io::{copy, AsyncRead, ReadHalf};
 use xitca_client::error::Error;
-use xitca_client::upgrade::UpgradeResponse;
 use xitca_client::{Client, HttpTunnel};
 use xitca_http::body::BoxBody;
 use xitca_http::http::header::AsHeaderName;
@@ -67,8 +66,7 @@ impl ProxyService {
             }
         };
 
-        let UpgradeResponse { parts, tunnel } = response;
-
+        let (parts, tunnel) = response.into_parts();
         let (upstream_stream_read, mut upstream_stream_write) = tokio::io::split(PollIoAdapter(tunnel.into_inner()));
         // transform stream read into a stream
         let response_body = BoxBody::new(ResponseBodyStream(upstream_stream_read));

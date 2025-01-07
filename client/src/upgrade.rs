@@ -30,7 +30,7 @@ impl UpgradeRequest<'_> {
             return Err(Error::from(ErrorResponse {
                 expect_status,
                 status,
-                description: "connect tunnel can't be established",
+                description: "upgrade tunnel can't be established",
             }));
         }
 
@@ -43,5 +43,12 @@ impl UpgradeRequest<'_> {
                 io: Default::default(),
             }),
         })
+    }
+}
+
+impl UpgradeResponse {
+    #[inline]
+    pub fn into_parts(self) -> (Parts, Tunnel<HttpTunnel>) {
+        (self.parts, self.tunnel)
     }
 }
