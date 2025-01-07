@@ -16,7 +16,7 @@ pub const X_FORWARDED_BY: HeaderName = HeaderName::from_static("x-forwarded-by")
 impl Default for ForwardedFor {
     fn default() -> Self {
         Self {
-            by: "actix-proxy".to_string(),
+            by: "xitca-proxy".to_string(),
             strategy: ForwardedHeaderStrategy::Auto,
             override_proto: None,
         }

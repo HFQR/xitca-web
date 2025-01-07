@@ -14,6 +14,7 @@ use crate::{
     },
     response::Response,
     service::ServiceRequest,
+    upgrade::UpgradeRequest,
 };
 
 /// builder type for [http::Request] with extended functionalities.
@@ -144,6 +145,12 @@ impl<'a, M> RequestBuilder<'a, M> {
 
     pub(crate) fn push_error(&mut self, e: Error) {
         self.err.push(e);
+    }
+
+    /// Transform this request into a tunnel request.
+    #[inline]
+    pub fn upgrade(self) -> UpgradeRequest<'a> {
+        self.mutate_marker()
     }
 
     /// Returns request's headers.

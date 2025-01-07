@@ -8,12 +8,13 @@ description = "Xitca web reverse HTTP and Websocket proxy"
 [dependencies]
 bytes = "1.9.0"
 futures = "0.3.31"
-futures-util = "0.3.30"
 lazy_static = "1.5.0"
-xitca-client = { version = "0.1.0", default-features = false, features = ["dangerous", "rustls", "http2", "http3"] }
+xitca-client = { version = "0.1.0", default-features = false, features = ["dangerous", "rustls", "http1"] }
 xitca-http = "0.7.0"
-xitca-web = "0.7.0"
+xitca-web = {  version = "0.7.0", features = ["websocket"] }
 xitca-unsafe-collection = "0.2.0"
+xitca-io = "0.4.1"
+tokio = { version = "1.42.0", features = ["io-util"] }
 
 [dev-dependencies]
 tokio = { version = "1.42.0", features = ["full"] }

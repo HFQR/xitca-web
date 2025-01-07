@@ -60,11 +60,13 @@ pub mod ws;
 pub mod error;
 pub mod http_tunnel;
 pub mod middleware;
+pub mod upgrade;
 
 pub use self::body::ResponseBody;
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
 pub use self::connect::Connect;
+pub use self::http_tunnel::HttpTunnel;
 pub use self::request::RequestBuilder;
 pub use self::response::Response;
 pub use self::service::{HttpService, Service, ServiceRequest};

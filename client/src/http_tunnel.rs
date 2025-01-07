@@ -51,13 +51,13 @@ impl HttpTunnelRequest<'_> {
 }
 
 pub struct HttpTunnel {
-    body: ResponseBody,
-    io: TunnelIo,
+    pub(crate) body: ResponseBody,
+    pub(crate) io: TunnelIo,
 }
 
 // io type to bridge AsyncIo trait and h2 body's poll based read/write apis.
 #[derive(Default)]
-struct TunnelIo {
+pub(crate) struct TunnelIo {
     write_buf: BytesMut,
     #[cfg(feature = "http2")]
     adaptor: TunnelIoAdaptor,

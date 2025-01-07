@@ -6,14 +6,17 @@ use xitca_web::App;
 async fn main() -> std::io::Result<()> {
     rustls::crypto::aws_lc_rs::default_provider().install_default().ok();
 
-    let address = "github.com:443"
+    let address = "echo.websocket.org:443"
         .to_socket_addrs()
         .expect("error getting addresses")
         .next()
         .expect("cannot get address");
 
     App::new()
-        .at("", Proxy::new(HttpPeer::new(address, "github.com:443").tls(true)))
+        .at(
+            "",
+            Proxy::new(HttpPeer::new(address, "echo.websocket.org:443").tls(true)),
+        )
         .serve()
         .bind("127.0.0.1:8080")?
         .run()

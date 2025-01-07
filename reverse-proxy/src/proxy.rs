@@ -1,7 +1,6 @@
 use crate::peer_resolver::HttpPeerResolver;
-use crate::service::{ProxyService, ProxyServiceCompat};
+use crate::service::ProxyService;
 use crate::HttpPeer;
-use std::cell::RefCell;
 use std::convert::Infallible;
 use std::rc::Rc;
 use xitca_http::util::service::router::{PathGen, RouteGen};
@@ -34,13 +33,13 @@ impl Proxy {
 }
 
 impl Service for Proxy {
-    type Response = ProxyServiceCompat;
+    type Response = ProxyService;
     type Error = Infallible;
 
     async fn call(&self, _: ()) -> Result<Self::Response, Self::Error> {
-        Ok(ProxyServiceCompat(RefCell::new(ProxyService {
+        Ok(ProxyService {
             peer_resolver: Rc::new(HttpPeerResolver::Static(Rc::new(self.peer.clone()))),
             client: Rc::new(xitca_client::ClientBuilder::new().rustls().finish()),
-        })))
+        })
     }
 }
