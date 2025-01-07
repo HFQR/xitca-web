@@ -20,6 +20,7 @@ use crate::{
     service::HttpService,
     timeout::{Timeout, TimeoutConfig},
     tls::connector::Connector,
+    upgrade::UpgradeRequest,
     uri::Uri,
 };
 
@@ -182,6 +183,64 @@ impl Client {
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
         self.request_builder(url, Method::CONNECT).mutate_marker()
+    }
+
+    #[cfg(feature = "http1")]
+    /// Start a new upgrade request.
+    ///
+    /// # Example
+    /// ```rust
+    /// use xitca_client::{Client, bytes::Bytes, http::Method};
+    ///
+    /// async fn _main() -> Result<(), xitca_client::error::Error> {
+    /// // construct a new client and initialize connect request.
+    /// let client = Client::new();
+    /// let mut upgrade_response = client
+    ///     .upgrade("http://localhost:8080", Method::GET)
+    ///     .protocol("protocol1, protocol2")
+    ///     .send().await?
+    /// ;
+    ///
+    /// if let Some(upgrade) = upgrade_response.headers.get(xitca_client::http::header::UPGRADE) {
+    ///    // check which protocol it was upgraded to
+    /// }
+    ///
+    /// // upgrade_response is a response that contains the http request head and tunnel connection.
+    ///
+    /// // import Stream trait and call it's method on tunnel to receive bytes.
+    /// use futures::StreamExt;
+    /// if let Some(Ok(_)) = upgrade_response.tunnel().next().await {
+    ///     // received bytes data.
+    /// }
+    ///
+    /// // import Sink trait and call it's method on tunnel to send bytes data.
+    /// use futures::SinkExt;
+    /// // send bytes data.
+    /// upgrade_response.tunnel().send(b"996").await?;
+    ///
+    /// // tunnel support split sending/receiving task into different parts to enable concurrent bytes data handling.
+    /// let (_head, mut tunnel) = upgrade_response.into_parts();
+    /// let (mut write, mut read) = tunnel.split();
+    ///
+    /// // read part can operate with Stream trait implement.
+    /// if let Some(Ok(_)) = read.next().await {
+    ///     // received bytes data.
+    /// }
+    ///
+    /// // write part can operate with Sink trait implement.
+    /// write.send(b"996").await?;
+    ///
+    /// Ok(())
+    /// # }
+    /// ```
+    pub fn upgrade<U>(&self, url: U, method: Method) -> UpgradeRequest<'_>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        self.request_builder(url, method)
+            .version(Version::HTTP_11)
+            .mutate_marker()
     }
 
     #[cfg(all(feature = "websocket", feature = "http1"))]
