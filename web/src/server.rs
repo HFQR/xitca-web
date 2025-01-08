@@ -310,6 +310,30 @@ where
         Ok(self)
     }
 
+    #[cfg(feature = "http3")]
+    pub fn bind_h3<A: std::net::ToSocketAddrs, ResB, BE>(
+        mut self,
+        addr: A,
+        config: xitca_io::net::QuicConfig,
+    ) -> std::io::Result<Self>
+    where
+        S: Service + 'static,
+        S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
+        S::Error: fmt::Debug,
+        <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
+
+        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
+        BE: fmt::Debug + 'static,
+    {
+        let service = self
+            .service
+            .clone()
+            .enclosed(HttpServiceBuilder::with_config(self.config));
+
+        self.builder = self.builder.bind_h3("xitca-web", addr, config, service)?;
+        Ok(self)
+    }
+
     pub fn run(self) -> ServerFuture {
         self.builder.build()
     }
