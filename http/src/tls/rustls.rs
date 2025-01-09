@@ -6,9 +6,9 @@ use xitca_io::io::AsyncIo;
 use xitca_service::Service;
 use xitca_tls::rustls::{Error, ServerConfig, ServerConnection, TlsStream as _TlsStream};
 
-use crate::{http::Version, version::AsVersion};
-
 use super::error::TlsError;
+use crate::tls::IsTls;
+use crate::{http::Version, version::AsVersion};
 
 pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
@@ -54,6 +54,8 @@ impl Service for TlsAcceptorBuilder {
 pub struct TlsAcceptorService {
     acceptor: Arc<ServerConfig>,
 }
+
+impl IsTls for TlsAcceptorService {}
 
 impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
     type Response = TlsStream<Io>;

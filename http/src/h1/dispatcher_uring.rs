@@ -118,11 +118,12 @@ where
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
+        is_tls: bool,
     ) -> Self {
         Self {
             io: Rc::new(io),
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
-            ctx: Context::<_, H_LIMIT>::with_addr(addr, date),
+            ctx: Context::<_, H_LIMIT>::with_addr(addr, date, is_tls),
             service,
             read_buf: BufOwned::new(),
             write_buf: BufOwned::new(),

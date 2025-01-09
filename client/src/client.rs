@@ -263,6 +263,10 @@ impl Client {
                     return Ok((conn, expected_version));
                 }
 
+                if !connect.tls {
+                    return Ok((conn, expected_version));
+                }
+
                 timer
                     .as_mut()
                     .reset(Instant::now() + self.timeout_config.tls_connect_timeout);

@@ -22,6 +22,7 @@ pub struct RequestBuilder<'a, M = marker::Http> {
     err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
+    tls: Option<bool>,
     _marker: PhantomData<M>,
 }
 
@@ -104,6 +105,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             err: Vec::new(),
             client,
             timeout: client.timeout_config.request_timeout,
+            tls: None,
             _marker: PhantomData,
         }
     }
@@ -114,6 +116,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             err: self.err,
             client: self.client,
             timeout: self.timeout,
+            tls: self.tls,
             _marker: PhantomData,
         }
     }
@@ -125,6 +128,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             err,
             client,
             timeout,
+            tls,
             ..
         } = self;
 
@@ -138,6 +142,7 @@ impl<'a, M> RequestBuilder<'a, M> {
                 req: &mut req,
                 client,
                 timeout,
+                tls,
             })
             .await
     }
@@ -207,6 +212,13 @@ impl<'a, M> RequestBuilder<'a, M> {
     #[inline]
     pub fn timeout(mut self, dur: Duration) -> Self {
         self.timeout = dur;
+        self
+    }
+
+    /// Set TLS state of this request.
+    #[inline]
+    pub fn tls(mut self, tls: bool) -> Self {
+        self.tls = Some(tls);
         self
     }
 

@@ -80,17 +80,19 @@ pub struct Connect<'a> {
     pub(crate) uri: Uri<'a>,
     pub(crate) port: u16,
     pub(crate) addr: Addrs,
+    pub(crate) tls: bool,
 }
 
 impl<'a> Connect<'a> {
     /// Create `Connect` instance by splitting the string by ':' and convert the second part to u16
-    pub fn new(uri: Uri<'a>) -> Self {
+    pub fn new(uri: Uri<'a>, tls: Option<bool>) -> Self {
         let (_, port) = parse_host(uri.hostname());
 
         Self {
             uri,
             port: port.unwrap_or(0),
             addr: Addrs::None,
+            tls: tls.unwrap_or(port != Some(80)),
         }
     }
 

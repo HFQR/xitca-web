@@ -34,11 +34,23 @@ impl Service for NoOpTlsAcceptorBuilder {
 
 pub struct NoOpTlsAcceptorService;
 
+pub trait IsTls {
+    fn is_tls(&self) -> bool {
+        true
+    }
+}
+
 impl<St> Service<St> for NoOpTlsAcceptorService {
     type Response = St;
     type Error = TlsError;
 
     async fn call(&self, io: St) -> Result<Self::Response, Self::Error> {
         Ok(io)
+    }
+}
+
+impl IsTls for NoOpTlsAcceptorService {
+    fn is_tls(&self) -> bool {
+        false
     }
 }

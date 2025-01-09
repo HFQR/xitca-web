@@ -6,9 +6,9 @@ use xitca_io::io::AsyncIo;
 use xitca_service::Service;
 use xitca_tls::openssl::ssl;
 
-use crate::{http::Version, version::AsVersion};
-
 use super::error::TlsError;
+use crate::tls::IsTls;
+use crate::{http::Version, version::AsVersion};
 
 pub type TlsStream<Io> = xitca_tls::openssl::TlsStream<Io>;
 
@@ -51,6 +51,8 @@ impl Service for TlsAcceptorBuilder {
 pub struct TlsAcceptorService {
     acceptor: TlsAcceptor,
 }
+
+impl IsTls for TlsAcceptorService {}
 
 impl TlsAcceptorService {
     #[inline(never)]

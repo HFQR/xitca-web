@@ -146,9 +146,10 @@ where
 pub(crate) struct Extension(Box<_Extension>);
 
 impl Extension {
-    pub(crate) fn new(addr: SocketAddr) -> Self {
+    pub(crate) fn new(addr: SocketAddr, is_tls: bool) -> Self {
         Self(Box::new(_Extension {
             addr,
+            is_tls,
             #[cfg(feature = "router")]
             params: Default::default(),
         }))
@@ -158,6 +159,7 @@ impl Extension {
 #[derive(Clone, Debug)]
 struct _Extension {
     addr: SocketAddr,
+    is_tls: bool,
     #[cfg(feature = "router")]
     params: Params,
 }
@@ -174,6 +176,12 @@ impl<B> RequestExt<B> {
     #[inline]
     pub fn socket_addr(&self) -> &SocketAddr {
         &self.ext.0.addr
+    }
+
+    /// retrieve whether the connection is tls encrypted.
+    #[inline]
+    pub fn is_tls(&self) -> bool {
+        self.ext.0.is_tls
     }
 
     /// exclusive version of [RequestExt::socket_addr]
@@ -209,7 +217,7 @@ where
     B: Default,
 {
     fn default() -> Self {
-        Self::from_parts(B::default(), Extension::new(crate::unspecified_socket_addr()))
+        Self::from_parts(B::default(), Extension::new(crate::unspecified_socket_addr(), false))
     }
 }
 

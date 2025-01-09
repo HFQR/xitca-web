@@ -68,6 +68,7 @@ pub struct ServiceRequest<'r, 'c> {
     pub req: &'r mut Request<BoxBody>,
     pub client: &'c Client,
     pub timeout: Duration,
+    pub tls: Option<bool>,
 }
 
 /// type alias for object safe wrapper of type implement [Service] trait.
@@ -85,7 +86,12 @@ pub(crate) fn base_service() -> HttpService {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
             use crate::{error::TimeoutError, timeout::Timeout};
 
-            let ServiceRequest { req, client, timeout } = req;
+            let ServiceRequest {
+                req,
+                client,
+                timeout,
+                tls,
+            } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
@@ -94,7 +100,8 @@ pub(crate) fn base_service() -> HttpService {
             #[allow(unused_mut)]
             let mut version = req.version();
 
-            let mut connect = Connect::new(uri);
+            let mut connect = Connect::new(uri, tls);
+            let is_tls = connect.tls;
 
             let _date = client.date_service.handle();
 
@@ -219,7 +226,7 @@ pub(crate) fn base_service() -> HttpService {
                             #[cfg(feature = "http1")]
                             {
                                 let mut timer = Box::pin(tokio::time::sleep(timeout));
-                                let res = crate::h1::proto::send(&mut *_conn, _date, req)
+                                let res = crate::h1::proto::send(&mut *_conn, _date, req, is_tls)
                                     .timeout(timer.as_mut())
                                     .await;
 

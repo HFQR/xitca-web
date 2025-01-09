@@ -257,7 +257,7 @@ mod test {
 
     #[test]
     fn append_header() {
-        let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler);
+        let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler, false);
 
         let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
 
@@ -287,7 +287,7 @@ mod test {
 
     #[test]
     fn multi_set_cookie() {
-        let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler);
+        let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler, false);
 
         let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
 

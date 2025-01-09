@@ -14,9 +14,9 @@ use native_tls::{Error, HandshakeError};
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
 
-use crate::{http::Version, version::AsVersion};
-
 use super::error::TlsError;
+use crate::tls::IsTls;
+use crate::{http::Version, version::AsVersion};
 
 /// A wrapper type for [TlsStream](native_tls::TlsStream).
 ///
@@ -64,6 +64,8 @@ impl Service for TlsAcceptorBuilder {
 pub struct TlsAcceptorService {
     acceptor: TlsAcceptor,
 }
+
+impl IsTls for TlsAcceptorService {}
 
 impl<St: AsyncIo> Service<St> for TlsAcceptorService {
     type Response = TlsStream<St>;

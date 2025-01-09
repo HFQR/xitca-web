@@ -39,6 +39,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
     ka_dur: Duration,
     service: &'a S,
     date: &'a DateTimeHandle,
+    is_tls: bool,
     _req_body: PhantomData<ReqB>,
 }
 
@@ -60,6 +61,7 @@ where
         ka_dur: Duration,
         service: &'a S,
         date: &'a DateTimeHandle,
+        is_tls: bool,
     ) -> Self {
         Self {
             io,
@@ -68,6 +70,7 @@ where
             ka_dur,
             service,
             date,
+            is_tls,
             _req_body: PhantomData,
         }
     }
@@ -80,6 +83,7 @@ where
             ka_dur,
             service,
             date,
+            is_tls,
             ..
         } = self;
 
@@ -107,7 +111,7 @@ where
                     // and reconstruct as HttpRequest.
                     let req = req.map(|body| {
                         let body = ReqB::from(RequestBody::from(body));
-                        RequestExt::from_parts(body, Extension::new(addr))
+                        RequestExt::from_parts(body, Extension::new(addr, is_tls))
                     });
 
                     queue.push(async move {

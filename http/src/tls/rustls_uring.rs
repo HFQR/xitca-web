@@ -9,9 +9,9 @@ use xitca_tls::{
     rustls_uring::TlsStream as _TlsStream,
 };
 
-use crate::{http::Version, version::AsVersion};
-
 use super::rustls::RustlsError;
+use crate::tls::IsTls;
+use crate::{http::Version, version::AsVersion};
 
 /// A stream managed by rustls for tls read/write.
 pub struct TlsStream<Io> {
@@ -51,6 +51,8 @@ impl Service for TlsAcceptorBuilder {
 pub struct TlsAcceptorService {
     acceptor: Arc<ServerConfig>,
 }
+
+impl IsTls for TlsAcceptorService {}
 
 impl<Io> Service<Io> for TlsAcceptorService
 where

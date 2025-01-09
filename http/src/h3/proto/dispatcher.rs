@@ -69,7 +69,7 @@ where
                     // Reconstruct Request to attach crate body type.
                     let req = req.map(|_| {
                         let body = ReqB::from(RequestBody(rx));
-                        RequestExt::from_parts(body, Extension::new(self.addr))
+                        RequestExt::from_parts(body, Extension::new(self.addr, true))
                     });
 
                     queue.push(async move {

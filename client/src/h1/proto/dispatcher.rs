@@ -23,6 +23,7 @@ pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
     req: &mut Request<B>,
+    is_tls: bool,
 ) -> Result<(Response<()>, BytesMut, TransferCoding, bool), Error>
 where
     S: AsyncIo + Unpin,
@@ -69,7 +70,7 @@ where
     }
 
     // TODO: make const generic params configurable.
-    let mut ctx = Context::<128>::new(&date);
+    let mut ctx = Context::<128>::new(&date, is_tls);
 
     // encode request head and return transfer encoding for request body
     let encoder = ctx.encode_head(&mut buf, req)?;

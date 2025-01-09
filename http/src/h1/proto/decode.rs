@@ -82,7 +82,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     self.try_write_header(&mut headers, &mut decoder, idx, &slice, version)?;
                 }
 
-                let ext = Extension::new(*self.socket_addr());
+                let ext = Extension::new(*self.socket_addr(), self.is_tls());
                 let mut req = Request::new(RequestExt::from_parts((), ext));
 
                 let extensions = self.take_extensions();
@@ -173,7 +173,7 @@ mod test {
 
     #[test]
     fn connection_multiple_value() {
-        let mut ctx = Context::<_, 4>::new(&());
+        let mut ctx = Context::<_, 4>::new(&(), false);
 
         let head = b"\
                 GET / HTTP/1.1\r\n\
@@ -211,7 +211,7 @@ mod test {
 
     #[test]
     fn transfer_encoding() {
-        let mut ctx = Context::<_, 4>::new(&());
+        let mut ctx = Context::<_, 4>::new(&(), false);
 
         let head = b"\
                 GET / HTTP/1.1\r\n\

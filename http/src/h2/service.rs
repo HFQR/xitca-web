@@ -32,7 +32,7 @@ where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
 
-    A: Service<St, Response = TlsSt>,
+    A: Service<St, Response = TlsSt> + IsTls,
     St: AsyncIo,
     TlsSt: AsyncIo,
 
@@ -73,6 +73,7 @@ where
             self.config.keep_alive_timeout,
             &self.service,
             self.date.get(),
+            self.tls_acceptor.is_tls(),
         );
 
         dispatcher.run().await?;
@@ -81,6 +82,7 @@ where
     }
 }
 
+use crate::tls::IsTls;
 #[cfg(feature = "io-uring")]
 pub(crate) use io_uring::H2UringService;
 
