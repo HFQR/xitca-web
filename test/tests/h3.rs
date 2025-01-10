@@ -17,7 +17,7 @@ async fn h3_get() -> Result<(), Error> {
     let server_url = format!("https://localhost:{}/", handle.addr().port());
 
     for _ in 0..3 {
-        let mut res = c.get(&server_url).version(Version::HTTP_3).send().await?;
+        let res = c.get(&server_url).version(Version::HTTP_3).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
@@ -43,7 +43,7 @@ async fn h3_no_host_header() -> Result<(), Error> {
         let mut req = c.get(&server_url).version(Version::HTTP_3);
         req.headers_mut().insert(header::HOST, "localhost".parse().unwrap());
 
-        let mut res = req.send().await?;
+        let res = req.send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
@@ -70,7 +70,7 @@ async fn h3_post() -> Result<(), Error> {
         for _ in 0..1024 * 1024 {
             body.extend_from_slice(b"Hello,World!");
         }
-        let mut res = c.post(&server_url).version(Version::HTTP_3).text(body).send().await?;
+        let res = c.post(&server_url).version(Version::HTTP_3).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
     }

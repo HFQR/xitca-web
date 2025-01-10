@@ -52,10 +52,10 @@ impl ResponseBody {
         }
     }
 
-    pub(crate) fn can_destroy_on_drop(&mut self) -> bool {
+    pub(crate) fn can_destroy_on_drop(&self) -> bool {
         #[cfg(feature = "http1")]
-        if let Self::H1(ref mut body) = *self {
-            return body.conn_mut().is_destroy_on_drop();
+        if let Self::H1(ref body) = *self {
+            return body.conn().is_destroy_on_drop();
         }
 
         false

@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use xitca_client::Client;
+use xitca_client::{middleware::RetryClosedConnection, Client};
 use xitca_http::{
     body::{BoxBody, ResponseBody},
     bytes::{Bytes, BytesMut},
@@ -16,7 +16,7 @@ use xitca_http::{
     },
 };
 use xitca_service::fn_service;
-use xitca_test::{test_h1_server, Error};
+use xitca_test::{test_h1_server, test_h1_server_with_addr, Error};
 
 #[tokio::test]
 async fn h1_get() -> Result<(), Error> {
@@ -27,7 +27,7 @@ async fn h1_get() -> Result<(), Error> {
     let c = Client::new();
 
     for _ in 0..3 {
-        let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+        let res = c.get(&server_url).version(Version::HTTP_11).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
@@ -49,14 +49,14 @@ async fn h1_get_without_body_reading() -> Result<(), Error> {
 
     let c = Client::builder().set_pool_capacity(1).finish();
 
-    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    let res = c.get(&server_url).version(Version::HTTP_11).send().await?;
     assert_eq!(res.status().as_u16(), 200);
     assert!(!res.can_close_connection());
 
     // drop the response body without reading it.
     drop(res);
 
-    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    let res = c.get(&server_url).version(Version::HTTP_11).send().await?;
     assert_eq!(res.status().as_u16(), 200);
     assert!(!res.can_close_connection());
     let body = res.string().await?;
@@ -64,6 +64,75 @@ async fn h1_get_without_body_reading() -> Result<(), Error> {
 
     handle.try_handle()?.stop(false);
     handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h1_get_connection_closed_by_server() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+    let ip_port = handle.ip_port_string();
+
+    let server_url = format!("http://{}/", ip_port);
+
+    let c = Client::builder()
+        .middleware(RetryClosedConnection::new)
+        .set_pool_capacity(1)
+        .finish();
+
+    let res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    handle.try_handle()?.stop(false);
+    handle.await?;
+
+    let mut handle = test_h1_server_with_addr(fn_service(crate::handle), ip_port)?;
+    let res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    handle.try_handle()?.stop(true);
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h1_get_connection_closed_by_server_then_refused() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+    let ip_port = handle.ip_port_string();
+
+    let server_url = format!("http://{}/", ip_port);
+
+    let c = Client::builder()
+        .middleware(RetryClosedConnection::new)
+        .set_pool_capacity(1)
+        .finish();
+
+    let res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    handle.try_handle()?.stop(false);
+    handle.await?;
+
+    let res = c.get(&server_url).version(Version::HTTP_11).send().await;
+
+    assert!(res.is_err());
+    assert!(matches!(res, Err(xitca_client::error::Error::Io(_))));
+
+    let Err(xitca_client::error::Error::Io(err)) = res else {
+        panic!("not expected");
+    };
+    assert_eq!(err.kind(), std::io::ErrorKind::ConnectionRefused);
 
     Ok(())
 }
@@ -77,7 +146,7 @@ async fn h1_head() -> Result<(), Error> {
     let c = Client::new();
 
     for _ in 0..3 {
-        let mut res = c.head(&server_url).version(Version::HTTP_11).send().await?;
+        let res = c.head(&server_url).version(Version::HTTP_11).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
@@ -106,7 +175,7 @@ async fn h1_post() -> Result<(), Error> {
         }
         let body_len = body.len();
 
-        let mut res = c.post(&server_url).version(Version::HTTP_11).text(body).send().await?;
+        let res = c.post(&server_url).version(Version::HTTP_11).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.limit::<{ 12 * 1024 }>().string().await?;
@@ -134,7 +203,7 @@ async fn h1_drop_body_read() -> Result<(), Error> {
             body.extend_from_slice(b"Hello,World!");
         }
 
-        let mut res = c.post(&server_url).version(Version::HTTP_11).text(body).send().await?;
+        let res = c.post(&server_url).version(Version::HTTP_11).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(res.can_close_connection());
     }
@@ -160,7 +229,7 @@ async fn h1_partial_body_read() -> Result<(), Error> {
             body.extend_from_slice(b"Hello,World!");
         }
 
-        let mut res = c.post(&server_url).version(Version::HTTP_11).text(body).send().await?;
+        let res = c.post(&server_url).version(Version::HTTP_11).text(body).send().await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(res.can_close_connection());
     }
@@ -180,7 +249,7 @@ async fn h1_close_connection() -> Result<(), Error> {
 
     let c = Client::new();
 
-    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    let res = c.get(&server_url).version(Version::HTTP_11).send().await?;
     assert_eq!(res.status().as_u16(), 200);
     assert!(res.can_close_connection());
 
@@ -217,7 +286,7 @@ async fn h1_request_too_large() -> Result<(), Error> {
     req.headers_mut()
         .insert("large-header", HeaderValue::try_from(body).unwrap());
 
-    let mut res = req.send().await?;
+    let res = req.send().await?;
     assert_eq!(res.status().as_u16(), 431);
     assert!(res.can_close_connection());
 
