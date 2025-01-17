@@ -1,6 +1,7 @@
 use core::{marker::PhantomData, time::Duration};
 
 use futures_core::Stream;
+use xitca_http::http::header::IntoHeaderName;
 
 use crate::{
     body::{BodyError, BoxBody, Once},
@@ -156,6 +157,24 @@ impl<'a, M> RequestBuilder<'a, M> {
     #[inline]
     pub fn headers_mut(&mut self) -> &mut HeaderMap {
         self.req.headers_mut()
+    }
+
+    /// Insert a header to request.
+    pub fn insert_header<K>(mut self, key: K, val: HeaderValue) -> Self
+    where
+        K: IntoHeaderName,
+    {
+        self.req.headers_mut().insert(key, val);
+        self
+    }
+
+    /// Append a header to request.
+    pub fn append_header<K>(mut self, key: K, val: HeaderValue) -> Self
+    where
+        K: IntoHeaderName,
+    {
+        self.req.headers_mut().append(key, val);
+        self
     }
 
     /// Returns request's [Extensions].
