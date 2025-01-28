@@ -15,6 +15,17 @@ pub trait AsListener: Send {
     fn as_listener(&mut self) -> io::Result<Listener>;
 }
 
+impl<T> AsListener for Option<T>
+where
+    T: AsListener,
+{
+    fn as_listener(&mut self) -> io::Result<Listener> {
+        let mut this = self.take().unwrap();
+
+        this.as_listener()
+    }
+}
+
 impl AsListener for Option<net::TcpListener> {
     fn as_listener(&mut self) -> io::Result<Listener> {
         let this = self.take().unwrap();
