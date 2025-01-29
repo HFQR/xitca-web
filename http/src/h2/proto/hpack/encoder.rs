@@ -323,7 +323,7 @@ mod test {
 
         let res = encode(&mut encoder, vec![method("PATCH")]);
 
-        assert_eq!(1 << 7 | 62, res[0]);
+        assert_eq!((1 << 7) | 62, res[0]);
         assert_eq!(1, res.len());
     }
 
