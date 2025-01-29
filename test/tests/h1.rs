@@ -5,14 +5,14 @@ use std::{
     time::Duration,
 };
 
-use xitca_client::Client;
+use xitca_client::{middleware, Client};
 use xitca_http::{
     body::{BoxBody, ResponseBody},
     bytes::{Bytes, BytesMut},
     h1,
     http::{
-        header::{self, HeaderValue, CONNECTION},
-        Method, Request, RequestExt, Response, Version,
+        header::{self, HeaderValue, CONNECTION, LOCATION},
+        Method, Request, RequestExt, Response, StatusCode, Version,
     },
 };
 use xitca_service::fn_service;
@@ -33,6 +33,34 @@ async fn h1_get() -> Result<(), Error> {
         let body = res.string().await?;
         assert_eq!("GET Response", body);
     }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h1_redirect() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+
+    let server_url = format!("http://{}/redirect", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 302);
+    assert!(!res.can_close_connection());
+
+    let c = Client::builder()
+        .middleware(|s| middleware::FollowRedirect::new(s))
+        .finish();
+    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
 
     handle.try_handle()?.stop(false);
 
@@ -280,6 +308,13 @@ async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<Re
         (&Method::GET, "/close_connection") => {
             let mut res = Response::new(Bytes::new().into());
             res.headers_mut().insert(CONNECTION, HeaderValue::from_static("close"));
+            Ok(res)
+        }
+        (&Method::GET, "/redirect") => {
+            let mut res = Response::new(Bytes::new().into());
+            res.headers_mut().insert(LOCATION, HeaderValue::from_static("/"));
+            *res.status_mut() = StatusCode::FOUND;
+
             Ok(res)
         }
         _ => todo!(),

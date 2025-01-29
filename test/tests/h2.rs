@@ -1,12 +1,12 @@
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
-use xitca_client::Client;
+use xitca_client::{middleware, Client};
 use xitca_http::{
     body::ResponseBody,
     bytes::{Bytes, BytesMut},
     h2,
-    http::{header, Method, Request, RequestExt, Response, Version},
+    http::{header, HeaderValue, Method, Request, RequestExt, Response, StatusCode, Version},
 };
 use xitca_service::fn_service;
 use xitca_test::{test_h2_server, Error};
@@ -26,6 +26,34 @@ async fn h2_get() -> Result<(), Error> {
         let body = res.string().await?;
         assert_eq!("GET Response", body);
     }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h2_redirect() -> Result<(), Error> {
+    let mut handle = test_h2_server(fn_service(handle))?;
+
+    let server_url = format!("http://{}/redirect", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let mut res = c.get(&server_url).version(Version::HTTP_2).send().await?;
+    assert_eq!(res.status().as_u16(), 302);
+    assert!(!res.can_close_connection());
+
+    let c = Client::builder()
+        .middleware(|s| middleware::FollowRedirect::new(s))
+        .finish();
+    let mut res = c.get(&server_url).version(Version::HTTP_2).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
 
     handle.try_handle()?.stop(false);
 
@@ -217,6 +245,14 @@ async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<Re
             assert_eq!(buf.len(), length);
 
             Ok(Response::new(Bytes::new().into()))
+        }
+        (&Method::GET, "/redirect") => {
+            let mut res = Response::new(Bytes::new().into());
+            res.headers_mut()
+                .insert(header::LOCATION, HeaderValue::from_static("/"));
+            *res.status_mut() = StatusCode::FOUND;
+
+            Ok(res)
         }
         _ => todo!(),
     }

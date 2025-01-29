@@ -1,9 +1,9 @@
 use crate::{
     body::BoxBody,
-    error::Error,
+    error::{Error, InvalidUri},
     http::{
         header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, TRANSFER_ENCODING},
-        Method, StatusCode,
+        Method, StatusCode, Uri,
     },
     response::Response,
     service::{Service, ServiceRequest},
@@ -32,6 +32,8 @@ where
         let mut headers = req.headers().clone();
         let mut method = req.method().clone();
         let mut uri = req.uri().clone();
+        let version = req.version().clone();
+
         loop {
             let mut res = self.service.call(ServiceRequest { req, client, timeout }).await?;
             match res.status() {
@@ -54,8 +56,35 @@ where
                 return Ok(res);
             };
 
-            uri = format!("{}{}", uri, location.to_str().unwrap()).parse().unwrap();
+            let location_uri = location.to_str().map_err(|e| Error::Std(Box::new(e)))?.parse::<Uri>()?;
 
+            if location_uri.scheme().is_some() {
+                // location is an absolute uri used as the new request uri.
+                uri = location_uri;
+            } else if location_uri.path().starts_with("/") {
+                // location is an absolute path, merge it with current scheme and authority.
+                uri = format!(
+                    "{}://{}{}",
+                    uri.scheme_str().ok_or(Error::InvalidUri(InvalidUri::MissingScheme))?,
+                    uri.authority().ok_or(Error::InvalidUri(InvalidUri::MissingAuthority))?,
+                    location_uri
+                        .path_and_query()
+                        .ok_or(Error::InvalidUri(InvalidUri::MissingPathQuery))?
+                )
+                .parse()?;
+            } else {
+                // location is a relative path, merge it with current scheme, authority and path.
+                uri = format!(
+                    "{}{}",
+                    uri,
+                    location_uri
+                        .path_and_query()
+                        .ok_or(Error::InvalidUri(InvalidUri::MissingPathQuery))?
+                )
+                .parse()?;
+            }
+
+            *req.version_mut() = version.clone();
             *req.uri_mut() = uri.clone();
             *req.method_mut() = method.clone();
             *req.headers_mut() = headers.clone();
