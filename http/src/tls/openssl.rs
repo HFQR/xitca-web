@@ -57,7 +57,7 @@ impl TlsAcceptorService {
     async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<TlsStream<Io>, OpensslError> {
         let ctx = self.acceptor.context();
         let ssl = ssl::Ssl::new(ctx)?;
-        TlsStream::accept(ssl, io).await.map_err(Into::into)
+        TlsStream::accept(ssl, io).await
     }
 }
 
