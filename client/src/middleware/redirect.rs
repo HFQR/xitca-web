@@ -68,9 +68,9 @@ where
             let path = location.to_str().unwrap();
 
             let path_and_query = if let Some(query) = uri.query() {
-                format!("/{path}?{query}")
+                format!("{path}?{query}")
             } else {
-                format!("/{path}")
+                format!("{path}")
             };
 
             uri = uri_builder.path_and_query(path_and_query).build().unwrap();
@@ -107,7 +107,7 @@ mod test {
         let req = handle.mock(&mut req, |req| match req.uri().path() {
             "/foo" => Ok(http::Response::builder()
                 .status(StatusCode::SEE_OTHER)
-                .header("location", "bar")
+                .header("location", "/bar")
                 .body(ResponseBody::Eof)
                 .unwrap()),
             "/bar" => Ok(http::Response::builder()
