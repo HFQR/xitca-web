@@ -1,6 +1,7 @@
 use core::{fmt, marker::PhantomData, pin::pin};
 
 use futures_core::Stream;
+use tokio_util::sync::CancellationToken;
 use xitca_io::{
     io::AsyncIo,
     net::{Stream as ServerStream, TcpStream},
@@ -69,7 +70,7 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 }
 
 impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<ServerStream>
+    Service<(ServerStream, CancellationToken)>
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
@@ -83,14 +84,17 @@ where
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
 
-    async fn call(&self, io: ServerStream) -> Result<Self::Response, Self::Error> {
+    async fn call(
+        &self,
+        (io, cancellation_token): (ServerStream, CancellationToken),
+    ) -> Result<Self::Response, Self::Error> {
         // tls accept timer.
         let timer = self.keep_alive();
         let mut timer = pin!(timer);
 
         match io {
             #[cfg(feature = "http3")]
-            ServerStream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service)
+            ServerStream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service, cancellation_token)
                 .run()
                 .await
                 .map_err(From::from),
@@ -120,6 +124,7 @@ where
                         self.config,
                         &self.service,
                         self.date.get(),
+                        cancellation_token,
                     )
                     .await
                     .map_err(From::from),
@@ -142,6 +147,7 @@ where
                             self.config.keep_alive_timeout,
                             &self.service,
                             self.date.get(),
+                            cancellation_token,
                         )
                         .run()
                         .await
@@ -168,6 +174,7 @@ where
                         self.config,
                         &self.service,
                         self.date.get(),
+                        cancellation_token,
                     )
                     .await
                     .map_err(From::from)
