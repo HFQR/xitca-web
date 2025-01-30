@@ -20,9 +20,7 @@ use crate::bytes::Bytes;
 #[allow(clippy::large_enum_variant)]
 pub enum ResponseBody {
     #[cfg(feature = "http1")]
-    H1(crate::h1::body::ResponseBody<crate::connection::H1ConnectionWithKey>),
-    #[cfg(feature = "http1")]
-    H1Owned(crate::h1::body::ResponseBody<crate::connection::H1ConnectionWithoutKey>),
+    H1(crate::h1::body::ResponseBody),
     #[cfg(feature = "http2")]
     H2(crate::h2::body::ResponseBody),
     #[cfg(feature = "http3")]
@@ -36,8 +34,6 @@ impl fmt::Debug for ResponseBody {
         match *self {
             #[cfg(feature = "http1")]
             Self::H1(_) => f.write_str("ResponseBody::H1(..)"),
-            #[cfg(feature = "http1")]
-            Self::H1Owned(_) => f.write_str("ResponseBody::H1Owned(..)"),
             #[cfg(feature = "http2")]
             Self::H2(_) => f.write_str("ResponseBody::H2(..)"),
             #[cfg(feature = "http3")]
@@ -73,8 +69,6 @@ impl Stream for ResponseBody {
         match self.get_mut() {
             #[cfg(feature = "http1")]
             Self::H1(body) => Pin::new(body).poll_next(cx),
-            #[cfg(feature = "http1")]
-            Self::H1Owned(body) => Pin::new(body).poll_next(cx),
             #[cfg(feature = "http2")]
             Self::H2(body) => Pin::new(body).poll_next(cx),
             #[cfg(feature = "http3")]

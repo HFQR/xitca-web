@@ -113,8 +113,6 @@ impl Sink<Message> for WebSocketTunnel {
         let _io: &mut ConnectionExclusive = match inner.recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => body.conn_mut(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(body) => body.conn_mut(),
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {
                 while !inner.send_buf.chunk().is_empty() {
@@ -158,10 +156,6 @@ impl Sink<Message> for WebSocketTunnel {
         match self.get_mut().recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
-            }
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(body) => {
                 xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]

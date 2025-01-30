@@ -42,6 +42,33 @@ async fn h1_get() -> Result<(), Error> {
 }
 
 #[tokio::test]
+async fn h1_get_without_body_reading() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+
+    let server_url = format!("http://{}/", handle.ip_port_string());
+
+    let c = Client::builder().set_pool_capacity(1).finish();
+
+    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+
+    // drop the response body without reading it.
+    drop(res);
+
+    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    handle.try_handle()?.stop(false);
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn h1_head() -> Result<(), Error> {
     let mut handle = test_h1_server(fn_service(handle))?;
 
