@@ -55,23 +55,26 @@ where
                 return Ok(res);
             };
 
-            let uri_location = location
+            let parts = uri.into_parts();
+
+            let parts_location = location
                 .to_str()
                 .map_err(|_| InvalidUri::MissingPathQuery)?
-                .parse::<Uri>()?;
+                .parse::<Uri>()?
+                .into_parts();
 
             let mut uri_builder = Uri::builder();
 
-            if let Some(a) = uri_location.authority().or(uri.authority()) {
-                uri_builder = uri_builder.authority(a.clone());
+            if let Some(a) = parts_location.authority.or(parts.authority) {
+                uri_builder = uri_builder.authority(a);
             }
 
-            if let Some(s) = uri_location.scheme().or(uri.scheme()) {
-                uri_builder = uri_builder.scheme(s.clone());
+            if let Some(s) = parts_location.scheme.or(parts.scheme) {
+                uri_builder = uri_builder.scheme(s);
             }
 
-            let path = uri_location.path_and_query().ok_or(InvalidUri::MissingPathQuery)?;
-            uri = uri_builder.path_and_query(path.clone()).build().unwrap();
+            let path = parts_location.path_and_query.ok_or(InvalidUri::MissingPathQuery)?;
+            uri = uri_builder.path_and_query(path).build().unwrap();
 
             *req.uri_mut() = uri.clone();
             *req.method_mut() = method.clone();
