@@ -2,7 +2,7 @@ use core::{fmt, net::SocketAddr};
 
 use futures_core::Stream;
 use xitca_io::net::QuicStream;
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{Service, ready::ReadyService};
 
 use crate::{
     bytes::Bytes,
@@ -28,7 +28,6 @@ impl<S, ResB, BE> Service<(QuicStream, SocketAddr)> for H3Service<S>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
 {

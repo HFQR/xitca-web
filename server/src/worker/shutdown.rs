@@ -6,7 +6,7 @@ use std::{
 
 use tracing::info;
 
-use super::{with_worker_name_str, ServiceAny};
+use super::{ServiceAny, with_worker_name_str};
 
 pub(super) struct ShutdownHandle<'a> {
     shutdown_timeout: Duration,

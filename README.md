@@ -62,7 +62,7 @@
 
 # Minimum Supported Rust Version
 
-The latest release of the crate supports 1.79 and above rust versions.
+The latest release of the crate supports 1.85 and above rust versions.
 
 **[⬆️ Back to Top](#xitca-web)**
 

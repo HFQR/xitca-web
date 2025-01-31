@@ -1,8 +1,10 @@
 //! high level async function service with "variadic generic" ish.
 
+#![allow(non_snake_case)]
+
 use core::{convert::Infallible, future::Future, marker::PhantomData, net::SocketAddr};
 
-use xitca_service::{pipeline::PipelineE, AsyncFn, Service};
+use xitca_service::{Service, pipeline::PipelineE};
 
 use crate::http::{BorrowReq, Extensions, HeaderMap, Method, Request, RequestExt, Uri};
 
@@ -13,7 +15,7 @@ use crate::http::{BorrowReq, Extensions, HeaderMap, Method, Request, RequestExt,
 /// output type.
 pub fn handler_service<F, T>(func: F) -> HandlerService<F, T, marker::BuilderMark>
 where
-    F: AsyncFn<T> + Clone,
+    F: AsyncFn2<T> + Clone,
 {
     HandlerService::new(func)
 }
@@ -61,8 +63,8 @@ where
     // for borrowed extractors, `T` is the `'static` version of the extractors
     T: FromRequest<'static, Req>,
     // just to assist type inference to pinpoint `T`
-    F: AsyncFn<T>,
-    F: for<'a> AsyncFn<T::Type<'a>, Output = O>,
+    F: AsyncFn2<T>,
+    F: for<'a> AsyncFn2<T::Type<'a>, Output = O>,
     O: Responder<Req>,
     T::Error: From<O::Error>,
 {
@@ -297,6 +299,46 @@ impl<'a, B> FromRequest<'a, Request<RequestExt<B>>> for &'a SocketAddr {
     }
 }
 
+/// helper trait flatting tuple of arguments.
+///
+/// [`FromRequest`] trait extract a tuple of (type1, type2, type3, ..) from request type. this trait would destruct the tuple
+/// handling over it to an async function use them as arguments.
+pub trait AsyncFn2<Arg> {
+    type Output;
+    type Future: Future<Output = Self::Output>;
+
+    fn call(&self, arg: Arg) -> Self::Future;
+}
+
+macro_rules! async_fn_impl {
+    ($($arg: ident),*) => {
+        impl<Func, Fut, $($arg,)*> AsyncFn2<($($arg,)*)> for Func
+        where
+            Func: Fn($($arg),*) -> Fut,
+            Fut: Future,
+        {
+            type Output = Fut::Output;
+            type Future = Fut;
+
+            #[inline]
+            fn call(&self, ($($arg,)*): ($($arg,)*)) -> Self::Future {
+                self($($arg,)*)
+            }
+        }
+    }
+}
+
+async_fn_impl! {}
+async_fn_impl! { A }
+async_fn_impl! { A, B }
+async_fn_impl! { A, B, C }
+async_fn_impl! { A, B, C, D }
+async_fn_impl! { A, B, C, D, E }
+async_fn_impl! { A, B, C, D, E, F }
+async_fn_impl! { A, B, C, D, E, F, G }
+async_fn_impl! { A, B, C, D, E, F, G, H }
+async_fn_impl! { A, B, C, D, E, F, G, H, I }
+
 #[cfg(test)]
 mod test {
     use xitca_service::ServiceExt;
@@ -360,7 +402,7 @@ mod test {
     #[cfg(feature = "router")]
     #[test]
     fn handler_in_router() {
-        use crate::util::service::{route::get, Router};
+        use crate::util::service::{Router, route::get};
 
         let res = Router::new()
             .insert("/", get(handler_service(handler)))

@@ -326,11 +326,11 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
+        App,
         handler::{extension::ExtensionRef, handler_service},
         http::{Request, RequestExt},
         service::Service,
         test::collect_string_body,
-        App,
     };
 
     use super::*;

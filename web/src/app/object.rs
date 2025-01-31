@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use xitca_http::util::service::router::{IntoObject, PathGen, RouteGen, RouteObject};
-use xitca_service::{object::ServiceObject, Service};
+use xitca_service::{Service, object::ServiceObject};
 
 use crate::context::WebContext;
 

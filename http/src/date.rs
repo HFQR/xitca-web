@@ -11,7 +11,7 @@ use std::{
 use httpdate::HttpDate;
 use tokio::{
     task::JoinHandle,
-    time::{interval, Instant},
+    time::{Instant, interval},
 };
 
 /// Trait for getting current date/time.

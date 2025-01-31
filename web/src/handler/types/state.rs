@@ -141,7 +141,7 @@ mod test {
 
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{handler::handler_service, http::WebRequest, route::get, service::Service, App};
+    use crate::{App, handler::handler_service, http::WebRequest, route::get, service::Service};
 
     use super::*;
 

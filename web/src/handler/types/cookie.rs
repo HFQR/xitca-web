@@ -7,15 +7,15 @@ pub use cookie::{Cookie, Key, ParseError};
 use cookie::CookieJar as _CookieJar;
 
 use crate::{
+    WebContext,
     body::ResponseBody,
-    error::{error_from_service, forward_blank_bad_request, Error, ErrorStatus, ExtensionNotFound, HeaderNotFound},
+    error::{Error, ErrorStatus, ExtensionNotFound, HeaderNotFound, error_from_service, forward_blank_bad_request},
     handler::{FromRequest, Responder},
     http::{
-        header::ToStrError,
-        header::{HeaderValue, COOKIE, SET_COOKIE},
         WebResponse,
+        header::ToStrError,
+        header::{COOKIE, HeaderValue, SET_COOKIE},
     },
-    WebContext,
 };
 
 macro_rules! key_impl {

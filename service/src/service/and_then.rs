@@ -1,6 +1,6 @@
 use crate::pipeline::{
-    marker::{AndThen, BuildAndThen},
     PipelineT,
+    marker::{AndThen, BuildAndThen},
 };
 
 use super::Service;

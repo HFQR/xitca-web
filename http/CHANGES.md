@@ -1,5 +1,6 @@
 # unreleased 0.7.0
 ## Change
+- bump MSRV to `1.85` and Rust edition 2024
 - update `xitca-service` to `0.3.0`
 
 # 0.6.0

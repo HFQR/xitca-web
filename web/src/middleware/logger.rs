@@ -1,4 +1,4 @@
-use tracing::{warn, Level};
+use tracing::{Level, warn};
 use xitca_http::util::middleware;
 
 use crate::service::Service;

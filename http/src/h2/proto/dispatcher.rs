@@ -1,16 +1,16 @@
 use core::{
     cmp, fmt,
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     marker::PhantomData,
     net::SocketAddr,
-    pin::{pin, Pin},
-    task::{ready, Context, Poll},
+    pin::{Pin, pin},
+    task::{Context, Poll, ready},
     time::Duration,
 };
 
 use ::h2::{
-    server::{Connection, SendResponse},
     Ping, PingPong,
+    server::{Connection, SendResponse},
 };
 use futures_core::stream::Stream;
 use tracing::trace;
@@ -25,8 +25,8 @@ use crate::{
     error::HttpServiceError,
     h2::{body::RequestBody, error::Error},
     http::{
-        header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRAILER},
         Extension, Request, RequestExt, Response, Version,
+        header::{CONNECTION, CONTENT_LENGTH, DATE, HeaderMap, HeaderName, HeaderValue, TRAILER},
     },
     util::{futures::Queue, timer::KeepAlive},
 };
@@ -46,10 +46,8 @@ impl<'a, TlsSt, S, ReqB, ResB, BE> Dispatcher<'a, TlsSt, S, ReqB>
 where
     S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
-
     TlsSt: AsyncRead + AsyncWrite + Unpin,
     ReqB: From<RequestBody>,
 {

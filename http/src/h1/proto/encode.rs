@@ -6,9 +6,9 @@ use crate::{
     bytes::{Bytes, BytesMut},
     date::DateTime,
     http::{
-        header::{HeaderMap, CONNECTION, CONTENT_LENGTH, DATE, SET_COOKIE, TE, TRANSFER_ENCODING, UPGRADE},
-        response::Parts,
         StatusCode, Version,
+        header::{CONNECTION, CONTENT_LENGTH, DATE, HeaderMap, SET_COOKIE, TE, TRANSFER_ENCODING, UPGRADE},
+        response::Parts,
     },
 };
 

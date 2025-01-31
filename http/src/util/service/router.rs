@@ -1,10 +1,10 @@
-pub use xitca_router::{params::Params, MatchError};
+pub use xitca_router::{MatchError, params::Params};
 
 use core::{fmt, marker::PhantomData};
 
 use std::{collections::HashMap, error};
 
-use xitca_service::{object::BoxedServiceObject, pipeline::PipelineT, BoxFuture, FnService, Service};
+use xitca_service::{BoxFuture, FnService, Service, object::BoxedServiceObject, pipeline::PipelineT};
 
 use crate::http::Request;
 
@@ -55,10 +55,11 @@ impl<Obj> Router<Obj> {
         Req: IntoObject<F::Route<F>, Arg, Object = Obj>,
     {
         let path = builder.path_gen(path);
-        assert!(self
-            .routes
-            .insert(path, Req::into_object(F::route_gen(builder)))
-            .is_none());
+        assert!(
+            self.routes
+                .insert(path, Req::into_object(F::route_gen(builder)))
+                .is_none()
+        );
         self
     }
 
@@ -493,7 +494,7 @@ mod service {
 mod test {
     use core::convert::Infallible;
 
-    use xitca_service::{fn_service, ready::ReadyService, ServiceExt};
+    use xitca_service::{ServiceExt, fn_service, ready::ReadyService};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{

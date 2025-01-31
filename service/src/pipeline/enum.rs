@@ -1,5 +1,6 @@
 use core::{
     convert::Infallible,
+    error::Error,
     fmt::{self, Debug, Display, Formatter},
 };
 
@@ -90,7 +91,7 @@ where
     type Error = F::Error;
 
     async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
-        match self {
+        match *self {
             Self::First(ref f) => f.call(req).await,
             Self::Second(ref s) => s.call(req).await,
         }
@@ -106,23 +107,22 @@ where
 
     #[inline]
     async fn ready(&self) -> Self::Ready {
-        match self {
+        match *self {
             Self::First(ref f) => Pipeline::First(f.ready().await),
             Self::Second(ref s) => Pipeline::Second(s.ready().await),
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl<F, S> std::error::Error for Pipeline<F, S>
+impl<F, S> Error for Pipeline<F, S>
 where
-    F: std::error::Error,
-    S: std::error::Error,
+    F: Error,
+    S: Error,
 {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match *self {
-            Self::First(ref f) => std::error::Error::source(f),
-            Self::Second(ref f) => std::error::Error::source(f),
+            Self::First(ref f) => Error::source(f),
+            Self::Second(ref f) => Error::source(f),
         }
     }
 }

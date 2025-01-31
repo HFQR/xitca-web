@@ -1,10 +1,10 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
+    Error, Expr, FnArg, GenericArgument, ItemFn, PathArguments, Type,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     spanned::Spanned,
-    Error, Expr, FnArg, GenericArgument, ItemFn, PathArguments, Type,
 };
 
 pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
@@ -104,7 +104,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                             return Err(Error::new(path.span(), format!("expect {ident}<_>")));
                         };
                         match arg.args.last() {
-                            Some(GenericArgument::Type(ref ty)) => {
+                            Some(GenericArgument::Type(ty)) => {
                                 state.push(State::Partial(ty));
                             }
                             _ => return Err(Error::new(ty.span(), "expect state type.")),
@@ -115,7 +115,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                             return Err(Error::new(path.span(), format!("expect &{ident}<'_, _>")));
                         };
                         match arg.args.last() {
-                            Some(GenericArgument::Type(ref ty)) => {
+                            Some(GenericArgument::Type(ty)) => {
                                 state.push(State::Full(ty));
                                 break;
                             }

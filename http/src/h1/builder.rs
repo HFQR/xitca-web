@@ -2,7 +2,7 @@ use core::fmt;
 
 use xitca_service::Service;
 
-use crate::builder::{marker, HttpServiceBuilder};
+use crate::builder::{HttpServiceBuilder, marker};
 
 use super::service::H1Service;
 

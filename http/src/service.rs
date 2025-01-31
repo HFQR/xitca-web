@@ -5,7 +5,7 @@ use xitca_io::{
     io::AsyncIo,
     net::{Stream as ServerStream, TcpStream},
 };
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{Service, ready::ReadyService};
 
 use super::{
     body::RequestBody,

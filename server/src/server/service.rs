@@ -2,7 +2,7 @@ use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use tokio::task::JoinHandle;
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{Service, ready::ReadyService};
 
 use crate::worker::{self, ServiceAny};
 

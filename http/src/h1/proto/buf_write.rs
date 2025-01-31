@@ -3,7 +3,7 @@ use core::convert::Infallible;
 use std::io::Write;
 
 use crate::{
-    bytes::{buf::Chain, Buf, BufMut, BufMutWriter, Bytes, BytesMut, EitherBuf},
+    bytes::{Buf, BufMut, BufMutWriter, Bytes, BytesMut, EitherBuf, buf::Chain},
     util::buffered::{BufWrite, ListWriteBuf, WriteBuf},
 };
 

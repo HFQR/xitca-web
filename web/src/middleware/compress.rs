@@ -28,12 +28,12 @@ impl<S, E> Service<Result<S, E>> for Compress {
     }
 }
 mod service {
-    use http_encoding::{encoder, Coder, ContentEncoding};
+    use http_encoding::{Coder, ContentEncoding, encoder};
 
     use crate::{
         body::{BodyStream, NONE_BODY_HINT},
-        http::{header::HeaderMap, BorrowReq, WebResponse},
-        service::{ready::ReadyService, Service},
+        http::{BorrowReq, WebResponse, header::HeaderMap},
+        service::{Service, ready::ReadyService},
     };
 
     pub struct CompressService<S>(pub(super) S);
@@ -80,7 +80,7 @@ mod service {
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{handler::handler_service, http::WebRequest, App};
+    use crate::{App, handler::handler_service, http::WebRequest};
 
     use super::*;
 

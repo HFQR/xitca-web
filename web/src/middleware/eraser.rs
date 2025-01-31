@@ -110,13 +110,13 @@ mod service {
     use core::cell::RefCell;
 
     use crate::{
+        WebContext,
         body::{BodyStream, BoxBody},
         body::{RequestBody, ResponseBody},
         bytes::Bytes,
         error::Error,
         http::WebResponse,
         service::ready::ReadyService,
-        WebContext,
     };
 
     use super::*;
@@ -192,13 +192,13 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
+        App, WebContext,
         bytes::Bytes,
         error::Error,
         handler::handler_service,
         http::{Request, StatusCode, WebResponse},
         middleware::Group,
         service::ServiceExt,
-        App, WebContext,
     };
 
     use super::*;

@@ -63,11 +63,11 @@ mod service {
     use core::convert::Infallible;
 
     use crate::{
+        WebContext,
         body::ResponseBody,
         error::Error,
         http::WebResponse,
-        service::{ready::ReadyService, Service},
-        WebContext,
+        service::{Service, ready::ReadyService},
     };
 
     pub struct RateLimitService<S> {

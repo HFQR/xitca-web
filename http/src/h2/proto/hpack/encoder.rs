@@ -641,19 +641,16 @@ mod test {
     fn test_nameless_header() {
         let mut encoder = Encoder::default();
 
-        let res = encode(
-            &mut encoder,
-            vec![
-                Header::Field {
-                    name: Some("hello".parse().unwrap()),
-                    value: HeaderValue::from_bytes(b"world").unwrap(),
-                },
-                Header::Field {
-                    name: None,
-                    value: HeaderValue::from_bytes(b"zomg").unwrap(),
-                },
-            ],
-        );
+        let res = encode(&mut encoder, vec![
+            Header::Field {
+                name: Some("hello".parse().unwrap()),
+                value: HeaderValue::from_bytes(b"world").unwrap(),
+            },
+            Header::Field {
+                name: None,
+                value: HeaderValue::from_bytes(b"zomg").unwrap(),
+            },
+        ]);
 
         assert_eq!(&[0x40, 0x80 | 4], &res[0..2]);
         assert_eq!("hello", huff_decode(&res[2..6]));

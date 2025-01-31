@@ -5,10 +5,10 @@ use std::error;
 use std::backtrace::Backtrace;
 
 use crate::{
+    WebContext,
     body::ResponseBody,
     http::{StatusCode, WebResponse},
     service::Service,
-    WebContext,
 };
 
 use super::Error;

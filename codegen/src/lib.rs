@@ -4,7 +4,7 @@ mod service;
 mod state;
 
 use proc_macro::TokenStream;
-use syn::{spanned::Spanned, Error, ImplItem, ImplItemFn};
+use syn::{Error, ImplItem, ImplItemFn, spanned::Spanned};
 
 #[proc_macro_derive(State, attributes(borrow))]
 pub fn state_impl(item: TokenStream) -> TokenStream {

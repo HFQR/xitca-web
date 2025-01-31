@@ -6,13 +6,13 @@ pub use xitca_http::util::service::{
 use core::convert::Infallible;
 
 use crate::{
-    body::ResponseBody,
-    http::{header::ALLOW, StatusCode, WebResponse},
-    service::Service,
     WebContext,
+    body::ResponseBody,
+    http::{StatusCode, WebResponse, header::ALLOW},
+    service::Service,
 };
 
-use super::{blank_error_service, error_from_service, Error};
+use super::{Error, blank_error_service, error_from_service};
 
 error_from_service!(MatchError);
 blank_error_service!(MatchError, StatusCode::NOT_FOUND);

@@ -8,8 +8,8 @@ use crate::{
     error::{Error, HeaderNotFound},
     handler::{FromRequest, Responder},
     http::{
-        header::{self, HeaderMap, HeaderName, HeaderValue},
         WebResponse,
+        header::{self, HeaderMap, HeaderName, HeaderValue},
     },
 };
 

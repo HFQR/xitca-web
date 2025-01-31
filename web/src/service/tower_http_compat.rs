@@ -2,7 +2,7 @@ use core::{
     cell::RefCell,
     convert::Infallible,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use std::borrow::Cow;
@@ -11,7 +11,7 @@ use futures_core::stream::Stream;
 use http_body::{Body, Frame, SizeHint};
 use pin_project_lite::pin_project;
 use xitca_http::{
-    body::{none_body_hint, BodySize},
+    body::{BodySize, none_body_hint},
     util::service::router::{PathGen, RouteGen, RouterMapErr},
 };
 use xitca_unsafe_collection::fake::{FakeSend, FakeSync};
@@ -21,7 +21,7 @@ use crate::{
     bytes::{Buf, Bytes, BytesMut},
     context::WebContext,
     http::{Request, RequestExt, Response, WebResponse},
-    service::{ready::ReadyService, Service},
+    service::{Service, ready::ReadyService},
 };
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
@@ -237,7 +237,7 @@ fn size_hint(size: BodySize) -> SizeHint {
 
 #[cfg(test)]
 mod test {
-    use xitca_http::body::{exact_body_hint, Once};
+    use xitca_http::body::{Once, exact_body_hint};
 
     use super::*;
 

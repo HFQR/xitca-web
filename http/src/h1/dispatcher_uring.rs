@@ -1,13 +1,13 @@
 use core::{
     cell::RefCell,
     fmt,
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     marker::PhantomData,
     mem,
     net::SocketAddr,
     ops::{Deref, DerefMut},
-    pin::{pin, Pin},
-    task::{self, ready, Poll, Waker},
+    pin::{Pin, pin},
+    task::{self, Poll, Waker, ready},
 };
 
 use std::{io, net::Shutdown, rc::Rc};
@@ -17,7 +17,7 @@ use pin_project_lite::pin_project;
 use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{write_all, AsyncBufRead, AsyncBufWrite, BoundedBuf},
+    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
@@ -28,12 +28,12 @@ use crate::{
     config::HttpServiceConfig,
     date::DateTime,
     h1::{body::RequestBody, error::Error},
-    http::{response::Response, StatusCode},
+    http::{StatusCode, response::Response},
     util::timer::{KeepAlive, Timeout},
 };
 
 use super::{
-    dispatcher::{status_only, Timer},
+    dispatcher::{Timer, status_only},
     proto::{
         codec::{ChunkResult, TransferCoding},
         context::Context,

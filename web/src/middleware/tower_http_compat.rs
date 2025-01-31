@@ -2,7 +2,7 @@
 
 use tower_layer::Layer;
 
-use crate::service::{tower_http_compat::TowerCompatService, Service};
+use crate::service::{Service, tower_http_compat::TowerCompatService};
 
 /// A middleware type that bridge `xitca-service` and `tower-service`.
 /// Any `tower-http` type that impl [Layer] trait can be passed to it and used as xitca-web's middleware.
@@ -70,9 +70,9 @@ mod compat_layer {
     use std::rc::Rc;
 
     use crate::{
+        WebContext,
         http::{Request, RequestExt, Response, WebResponse},
         service::tower_http_compat::{CompatReqBody, CompatResBody},
-        WebContext,
     };
 
     use super::*;
@@ -125,11 +125,11 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
+        App, WebContext,
         body::ResponseBody,
         http::WebRequest,
         http::{StatusCode, WebResponse},
         service::fn_service,
-        App, WebContext,
     };
 
     use super::*;

@@ -3,8 +3,8 @@ use xitca_unsafe_collection::bytes::BytesStr;
 use crate::{
     bytes::Bytes,
     http::{
-        header::{self, HeaderName, HeaderValue},
         Method, StatusCode,
+        header::{self, HeaderName, HeaderValue},
     },
 };
 

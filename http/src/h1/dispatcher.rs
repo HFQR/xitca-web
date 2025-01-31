@@ -1,9 +1,9 @@
 use core::{
     convert::Infallible,
-    future::{pending, poll_fn, Future},
+    future::{Future, pending, poll_fn},
     marker::PhantomData,
     net::SocketAddr,
-    pin::{pin, Pin},
+    pin::{Pin, pin},
     time::Duration,
 };
 
@@ -25,8 +25,8 @@ use crate::{
         error::Error,
     },
     http::{
-        response::{Parts, Response},
         StatusCode,
+        response::{Parts, Response},
     },
     util::{
         buffered::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},

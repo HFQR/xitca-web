@@ -1,6 +1,6 @@
 use core::{mem, net::SocketAddr};
 
-use crate::http::{header::HeaderMap, Extensions};
+use crate::http::{Extensions, header::HeaderMap};
 
 /// Context is connection specific struct contain states for processing.
 pub struct Context<'a, D, const HEADER_LIMIT: usize> {

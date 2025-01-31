@@ -2,7 +2,7 @@
 
 use futures_core::stream::Stream;
 
-pub use xitca_http::body::{none_body_hint, BoxBody, RequestBody, ResponseBody, NONE_BODY_HINT};
+pub use xitca_http::body::{BoxBody, NONE_BODY_HINT, RequestBody, ResponseBody, none_body_hint};
 
 pub(crate) use xitca_http::body::Either;
 

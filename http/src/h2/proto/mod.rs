@@ -19,16 +19,16 @@ pub(crate) use dispatcher::Dispatcher;
 const HEADER_LEN: usize = 9;
 
 #[cfg(feature = "io-uring")]
-pub use io_uring::{run, RequestBody, RequestBodySender};
+pub use io_uring::{RequestBody, RequestBodySender, run};
 
 #[cfg(feature = "io-uring")]
 mod io_uring {
     use core::{
         cell::RefCell,
         fmt,
-        future::{poll_fn, Future},
+        future::{Future, poll_fn},
         mem,
-        pin::{pin, Pin},
+        pin::{Pin, pin},
         task::{Context, Poll, Waker},
     };
 
@@ -41,7 +41,7 @@ mod io_uring {
     use tracing::error;
     use xitca_io::{
         bytes::{Buf, BufMut, BytesMut},
-        io_uring::{write_all, AsyncBufRead, AsyncBufWrite, BoundedBuf},
+        io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
     };
     use xitca_service::Service;
     use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -50,7 +50,7 @@ mod io_uring {
         body::BodySize,
         bytes::Bytes,
         error::BodyError,
-        http::{header::CONTENT_LENGTH, HeaderMap, Request, RequestExt, Response, Version},
+        http::{HeaderMap, Request, RequestExt, Response, Version, header::CONTENT_LENGTH},
         util::futures::Queue,
     };
 
@@ -391,42 +391,44 @@ mod io_uring {
             }
 
             loop {
-                let state = poll_fn(|cx| loop {
-                    match rx.poll_recv(cx) {
-                        Poll::Ready(Some(msg)) => {
-                            match msg {
-                                Message::Head(headers) => {
-                                    let mut buf = (&mut write_buf).limit(4096);
-                                    headers.encode(&mut encoder, &mut buf);
-                                }
-                                Message::Data(mut data) => {
-                                    data.encode_chunk(&mut write_buf);
-                                }
-                                Message::Trailer(headers) => {
-                                    let mut buf = (&mut write_buf).limit(4096);
-                                    headers.encode(&mut encoder, &mut buf);
-                                }
-                                Message::Reset(id, reason) => {
-                                    let reset = Reset::new(id, reason);
-                                    reset.encode(&mut write_buf);
-                                }
-                                Message::WindowUpdate(id, size) => {
-                                    debug_assert!(size > 0, "window update size not be 0");
-                                    // TODO: batch window update
-                                    let update = WindowUpdate::new(0.into(), size as _);
-                                    update.encode(&mut write_buf);
-                                    let update = WindowUpdate::new(id, size as _);
-                                    update.encode(&mut write_buf);
-                                }
-                                Message::Settings => {
-                                    let setting = Settings::ack();
-                                    setting.encode(&mut write_buf);
-                                }
-                            };
+                let state = poll_fn(|cx| {
+                    loop {
+                        match rx.poll_recv(cx) {
+                            Poll::Ready(Some(msg)) => {
+                                match msg {
+                                    Message::Head(headers) => {
+                                        let mut buf = (&mut write_buf).limit(4096);
+                                        headers.encode(&mut encoder, &mut buf);
+                                    }
+                                    Message::Data(mut data) => {
+                                        data.encode_chunk(&mut write_buf);
+                                    }
+                                    Message::Trailer(headers) => {
+                                        let mut buf = (&mut write_buf).limit(4096);
+                                        headers.encode(&mut encoder, &mut buf);
+                                    }
+                                    Message::Reset(id, reason) => {
+                                        let reset = Reset::new(id, reason);
+                                        reset.encode(&mut write_buf);
+                                    }
+                                    Message::WindowUpdate(id, size) => {
+                                        debug_assert!(size > 0, "window update size not be 0");
+                                        // TODO: batch window update
+                                        let update = WindowUpdate::new(0.into(), size as _);
+                                        update.encode(&mut write_buf);
+                                        let update = WindowUpdate::new(id, size as _);
+                                        update.encode(&mut write_buf);
+                                    }
+                                    Message::Settings => {
+                                        let setting = Settings::ack();
+                                        setting.encode(&mut write_buf);
+                                    }
+                                };
+                            }
+                            Poll::Pending if write_buf.is_empty() => return Poll::Pending,
+                            Poll::Pending => return Poll::Ready(State::Write),
+                            Poll::Ready(None) => return Poll::Ready(State::WriteEof),
                         }
-                        Poll::Pending if write_buf.is_empty() => return Poll::Pending,
-                        Poll::Pending => return Poll::Ready(State::Write),
-                        Poll::Ready(None) => return Poll::Ready(State::WriteEof),
                     }
                 })
                 .await;

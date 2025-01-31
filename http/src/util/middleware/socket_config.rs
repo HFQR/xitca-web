@@ -6,7 +6,7 @@ use socket2::{SockRef, TcpKeepalive};
 
 use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{Service, ready::ReadyService};
 
 #[cfg(unix)]
 use xitca_io::net::UnixStream;

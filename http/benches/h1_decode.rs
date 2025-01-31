@@ -1,11 +1,11 @@
 use std::time::SystemTime;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use httpdate::HttpDate;
 use tokio::time::Instant;
 use xitca_http::{
     bytes::BytesMut,
-    date::{DateTime, DATE_VALUE_LENGTH},
+    date::{DATE_VALUE_LENGTH, DateTime},
     h1::proto::context::Context,
 };
 

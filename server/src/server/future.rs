@@ -2,12 +2,12 @@ use std::{
     future::Future,
     io, mem,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use crate::signals::{self, Signal, SignalFuture};
 
-use super::{handle::ServerHandle, Command, Server};
+use super::{Command, Server, handle::ServerHandle};
 
 #[must_use = "ServerFuture must be .await/ spawn as task / consumed with ServerFuture::wait."]
 pub enum ServerFuture {
@@ -83,7 +83,9 @@ impl ServerFuture {
 
                 let (mut server_fut, cmd) = match tokio::runtime::Handle::try_current() {
                     Ok(_) => {
-                        tracing::warn!("ServerFuture::wait is called from within tokio context. It would block current thread from handling async tasks.");
+                        tracing::warn!(
+                            "ServerFuture::wait is called from within tokio context. It would block current thread from handling async tasks."
+                        );
                         std::thread::Builder::new()
                             .name(String::from("xitca-server-wait-scoped"))
                             .spawn(func)?

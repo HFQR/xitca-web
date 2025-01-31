@@ -4,7 +4,7 @@ use core::{fmt, marker::PhantomData};
 
 use std::error;
 
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{Service, ready::ReadyService};
 
 use crate::http::{BorrowReq, Method};
 
@@ -237,7 +237,7 @@ where
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, ServiceExt};
+    use xitca_service::{ServiceExt, fn_service};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{

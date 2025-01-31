@@ -5,9 +5,9 @@ use core::convert::Infallible;
 use crate::{
     body::{BodyStream, ResponseBody},
     context::WebContext,
-    error::{forward_blank_bad_request, Error},
+    error::{Error, forward_blank_bad_request},
     handler::{FromRequest, Responder},
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, WebResponse},
+    http::{WebResponse, const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
     service::Service,
 };
 

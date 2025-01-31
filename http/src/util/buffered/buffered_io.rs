@@ -1,5 +1,5 @@
 use core::{
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     pin::Pin,
 };
 
