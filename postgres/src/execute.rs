@@ -9,9 +9,9 @@ mod sync_impl;
 ///
 /// when to use `execute` or `query` methods:
 /// - `execute` method is for use case where sql produce an outcome where it only happen once.
-///     usually in the form of preparing a statement or observing how many rows have been modified.
+///   usually in the form of preparing a statement or observing how many rows have been modified.
 /// - `query` method is for use case where sql produce repeated outcome where it can happen multiple times.
-///     usually in the form of visiting an iteration of database rows.
+///   usually in the form of visiting an iteration of database rows.
 ///
 /// [`Encode`]: crate::driver::codec::encode::Encode
 /// [`IntoResponse`]: crate::driver::codec::response::IntoResponse

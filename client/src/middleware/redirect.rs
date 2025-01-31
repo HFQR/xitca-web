@@ -1,9 +1,9 @@
 use crate::{
     body::BoxBody,
-    error::Error,
+    error::{Error, InvalidUri},
     http::{
         header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, TRANSFER_ENCODING},
-        Method, StatusCode,
+        Method, StatusCode, Uri,
     },
     response::Response,
     service::{Service, ServiceRequest},
@@ -32,6 +32,7 @@ where
         let mut headers = req.headers().clone();
         let mut method = req.method().clone();
         let mut uri = req.uri().clone();
+        let ext = req.extensions().clone();
         loop {
             let mut res = self.service.call(ServiceRequest { req, client, timeout }).await?;
             match res.status() {
@@ -54,11 +55,71 @@ where
                 return Ok(res);
             };
 
-            uri = format!("{}{}", uri, location.to_str().unwrap()).parse().unwrap();
+            let parts = uri.into_parts();
+
+            let parts_location = location
+                .to_str()
+                .map_err(|_| InvalidUri::MissingPathQuery)?
+                .parse::<Uri>()?
+                .into_parts();
+
+            let mut uri_builder = Uri::builder();
+
+            if let Some(a) = parts_location.authority.or(parts.authority) {
+                uri_builder = uri_builder.authority(a);
+            }
+
+            if let Some(s) = parts_location.scheme.or(parts.scheme) {
+                uri_builder = uri_builder.scheme(s);
+            }
+
+            let path = parts_location.path_and_query.ok_or(InvalidUri::MissingPathQuery)?;
+            uri = uri_builder.path_and_query(path).build().unwrap();
 
             *req.uri_mut() = uri.clone();
             *req.method_mut() = method.clone();
             *req.headers_mut() = headers.clone();
+            *req.extensions_mut() = ext.clone();
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        body::ResponseBody,
+        http,
+        service::{mock_service, Service},
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn redirect() {
+        let (handle, service) = mock_service();
+
+        let redirect = FollowRedirect::new(service);
+
+        let mut req = http::Request::builder()
+            .uri("http://foo.bar/foo")
+            .body(Default::default())
+            .unwrap();
+
+        let req = handle.mock(&mut req, |req| match req.uri().path() {
+            "/foo" => Ok(http::Response::builder()
+                .status(StatusCode::SEE_OTHER)
+                .header("location", "/bar")
+                .body(ResponseBody::Eof)
+                .unwrap()),
+            "/bar" => Ok(http::Response::builder()
+                .status(StatusCode::IM_A_TEAPOT)
+                .body(ResponseBody::Eof)
+                .unwrap()),
+            p => panic!("unexpected uri path: {p}"),
+        });
+
+        let res = redirect.call(req).await.unwrap();
+
+        assert_eq!(res.status(), StatusCode::IM_A_TEAPOT);
     }
 }
