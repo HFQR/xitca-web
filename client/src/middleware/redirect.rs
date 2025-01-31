@@ -62,15 +62,11 @@ where
 
             let mut uri_builder = Uri::builder();
 
-            if let Some(a) = uri_location.authority() {
-                uri_builder = uri_builder.authority(a.clone());
-            } else if let Some(a) = uri.authority() {
+            if let Some(a) = uri_location.authority().or(uri.authority()) {
                 uri_builder = uri_builder.authority(a.clone());
             }
 
-            if let Some(s) = uri_location.scheme() {
-                uri_builder = uri_builder.scheme(s.clone());
-            } else if let Some(s) = uri.scheme() {
+            if let Some(s) = uri_location.scheme().or(uri.scheme()) {
                 uri_builder = uri_builder.scheme(s.clone());
             }
 
