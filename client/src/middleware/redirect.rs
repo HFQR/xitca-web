@@ -1,6 +1,6 @@
 use crate::{
     body::BoxBody,
-    error::Error,
+    error::{Error, InvalidUri},
     http::{
         header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, TRANSFER_ENCODING},
         Method, StatusCode, Uri,
@@ -55,25 +55,27 @@ where
                 return Ok(res);
             };
 
+            let uri_location = location
+                .to_str()
+                .map_err(|_| InvalidUri::MissingPathQuery)?
+                .parse::<Uri>()?;
+
             let mut uri_builder = Uri::builder();
 
-            if let Some(a) = uri.authority() {
+            if let Some(a) = uri_location.authority() {
+                uri_builder = uri_builder.authority(a.clone());
+            } else if let Some(a) = uri.authority() {
                 uri_builder = uri_builder.authority(a.clone());
             }
 
-            if let Some(s) = uri.scheme() {
+            if let Some(s) = uri_location.scheme() {
+                uri_builder = uri_builder.scheme(s.clone());
+            } else if let Some(s) = uri.scheme() {
                 uri_builder = uri_builder.scheme(s.clone());
             }
 
-            let path = location.to_str().unwrap();
-
-            let path_and_query = if let Some(query) = uri.query() {
-                format!("{path}?{query}")
-            } else {
-                format!("{path}")
-            };
-
-            uri = uri_builder.path_and_query(path_and_query).build().unwrap();
+            let path = uri_location.path_and_query().ok_or(InvalidUri::MissingPathQuery)?;
+            uri = uri_builder.path_and_query(path.clone()).build().unwrap();
 
             *req.uri_mut() = uri.clone();
             *req.method_mut() = method.clone();
