@@ -1,5 +1,5 @@
 use crate::{
-    body::BoxBody,
+    body::RequestBody,
     error::{Error, InvalidUri},
     http::{
         header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, TRANSFER_ENCODING},
@@ -41,7 +41,7 @@ where
                         method = Method::GET;
                     }
 
-                    *req.body_mut() = BoxBody::default();
+                    *req.body_mut() = RequestBody::default();
 
                     for header in &[TRANSFER_ENCODING, CONTENT_ENCODING, CONTENT_TYPE, CONTENT_LENGTH] {
                         headers.remove(header);

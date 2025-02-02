@@ -137,3 +137,34 @@ where
         self.body.size_hint()
     }
 }
+
+impl Default for RequestBody {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+pub enum RequestBody {
+    Reusable(Bytes),
+    Stream(Option<BoxBody>),
+    None,
+}
+
+impl RequestBody {
+    pub fn as_stream(&mut self) -> BoxBody {
+        match self {
+            Self::Reusable(bytes) => BoxBody::new(Once::new(Bytes::clone(bytes))),
+            Self::None => BoxBody::new(NoneBody::default()),
+            Self::Stream(stream) => {
+                let stream = stream.take();
+
+                stream.unwrap_or_else(|| BoxBody::new(NoneBody::default()))
+            }
+        }
+    }
+
+    pub fn into_reusable(self) -> Self {
+        // @TODO ?
+        unimplemented!()
+    }
+}
