@@ -6,7 +6,7 @@ use xitca_http::{
     config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
     HttpServiceBuilder,
 };
-use xitca_server::{Builder, ServerFuture};
+use xitca_server::{net::IntoListener, Builder, ServerFuture};
 use xitca_service::ServiceExt;
 
 use crate::{
@@ -184,7 +184,7 @@ where
         Ok(self)
     }
 
-    pub fn listen<ResB, BE>(mut self, listener: std::net::TcpListener) -> std::io::Result<Self>
+    pub fn listen<ResB, BE, L>(mut self, listener: L) -> std::io::Result<Self>
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
@@ -193,6 +193,7 @@ where
 
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
+        L: IntoListener + 'static,
     {
         let config = self.config;
         let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));

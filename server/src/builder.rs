@@ -3,18 +3,20 @@ use std::{collections::HashMap, future::Future, pin::Pin, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use std::{io, net};
 
-use xitca_io::net::Stream;
+use xitca_io::net::{Listener, Stream};
 
 use crate::{
-    net::AsListener,
+    net::IntoListener,
     server::{IntoServiceObj, Server, ServerFuture, ServiceObj},
 };
+
+type ListenerFn = Box<dyn FnOnce() -> io::Result<Listener> + Send>;
 
 pub struct Builder {
     pub(crate) server_threads: usize,
     pub(crate) worker_threads: usize,
     pub(crate) worker_max_blocking_threads: usize,
-    pub(crate) listeners: HashMap<String, Vec<Box<dyn AsListener>>>,
+    pub(crate) listeners: HashMap<String, Vec<ListenerFn>>,
     pub(crate) factories: HashMap<String, ServiceObj>,
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
@@ -136,12 +138,12 @@ impl Builder {
         N: AsRef<str>,
         F: IntoServiceObj<St>,
         St: TryFrom<Stream> + 'static,
-        Option<L>: AsListener + 'static,
+        L: IntoListener + 'static,
     {
         self.listeners
             .entry(name.as_ref().to_string())
             .or_default()
-            .push(Box::new(Some(listener)));
+            .push(Box::new(|| listener.into_listener()));
 
         self.factories.insert(name.as_ref().to_string(), service.into_object());
 
@@ -181,7 +183,6 @@ impl Builder {
         St: TryFrom<Stream> + 'static,
     {
         let listener = net::TcpListener::bind(addr)?;
-        listener.set_nonblocking(true)?;
 
         let socket = socket2::SockRef::from(&listener);
         socket.set_reuse_address(true)?;
@@ -243,7 +244,7 @@ impl Builder {
         self.listeners
             .get_mut(name.as_ref())
             .unwrap()
-            .push(Box::new(Some(builder)));
+            .push(Box::new(|| builder.into_listener()));
 
         Ok(self)
     }
