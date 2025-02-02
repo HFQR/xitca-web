@@ -1,4 +1,4 @@
-use std::{io, net};
+use std::io;
 
 #[cfg(feature = "quic")]
 use xitca_io::net::QuicListenerBuilder;
@@ -15,25 +15,12 @@ pub trait IntoListener: Send {
     fn into_listener(self) -> io::Result<Listener>;
 }
 
-impl IntoListener for TcpListener {
-    fn into_listener(self) -> io::Result<Listener> {
-        info!("Started Tcp listening on: {:?}", self.local_addr().ok());
-        Ok(Listener::Tcp(self))
-    }
-}
-
-impl IntoListener for net::TcpListener {
+impl IntoListener for std::net::TcpListener {
     fn into_listener(self) -> io::Result<Listener> {
         self.set_nonblocking(true)?;
-        TcpListener::from_std(self)?.into_listener()
-    }
-}
-
-#[cfg(unix)]
-impl IntoListener for UnixListener {
-    fn into_listener(self) -> io::Result<Listener> {
-        info!("Started Unix listening on: {:?}", self.local_addr().ok());
-        Ok(Listener::Unix(self))
+        let listener = TcpListener::from_std(self)?;
+        info!("Started Tcp listening on: {:?}", listener.local_addr().ok());
+        Ok(Listener::Tcp(listener))
     }
 }
 
@@ -41,7 +28,9 @@ impl IntoListener for UnixListener {
 impl IntoListener for std::os::unix::net::UnixListener {
     fn into_listener(self) -> io::Result<Listener> {
         self.set_nonblocking(true)?;
-        UnixListener::from_std(self)?.into_listener()
+        let listener = UnixListener::from_std(self)?;
+        info!("Started Unix listening on: {:?}", listener.local_addr().ok());
+        Ok(Listener::Unix(listener))
     }
 }
 
