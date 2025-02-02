@@ -4,14 +4,6 @@ use xitca_http::http::uri::{Authority, PathAndQuery};
 
 use super::{tls::TlsStream, uri::Uri};
 
-#[cfg(feature = "http1")]
-/// A convince type alias for typing connection without interacting with pool.
-pub type H1ConnectionWithKey<'a> = crate::pool::exclusive::Conn<'a, ConnectionKey, ConnectionExclusive>;
-
-#[cfg(feature = "http1")]
-/// A convince type alias for typing connection without interacting with pool.
-pub type H1ConnectionWithoutKey = crate::pool::exclusive::PooledConn<ConnectionExclusive>;
-
 /// exclusive connection for http1 and in certain case they can be upgraded to [ConnectionShared]
 pub type ConnectionExclusive = TlsStream;
 

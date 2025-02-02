@@ -16,11 +16,20 @@ type Entries<K, C> = HashMap<K, (Arc<Semaphore>, VecDeque<PooledConn<C>>)>;
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
-    conns: Mutex<Entries<K, C>>,
+    conns: Arc<Mutex<Entries<K, C>>>,
     // capacity for entry.
     // the pool can have unbounded entries with different keys but a single
     // entry can only have up to cap size of C inside it.
     cap: usize,
+}
+
+impl<K, C> Clone for Pool<K, C> {
+    fn clone(&self) -> Self {
+        Self {
+            conns: self.conns.clone(),
+            cap: self.cap,
+        }
+    }
 }
 
 impl<K, C> Pool<K, C>
@@ -29,7 +38,7 @@ where
 {
     pub(crate) fn with_capacity(cap: usize) -> Self {
         Self {
-            conns: Mutex::new(HashMap::new()),
+            conns: Arc::new(Mutex::new(HashMap::new())),
             cap,
         }
     }
@@ -71,7 +80,7 @@ where
                 while let Some(conn) = queue.pop_front() {
                     if !conn.state.is_expired() {
                         return AcquireOutput::Conn(Conn {
-                            pool: self,
+                            pool: self.clone(),
                             key,
                             conn: Some(conn),
                             permit,
@@ -140,22 +149,22 @@ pub enum AcquireOutput<'a, K, C>
 where
     K: Eq + Hash + Clone,
 {
-    Conn(Conn<'a, K, C>),
+    Conn(Conn<K, C>),
     Spawner(Spawner<'a, K, C>),
 }
 
-pub struct Conn<'a, K, C>
+pub struct Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
-    pool: &'a Pool<K, C>,
+    pool: Pool<K, C>,
     key: K,
     conn: Option<PooledConn<C>>,
     permit: OwnedSemaphorePermit,
     destroy_on_drop: bool,
 }
 
-impl<K, C> Deref for Conn<'_, K, C>
+impl<K, C> Deref for Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
@@ -168,7 +177,7 @@ where
     }
 }
 
-impl<K, C> DerefMut for Conn<'_, K, C>
+impl<K, C> DerefMut for Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
@@ -179,7 +188,7 @@ where
     }
 }
 
-impl<K, C> Conn<'_, K, C>
+impl<K, C> Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
@@ -194,7 +203,7 @@ where
     }
 }
 
-impl<K, C> Drop for Conn<'_, K, C>
+impl<K, C> Drop for Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
@@ -221,11 +230,11 @@ pub struct PooledConn<C> {
     state: ConnState,
 }
 
-impl<K, C> From<Conn<'_, K, C>> for PooledConn<C>
+impl<K, C> From<Conn<K, C>> for PooledConn<C>
 where
     K: Eq + Hash + Clone,
 {
-    fn from(mut conn: Conn<'_, K, C>) -> Self {
+    fn from(mut conn: Conn<K, C>) -> Self {
         conn.conn.take().expect("Conn does not contain any connection")
     }
 }

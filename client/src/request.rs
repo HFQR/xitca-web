@@ -30,7 +30,7 @@ mod marker {
     pub struct Http;
 }
 
-impl<'a> RequestBuilder<'a, marker::Http> {
+impl RequestBuilder<'_, marker::Http> {
     /// Set HTTP method of this request.
     #[inline]
     pub fn method(mut self, method: Method) -> Self {
@@ -88,7 +88,7 @@ impl<'a> RequestBuilder<'a, marker::Http> {
     }
 
     /// Finish request builder and send it to server.
-    pub async fn send(self) -> Result<Response<'a>, Error> {
+    pub async fn send(self) -> Result<Response, Error> {
         self._send().await
     }
 }
@@ -119,7 +119,7 @@ impl<'a, M> RequestBuilder<'a, M> {
     }
 
     // send request to server
-    pub(crate) async fn _send(self) -> Result<Response<'a>, Error> {
+    pub(crate) async fn _send(self) -> Result<Response, Error> {
         let Self {
             mut req,
             err,

@@ -18,7 +18,7 @@ use super::{
     error::{Error, ErrorResponse},
     http::StatusCode,
     request::RequestBuilder,
-    tunnel::{Leak, Tunnel},
+    tunnel::Tunnel,
 };
 
 pub type HttpTunnelRequest<'a> = RequestBuilder<'a, marker::Connect>;
@@ -27,9 +27,9 @@ mod marker {
     pub struct Connect;
 }
 
-impl<'a> HttpTunnelRequest<'a> {
+impl HttpTunnelRequest<'_> {
     /// Send the request and wait for response asynchronously.
-    pub async fn send(self) -> Result<Tunnel<HttpTunnel<'a>>, Error> {
+    pub async fn send(self) -> Result<Tunnel<HttpTunnel>, Error> {
         let res = self._send().await?;
 
         let status = res.status();
@@ -50,8 +50,8 @@ impl<'a> HttpTunnelRequest<'a> {
     }
 }
 
-pub struct HttpTunnel<'b> {
-    body: ResponseBody<'b>,
+pub struct HttpTunnel {
+    body: ResponseBody,
     io: TunnelIo,
 }
 
@@ -73,18 +73,7 @@ struct TunnelIoAdaptor {
     read_closed: bool,
 }
 
-impl Leak for HttpTunnel<'_> {
-    type Target = HttpTunnel<'static>;
-
-    fn leak(self) -> Self::Target {
-        HttpTunnel {
-            body: self.body.into_owned(),
-            io: self.io,
-        }
-    }
-}
-
-impl<M> Sink<M> for HttpTunnel<'_>
+impl<M> Sink<M> for HttpTunnel
 where
     M: AsRef<[u8]>,
 {
@@ -114,8 +103,6 @@ where
         let _io: &mut ConnectionExclusive = match inner.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => body.conn_mut(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut(),
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
                 while !inner.io.write_buf.chunk().is_empty() {
@@ -158,10 +145,6 @@ where
             ResponseBody::H1(ref mut body) => {
                 xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
             }
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
-            }
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
                 body.send_data(xitca_http::bytes::Bytes::new(), true)?;
@@ -172,7 +155,7 @@ where
     }
 }
 
-impl Stream for HttpTunnel<'_> {
+impl Stream for HttpTunnel {
     type Item = Result<Bytes, Error>;
 
     #[inline]
@@ -181,13 +164,11 @@ impl Stream for HttpTunnel<'_> {
     }
 }
 
-impl AsyncIo for HttpTunnel<'_> {
+impl AsyncIo for HttpTunnel {
     async fn ready(&mut self, _interest: Interest) -> io::Result<Ready> {
         match self.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => body.conn_mut().ready(_interest).await,
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().ready(_interest).await,
             #[cfg(feature = "http2")]
             ResponseBody::H2(_) => core::future::poll_fn(|cx| self.poll_ready(_interest, cx)).await,
             _ => Ok(Ready::ALL),
@@ -198,8 +179,6 @@ impl AsyncIo for HttpTunnel<'_> {
         match self.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => body.conn_mut().poll_ready(_interest, _cx),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().poll_ready(_interest, _cx),
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => self.io.poll_ready(body, _interest, _cx),
             _ => Poll::Ready(Ok(Ready::ALL)),
@@ -210,8 +189,6 @@ impl AsyncIo for HttpTunnel<'_> {
         match self.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref body) => body.conn().is_vectored_write(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref body) => body.conn().is_vectored_write(),
             _ => false,
         }
     }
@@ -221,8 +198,6 @@ impl AsyncIo for HttpTunnel<'_> {
         match this.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), _cx),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), _cx),
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => this.io.poll_shutdown(body, _cx),
             _ => Poll::Ready(Ok(())),
@@ -230,13 +205,11 @@ impl AsyncIo for HttpTunnel<'_> {
     }
 }
 
-impl io::Read for HttpTunnel<'_> {
+impl io::Read for HttpTunnel {
     fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
         match self.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => body.conn_mut().read(_buf),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().read(_buf),
             #[cfg(feature = "http2")]
             ResponseBody::H2(_) => self.io.read(_buf),
             _ => Ok(0),
@@ -244,13 +217,11 @@ impl io::Read for HttpTunnel<'_> {
     }
 }
 
-impl io::Write for HttpTunnel<'_> {
+impl io::Write for HttpTunnel {
     fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
         match self.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => body.conn_mut().write(_buf),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().write(_buf),
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => self.io.write(body, _buf),
             _ => Ok(0),
@@ -261,8 +232,6 @@ impl io::Write for HttpTunnel<'_> {
         match self.body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => body.conn_mut().flush(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(ref mut body) => body.conn_mut().flush(),
             #[cfg(feature = "http2")]
             ResponseBody::H2(_) => self.io.flush(),
             _ => Ok(()),

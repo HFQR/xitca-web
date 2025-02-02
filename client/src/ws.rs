@@ -3,7 +3,6 @@
 pub use http_ws::Message;
 
 use core::{
-    mem,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -19,7 +18,7 @@ use super::{
     error::{Error, ErrorResponse},
     http::{StatusCode, Version},
     request::RequestBuilder,
-    tunnel::{Leak, Tunnel, TunnelSink, TunnelStream},
+    tunnel::{Tunnel, TunnelSink, TunnelStream},
 };
 
 /// new type of [RequestBuilder] with extended functionality for websocket handling.
@@ -34,19 +33,19 @@ mod marker {
 /// A unified websocket that can be used as both sender/receiver.
 ///
 /// * This type can not handle concurrent message which means send always block receive and vice versa.
-pub type WebSocket<'a> = Tunnel<WebSocketTunnel<'a>>;
+pub type WebSocket = Tunnel<WebSocketTunnel>;
 
 /// sender part of websocket connection.
 /// [Sink] trait is used to asynchronously send message.
-pub type WebSocketSink<'a, 'b> = TunnelSink<'a, WebSocketTunnel<'b>>;
+pub type WebSocketSink<'a> = TunnelSink<'a, WebSocketTunnel>;
 
 /// sender part of websocket connection.
 /// [Stream] trait is used to asynchronously receive message.
-pub type WebSocketReader<'a, 'b> = TunnelStream<'a, WebSocketTunnel<'b>>;
+pub type WebSocketReader<'a> = TunnelStream<'a, WebSocketTunnel>;
 
-impl<'a> WsRequest<'a> {
+impl WsRequest<'_> {
     /// Send the request and wait for response asynchronously.
-    pub async fn send(mut self) -> Result<WebSocket<'a>, Error> {
+    pub async fn send(mut self) -> Result<WebSocket, Error> {
         http_ws::client_request_extend(&mut self.req);
 
         let res = self._send().await?;
@@ -75,7 +74,7 @@ impl<'a> WsRequest<'a> {
     }
 }
 
-impl WebSocket<'_> {
+impl WebSocket {
     /// Set max message size.
     ///
     /// By default max size is set to 64kB.
@@ -88,27 +87,13 @@ impl WebSocket<'_> {
     }
 }
 
-pub struct WebSocketTunnel<'b> {
+pub struct WebSocketTunnel {
     codec: Codec,
     send_buf: BytesMut,
-    recv_stream: RequestStream<ResponseBody<'b>>,
+    recv_stream: RequestStream<ResponseBody>,
 }
 
-impl Leak for WebSocketTunnel<'_> {
-    type Target = WebSocketTunnel<'static>;
-
-    fn leak(mut self) -> Self::Target {
-        let codec = mem::replace(self.recv_stream.codec_mut(), Codec::new());
-        let body = mem::replace(self.recv_stream.inner_mut(), ResponseBody::Eof).into_owned();
-        WebSocketTunnel {
-            codec: self.codec,
-            send_buf: self.send_buf,
-            recv_stream: RequestStream::with_codec(body, codec),
-        }
-    }
-}
-
-impl Sink<Message> for WebSocketTunnel<'_> {
+impl Sink<Message> for WebSocketTunnel {
     type Error = Error;
 
     fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -128,8 +113,6 @@ impl Sink<Message> for WebSocketTunnel<'_> {
         let _io: &mut ConnectionExclusive = match inner.recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => body.conn_mut(),
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(body) => body.conn_mut(),
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {
                 while !inner.send_buf.chunk().is_empty() {
@@ -175,10 +158,6 @@ impl Sink<Message> for WebSocketTunnel<'_> {
             ResponseBody::H1(body) => {
                 xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
             }
-            #[cfg(feature = "http1")]
-            ResponseBody::H1Owned(body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
-            }
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {
                 body.send_data(xitca_http::bytes::Bytes::new(), true)?;
@@ -189,7 +168,7 @@ impl Sink<Message> for WebSocketTunnel<'_> {
     }
 }
 
-impl Stream for WebSocketTunnel<'_> {
+impl Stream for WebSocketTunnel {
     type Item = Result<Message, Error>;
 
     #[inline]

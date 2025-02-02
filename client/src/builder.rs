@@ -111,7 +111,7 @@ impl ClientBuilder {
     pub fn middleware<F, S>(mut self, func: F) -> Self
     where
         F: FnOnce(HttpService) -> S,
-        S: for<'r, 'c> Service<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync + 'static,
+        S: for<'r, 'c> Service<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync + 'static,
     {
         self.service = Box::new(func(self.service));
         self

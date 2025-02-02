@@ -7,7 +7,7 @@ use xitca_http::{
     http::{
         self,
         const_header_name::PROTOCOL,
-        header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, TRANSFER_ENCODING, UPGRADE},
+        header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, HOST, TRANSFER_ENCODING, UPGRADE},
         method::Method,
     },
 };
@@ -24,7 +24,7 @@ pub(crate) async fn send<B, E>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
     req: http::Request<B>,
-) -> Result<http::Response<ResponseBody<'static>>, Error>
+) -> Result<http::Response<ResponseBody>, Error>
 where
     B: Stream<Item = Result<Bytes, E>>,
     BodyError: From<E>,
@@ -60,6 +60,9 @@ where
     req.headers_mut().remove(CONNECTION);
     req.headers_mut().remove(TRANSFER_ENCODING);
     req.headers_mut().remove(UPGRADE);
+
+    // remove host header if present, some web server may send 400 bad request if host header is present (like nginx)
+    req.headers_mut().remove(HOST);
 
     if !req.headers().contains_key(DATE) {
         let date = date.with_date(HeaderValue::from_bytes).unwrap();

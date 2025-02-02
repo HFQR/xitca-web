@@ -18,26 +18,22 @@ use pin_project_lite::pin_project;
 use crate::bytes::Bytes;
 
 #[allow(clippy::large_enum_variant)]
-pub enum ResponseBody<'c> {
+pub enum ResponseBody {
     #[cfg(feature = "http1")]
-    H1(crate::h1::body::ResponseBody<crate::connection::H1ConnectionWithKey<'c>>),
-    #[cfg(feature = "http1")]
-    H1Owned(crate::h1::body::ResponseBody<crate::connection::H1ConnectionWithoutKey>),
+    H1(crate::h1::body::ResponseBody),
     #[cfg(feature = "http2")]
     H2(crate::h2::body::ResponseBody),
     #[cfg(feature = "http3")]
     H3(crate::h3::body::ResponseBody),
     Eof,
-    Unknown(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + 'c>>),
+    Unknown(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + 'static>>),
 }
 
-impl fmt::Debug for ResponseBody<'_> {
+impl fmt::Debug for ResponseBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             #[cfg(feature = "http1")]
             Self::H1(_) => f.write_str("ResponseBody::H1(..)"),
-            #[cfg(feature = "http1")]
-            Self::H1Owned(_) => f.write_str("ResponseBody::H1Owned(..)"),
             #[cfg(feature = "http2")]
             Self::H2(_) => f.write_str("ResponseBody::H2(..)"),
             #[cfg(feature = "http3")]
@@ -48,22 +44,7 @@ impl fmt::Debug for ResponseBody<'_> {
     }
 }
 
-impl ResponseBody<'_> {
-    pub(crate) fn into_owned(self) -> ResponseBody<'static> {
-        match self {
-            #[cfg(feature = "http1")]
-            Self::H1(body) => ResponseBody::H1Owned(body.map_conn(Into::into)),
-            #[cfg(feature = "http1")]
-            Self::H1Owned(body) => ResponseBody::H1Owned(body),
-            #[cfg(feature = "http2")]
-            Self::H2(body) => ResponseBody::H2(body),
-            #[cfg(feature = "http3")]
-            Self::H3(body) => ResponseBody::H3(body),
-            Self::Eof => ResponseBody::Eof,
-            Self::Unknown(_) => unimplemented!(),
-        }
-    }
-
+impl ResponseBody {
     pub(crate) fn destroy_on_drop(&mut self) {
         #[cfg(feature = "http1")]
         if let Self::H1(ref mut body) = *self {
@@ -81,15 +62,13 @@ impl ResponseBody<'_> {
     }
 }
 
-impl Stream for ResponseBody<'_> {
+impl Stream for ResponseBody {
     type Item = Result<Bytes, BodyError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             #[cfg(feature = "http1")]
             Self::H1(body) => Pin::new(body).poll_next(cx),
-            #[cfg(feature = "http1")]
-            Self::H1Owned(body) => Pin::new(body).poll_next(cx),
             #[cfg(feature = "http2")]
             Self::H2(body) => Pin::new(body).poll_next(cx),
             #[cfg(feature = "http3")]

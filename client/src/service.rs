@@ -72,13 +72,13 @@ pub struct ServiceRequest<'r, 'c> {
 
 /// type alias for object safe wrapper of type implement [Service] trait.
 pub type HttpService =
-    Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response<'c>, Error = Error> + Send + Sync>;
+    Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync>;
 
 pub(crate) fn base_service() -> HttpService {
     struct HttpService;
 
     impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for HttpService {
-        type Response = Response<'c>;
+        type Response = Response;
         type Error = Error;
 
         async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
@@ -261,4 +261,73 @@ pub(crate) fn base_service() -> HttpService {
     }
 
     Box::new(HttpService)
+}
+
+#[cfg(test)]
+pub(crate) use test::mock_service;
+
+#[cfg(test)]
+mod test {
+    use core::time::Duration;
+
+    use std::sync::Arc;
+
+    use crate::{
+        body::{BoxBody, ResponseBody},
+        client::Client,
+        error::Error,
+        http::{self, Request},
+        response::Response,
+        service::{Service, ServiceRequest},
+    };
+
+    // http service and it's handle to make http service where a request and it's server side handler logic
+    // is mocked on client side.
+    pub(crate) fn mock_service() -> (HttpServiceMockHandle, HttpServiceMock) {
+        (HttpServiceMockHandle(Client::new()), HttpServiceMock { _p: () })
+    }
+
+    pub(crate) struct HttpServiceMock {
+        _p: (),
+    }
+
+    pub(crate) struct HttpServiceMockHandle(Client);
+
+    type HandlerFn = Arc<dyn Fn(Request<BoxBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync>;
+
+    impl HttpServiceMockHandle {
+        /// compose a service request with given http request and it's mocked server side handler function
+        pub(crate) fn mock<'r, 'c>(
+            &'c self,
+            req: &'r mut Request<BoxBody>,
+            handler: impl Fn(Request<BoxBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync + 'static,
+        ) -> ServiceRequest<'r, 'c> {
+            req.extensions_mut().insert(Arc::new(handler) as HandlerFn);
+            ServiceRequest {
+                req,
+                client: &self.0,
+                timeout: self.0.timeout_config.request_timeout,
+            }
+        }
+    }
+
+    impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for HttpServiceMock {
+        type Response = Response;
+        type Error = Error;
+
+        async fn call(
+            &self,
+            ServiceRequest { req, timeout, .. }: ServiceRequest<'r, 'c>,
+        ) -> Result<Self::Response, Self::Error> {
+            let handler = req.extensions().get::<HandlerFn>().unwrap().clone();
+
+            let res = handler(core::mem::take(req))?;
+
+            Ok(Response::new(
+                res,
+                Box::pin(tokio::time::sleep(Duration::from_secs(0))),
+                timeout,
+            ))
+        }
+    }
 }

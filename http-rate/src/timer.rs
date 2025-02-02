@@ -141,8 +141,7 @@ mod test {
     #[test]
     fn fake_clock_parallel_advances() {
         let clock = Arc::new(FakeRelativeClock::default());
-        let threads = core::iter::repeat(())
-            .take(10)
+        let threads = core::iter::repeat_n((), 10)
             .map(move |_| {
                 let clock = Arc::clone(&clock);
                 std::thread::spawn(move || {

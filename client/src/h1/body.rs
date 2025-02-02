@@ -1,6 +1,5 @@
 use std::{
     io,
-    ops::DerefMut,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -11,44 +10,36 @@ use xitca_http::{
     error::BodyError,
     h1::proto::codec::{ChunkResult, TransferCoding},
 };
-use xitca_io::io::{AsyncIo, Interest};
+use xitca_io::io::Interest;
 
-pub struct ResponseBody<C> {
-    conn: C,
+use crate::{
+    connection::{ConnectionExclusive, ConnectionKey},
+    pool::exclusive::Conn,
+};
+
+pub type Connection = Conn<ConnectionKey, ConnectionExclusive>;
+
+pub struct ResponseBody {
+    conn: Connection,
     buf: BytesMut,
     decoder: TransferCoding,
 }
 
-impl<C> ResponseBody<C> {
-    pub(crate) fn new(conn: C, buf: BytesMut, decoder: TransferCoding) -> Self {
+impl ResponseBody {
+    pub(crate) fn new(conn: Connection, buf: BytesMut, decoder: TransferCoding) -> Self {
         Self { conn, buf, decoder }
     }
 
-    pub(crate) fn conn(&self) -> &C {
+    pub(crate) fn conn(&self) -> &Connection {
         &self.conn
     }
 
-    pub(crate) fn conn_mut(&mut self) -> &mut C {
+    pub(crate) fn conn_mut(&mut self) -> &mut Connection {
         &mut self.conn
-    }
-
-    pub(crate) fn map_conn<F, O>(self, func: F) -> ResponseBody<O>
-    where
-        F: FnOnce(C) -> O,
-    {
-        ResponseBody {
-            conn: func(self.conn),
-            buf: self.buf,
-            decoder: self.decoder,
-        }
     }
 }
 
-impl<C> Stream for ResponseBody<C>
-where
-    C: DerefMut + Unpin,
-    C::Target: AsyncIo + Sized,
-{
+impl Stream for ResponseBody {
     type Item = Result<Bytes, BodyError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -77,6 +68,14 @@ where
                 ChunkResult::Err(e) => return Poll::Ready(Some(Err(e.into()))),
                 _ => return Poll::Ready(None),
             }
+        }
+    }
+}
+
+impl Drop for ResponseBody {
+    fn drop(&mut self) {
+        if !self.decoder.is_eof() {
+            self.conn.destroy_on_drop()
         }
     }
 }

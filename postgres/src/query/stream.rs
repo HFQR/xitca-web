@@ -43,7 +43,7 @@ impl<C, M> GenericRowStream<C, M> {
 /// A stream of table rows.
 pub type RowStream<'a> = GenericRowStream<&'a [Column], marker::Typed>;
 
-impl<'a> AsyncLendingIterator for RowStream<'a> {
+impl AsyncLendingIterator for RowStream<'_> {
     type Ok<'i>
         = Row<'i>
     where

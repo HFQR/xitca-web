@@ -110,8 +110,8 @@ impl Server {
             listeners
                 .into_iter()
                 .flat_map(|(name, listeners)| {
-                    listeners.into_iter().map(move |mut l| {
-                        let l = l.as_listener()?;
+                    listeners.into_iter().map(move |l| {
+                        let l = l()?;
                         Ok((name.to_owned(), Arc::new(l)))
                     })
                 })
