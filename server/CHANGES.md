@@ -1,6 +1,6 @@
 # unreleased 0.5.0
-
 ## Change
+- rename `net::AsListener` trait to `IntoListener`. improve it's interface and reduce possibility of panicing
 - update `xitca-service` to `0.3.0`
 
 # 0.4.0

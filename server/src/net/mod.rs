@@ -8,47 +8,48 @@ use xitca_io::net::{Listener, TcpListener};
 
 use tracing::info;
 
-/// Helper trait for convert listener types to tokio types.
-/// This is to delay the conversion and make it happen in server thread(s).
-/// Otherwise it could panic.
-pub trait AsListener: Send {
-    fn as_listener(&mut self) -> io::Result<Listener>;
+/// Helper trait for converting listener types and register them to xitca-server
+/// This is to delay the conversion and make the process happen in server thread(s).
+/// Otherwise it could panic due runtime locality.
+pub trait IntoListener: Send {
+    fn into_listener(self) -> io::Result<Listener>;
 }
 
-impl AsListener for Option<net::TcpListener> {
-    fn as_listener(&mut self) -> io::Result<Listener> {
-        let this = self.take().unwrap();
-        this.set_nonblocking(true)?;
+impl IntoListener for TcpListener {
+    fn into_listener(self) -> io::Result<Listener> {
+        info!("Started Tcp listening on: {:?}", self.local_addr().ok());
+        Ok(Listener::Tcp(self))
+    }
+}
 
-        let tcp = TcpListener::from_std(this)?;
-
-        info!("Started Tcp listening on: {:?}", tcp.local_addr().ok());
-
-        Ok(Listener::Tcp(tcp))
+impl IntoListener for net::TcpListener {
+    fn into_listener(self) -> io::Result<Listener> {
+        self.set_nonblocking(true)?;
+        TcpListener::from_std(self)?.into_listener()
     }
 }
 
 #[cfg(unix)]
-impl AsListener for Option<std::os::unix::net::UnixListener> {
-    fn as_listener(&mut self) -> io::Result<Listener> {
-        let this = self.take().unwrap();
-        this.set_nonblocking(true)?;
+impl IntoListener for UnixListener {
+    fn into_listener(self) -> io::Result<Listener> {
+        info!("Started Unix listening on: {:?}", self.local_addr().ok());
+        Ok(Listener::Unix(self))
+    }
+}
 
-        let unix = UnixListener::from_std(this)?;
-
-        info!("Started Unix listening on: {:?}", unix.local_addr().ok());
-
-        Ok(Listener::Unix(unix))
+#[cfg(unix)]
+impl IntoListener for std::os::unix::net::UnixListener {
+    fn into_listener(self) -> io::Result<Listener> {
+        self.set_nonblocking(true)?;
+        UnixListener::from_std(self)?.into_listener()
     }
 }
 
 #[cfg(feature = "quic")]
-impl AsListener for Option<QuicListenerBuilder> {
-    fn as_listener(&mut self) -> io::Result<Listener> {
-        let udp = self.take().unwrap().build()?;
-
+impl IntoListener for QuicListenerBuilder {
+    fn into_listener(self) -> io::Result<Listener> {
+        let udp = self.build()?;
         info!("Started Udp listening on: {:?}", udp.endpoint().local_addr().ok());
-
         Ok(Listener::Udp(udp))
     }
 }
