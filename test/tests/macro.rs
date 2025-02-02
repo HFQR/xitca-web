@@ -135,3 +135,27 @@ impl MyError {
         WebResponse::builder().status(*status).body(Default::default()).unwrap()
     }
 }
+
+#[tokio::test]
+async fn web_handler() {
+    #[xitca_web::codegen::route("/", method = get)]
+    async fn test(_: &WebContext<'_>) -> &'static str {
+        ""
+    }
+
+    #[xitca_web::codegen::route("/2", method = get)]
+    async fn test2(_: &WebContext<'_, ()>) -> &'static str {
+        ""
+    }
+
+    #[xitca_web::codegen::route("/3", method = get)]
+    async fn test3(_: &WebContext<'_, (), xitca_web::body::RequestBody>) -> &'static str {
+        ""
+    }
+
+    let _ = xitca_web::App::new()
+        .at_typed(test)
+        .at_typed(test2)
+        .at_typed(test3)
+        .finish();
+}

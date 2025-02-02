@@ -17,7 +17,7 @@ xitca-io = "0.4.1"
 xitca-server = { version = "0.5", features = ["quic"] }
 xitca-service = "0.3.0"
 xitca-unsafe-collection = "0.2"
-xitca-web = "0.7"
+xitca-web = { version = "0.7", features = ["codegen"] }
 
 http-ws = { version = "0.4", features = ["stream"] }
 

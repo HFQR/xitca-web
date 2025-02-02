@@ -80,6 +80,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
     enum State<'a> {
         Partial(&'a Type),
         Full(&'a Type),
+        Default,
     }
 
     let mut state = Vec::new();
@@ -114,13 +115,24 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                         let PathArguments::AngleBracketed(ref arg) = path.arguments else {
                             return Err(Error::new(path.span(), format!("expect &{ident}<'_, _>")));
                         };
-                        match arg.args.last() {
+                        let mut args = arg.args.iter();
+
+                        match args.next() {
+                            Some(GenericArgument::Lifetime(..)) => {}
+                            _ => return Err(Error::new(ty.span(), "expect lifetime param '_")),
+                        }
+
+                        match args.next() {
                             Some(GenericArgument::Type(ref ty)) => {
                                 state.push(State::Full(ty));
-                                break;
+                            }
+                            None => {
+                                state.push(State::Default);
                             }
                             _ => return Err(Error::new(ty.span(), "expect state type.")),
-                        }
+                        };
+
+                        break;
                     }
                     _ => {}
                 }
@@ -151,6 +163,11 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                     where_clause = quote! {};
                     state_ident = quote! { #ty };
                     break;
+                }
+                State::Default => {
+                    generic_arg = quote! {};
+                    where_clause = quote! {};
+                    state_ident = quote! {};
                 }
             }
         }

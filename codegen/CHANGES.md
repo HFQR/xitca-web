@@ -1,4 +1,8 @@
 # unreleased 0.4.0
+## Fix
+- fix `xitca_web::WebContext` parsing when generic body type is presented.
+
+## Change
 - macro is refactored to target xitca-web `0.7.0`
 
 # 0.3.1
