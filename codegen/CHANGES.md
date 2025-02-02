@@ -1,7 +1,10 @@
 # unreleased 0.4.0
 ## Change
-- bump MSRV to `1.85` and Rust edition 2024
 - macro is refactored to target xitca-web `0.7.0`
+- bump MSRV to `1.85` and Rust edition 2024
+
+## Fix
+- fix `xitca_web::WebContext` parsing when generic body type is presented.
 
 # 0.3.1
 ## Fix
