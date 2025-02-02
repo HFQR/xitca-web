@@ -183,7 +183,6 @@ impl Builder {
         St: TryFrom<Stream> + 'static,
     {
         let listener = net::TcpListener::bind(addr)?;
-        listener.set_nonblocking(true)?;
 
         let socket = socket2::SockRef::from(&listener);
         socket.set_reuse_address(true)?;

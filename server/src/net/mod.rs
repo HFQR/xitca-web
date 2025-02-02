@@ -9,8 +9,7 @@ use xitca_io::net::{Listener, TcpListener};
 use tracing::info;
 
 /// Helper trait for converting listener types and register them to xitca-server
-/// This is to delay the conversion and make the process happen in server thread(s).
-/// Otherwise it could panic due runtime locality.
+/// By delay the conversion and make the process happen in server thread(s) it avoid possible panic due to runtime locality.
 pub trait IntoListener: Send {
     fn into_listener(self) -> io::Result<Listener>;
 }
