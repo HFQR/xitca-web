@@ -124,7 +124,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                         }
 
                         match args.next() {
-                            Some(GenericArgument::Type(ref ty)) => {
+                            Some(GenericArgument::Type(ty)) => {
                                 state.push(State::Full(ty));
                             }
                             None => {
