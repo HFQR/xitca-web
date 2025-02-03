@@ -5,7 +5,6 @@ use core::{
     convert::Infallible,
     fmt,
     future::{Future, ready},
-    ops::AsyncFn,
     pin::Pin,
 };
 

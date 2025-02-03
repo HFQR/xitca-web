@@ -1,4 +1,4 @@
-use core::{mem::MaybeUninit, ops::AsyncFn};
+use core::mem::MaybeUninit;
 
 use std::{io, rc::Rc};
 

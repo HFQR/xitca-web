@@ -14,7 +14,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest }
           - { name: macOS, os: macos-latest }
         version:
-          - 1.79
+          - beta
     name: http check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
@@ -98,7 +98,7 @@ jobs:
           - { name: Linux, os: ubuntu-latest }
           - { name: macOS, os: macos-latest }
         version:
-          - 1.79
+          - beta
     name: client check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 

@@ -282,11 +282,14 @@ where
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
         let WebContext { req, body, ctx } = ctx;
-        crate::service::object::ServiceObject::call(&self.0, WebContext {
-            req,
-            body,
-            ctx: &Request { inner: ctx as _ },
-        })
+        crate::service::object::ServiceObject::call(
+            &self.0,
+            WebContext {
+                req,
+                body,
+                ctx: &Request { inner: ctx as _ },
+            },
+        )
         .await
     }
 }

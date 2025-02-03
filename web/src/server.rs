@@ -6,7 +6,7 @@ use xitca_http::{
     body::RequestBody,
     config::{DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT, HttpServiceConfig},
 };
-use xitca_server::{net::IntoListener, Builder, ServerFuture};
+use xitca_server::{Builder, ServerFuture, net::IntoListener};
 use xitca_service::ServiceExt;
 
 use crate::{

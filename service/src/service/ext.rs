@@ -1,5 +1,3 @@
-use core::ops::AsyncFn;
-
 use crate::{
     middleware,
     pipeline::{PipelineT, marker},

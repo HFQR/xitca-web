@@ -115,7 +115,7 @@ pub(crate) fn route(attr: Args, input: ItemFn) -> Result<TokenStream, Error> {
                         let PathArguments::AngleBracketed(ref arg) = path.arguments else {
                             return Err(Error::new(path.span(), format!("expect &{ident}<'_, _>")));
                         };
-                      
+
                         let mut args = arg.args.iter();
 
                         match args.next() {
