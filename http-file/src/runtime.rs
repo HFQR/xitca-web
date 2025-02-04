@@ -58,7 +58,10 @@ pub(crate) use tokio_impl::TokioFs;
 
 #[cfg(feature = "tokio")]
 mod tokio_impl {
-    use core::pin::Pin;
+    use core::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
 
     use tokio::{
         fs::File,
@@ -69,16 +72,28 @@ mod tokio_impl {
 
     type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+    pub struct OpenFuture<F> {
+        handle: tokio::task::JoinHandle<F>,
+    }
+
+    impl<F> Future for OpenFuture<F> {
+        type Output = F;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            Pin::new(&mut self.get_mut().handle).poll(cx).map(|res| res.unwrap())
+        }
+    }
+
     #[derive(Clone)]
     pub struct TokioFs;
 
     impl AsyncFs for TokioFs {
         type File = TokioFile;
-        type OpenFuture = BoxFuture<'static, io::Result<Self::File>>;
+        type OpenFuture = OpenFuture<io::Result<Self::File>>;
 
         fn open(&self, path: PathBuf) -> Self::OpenFuture {
-            Box::pin(async {
-                tokio::task::spawn_blocking(move || {
+            OpenFuture {
+                handle: tokio::task::spawn_blocking(move || {
                     let file = std::fs::File::open(path)?;
                     let meta = file.metadata()?;
                     let modified_time = meta.modified().ok();
@@ -88,10 +103,8 @@ mod tokio_impl {
                         modified_time,
                         len,
                     })
-                })
-                .await
-                .unwrap()
-            })
+                }),
+            }
         }
     }
 
