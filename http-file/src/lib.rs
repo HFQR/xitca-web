@@ -1,7 +1,5 @@
 //! local file serving with http.
 
-#![feature(impl_trait_in_assoc_type)]
-
 pub mod runtime;
 
 mod buf;
