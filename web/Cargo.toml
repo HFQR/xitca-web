@@ -55,7 +55,7 @@ file = ["file-raw", "http-file/default"]
 # static file serving with io-uring 
 file-io-uring = ["io-uring", "file", "http-file/tokio-uring"]
 # static file serving without default file system
-file-raw = ["http-file", "nightly"]
+file-raw = ["http-file"]
 
 # rate-limit middleware
 rate-limit = ["http-rate"]

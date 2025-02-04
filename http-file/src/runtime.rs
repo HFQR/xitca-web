@@ -58,6 +58,11 @@ pub(crate) use tokio_impl::TokioFs;
 
 #[cfg(feature = "tokio")]
 mod tokio_impl {
+    use core::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
     use tokio::{
         fs::File,
         io::{AsyncReadExt, AsyncSeekExt},
@@ -65,16 +70,30 @@ mod tokio_impl {
 
     use super::*;
 
+    type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+    pub struct OpenFuture<F> {
+        handle: tokio::task::JoinHandle<F>,
+    }
+
+    impl<F> Future for OpenFuture<F> {
+        type Output = F;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            Pin::new(&mut self.get_mut().handle).poll(cx).map(|res| res.unwrap())
+        }
+    }
+
     #[derive(Clone)]
     pub struct TokioFs;
 
     impl AsyncFs for TokioFs {
         type File = TokioFile;
-        type OpenFuture = impl Future<Output = io::Result<Self::File>> + Send;
+        type OpenFuture = OpenFuture<io::Result<Self::File>>;
 
         fn open(&self, path: PathBuf) -> Self::OpenFuture {
-            async {
-                tokio::task::spawn_blocking(move || {
+            OpenFuture {
+                handle: tokio::task::spawn_blocking(move || {
                     let file = std::fs::File::open(path)?;
                     let meta = file.metadata()?;
                     let modified_time = meta.modified().ok();
@@ -84,9 +103,7 @@ mod tokio_impl {
                         modified_time,
                         len,
                     })
-                })
-                .await
-                .unwrap()
+                }),
             }
         }
     }
@@ -109,25 +126,25 @@ mod tokio_impl {
 
     impl ChunkRead for TokioFile {
         type SeekFuture<'f>
-            = impl Future<Output = io::Result<()>> + Send + 'f
+            = BoxFuture<'f, io::Result<()>>
         where
             Self: 'f;
 
-        type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>> + Send;
+        type Future = BoxFuture<'static, io::Result<Option<(Self, BytesMut, usize)>>>;
 
         fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_> {
-            async move { self.file.seek(pos).await.map(|_| ()) }
+            Box::pin(async move { self.file.seek(pos).await.map(|_| ()) })
         }
 
         fn next(mut self, mut buf: BytesMut) -> Self::Future {
-            async {
+            Box::pin(async {
                 let n = self.file.read_buf(&mut buf).await?;
                 if n == 0 {
                     Ok(None)
                 } else {
                     Ok(Some((self, buf, n)))
                 }
-            }
+            })
         }
     }
 }
@@ -137,19 +154,26 @@ pub(crate) use tokio_uring_impl::TokioUringFs;
 
 #[cfg(feature = "tokio-uring")]
 mod tokio_uring_impl {
+    use core::{
+        future::{ready, Ready},
+        pin::Pin,
+    };
+
     use tokio_uring::fs::File;
 
     use super::*;
+
+    type BoxFuture<'f, T> = Pin<Box<dyn Future<Output = T> + 'f>>;
 
     #[derive(Clone)]
     pub struct TokioUringFs;
 
     impl AsyncFs for TokioUringFs {
         type File = TokioUringFile;
-        type OpenFuture = impl Future<Output = io::Result<Self::File>>;
+        type OpenFuture = BoxFuture<'static, io::Result<Self::File>>;
 
         fn open(&self, path: PathBuf) -> Self::OpenFuture {
-            async {
+            Box::pin(async {
                 let file = File::open(path).await?;
 
                 // SAFETY: fd is borrowed and lives longer than the unsafe block
@@ -173,7 +197,7 @@ mod tokio_uring_impl {
                     modified_time,
                     len,
                 })
-            }
+            })
         }
     }
 
@@ -196,22 +220,22 @@ mod tokio_uring_impl {
 
     impl ChunkRead for TokioUringFile {
         type SeekFuture<'f>
-            = impl Future<Output = io::Result<()>> + 'f
+            = Ready<io::Result<()>>
         where
             Self: 'f;
 
-        type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>>;
+        type Future = BoxFuture<'static, io::Result<Option<(Self, BytesMut, usize)>>>;
 
         fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_> {
             let SeekFrom::Start(pos) = pos else {
                 unreachable!("ChunkRead::seek only accept pos as SeekFrom::Start variant")
             };
             self.pos += pos;
-            async { Ok(()) }
+            ready(Ok(()))
         }
 
         fn next(mut self, buf: BytesMut) -> Self::Future {
-            async {
+            Box::pin(async {
                 let (res, buf) = self.file.read_at(buf, self.pos).await;
                 let n = res?;
                 if n == 0 {
@@ -220,7 +244,7 @@ mod tokio_uring_impl {
                     self.pos += n as u64;
                     Ok(Some((self, buf, n)))
                 }
-            }
+            })
         }
     }
 }
