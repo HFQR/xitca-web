@@ -63,6 +63,7 @@ pub(crate) async fn run<
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     service: &'a S,
     date: &'a D,
+    is_tls: bool,
 ) -> Result<(), Error<S::Error, BE>>
 where
     S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
@@ -77,7 +78,7 @@ where
         EitherBuf::Right(WriteBuf::<WRITE_BUF_LIMIT>::default())
     };
 
-    Dispatcher::new(io, addr, timer, config, service, date, write_buf)
+    Dispatcher::new(io, addr, timer, config, service, date, write_buf, is_tls)
         .run()
         .await
 }
@@ -166,6 +167,7 @@ where
     W: H1BufWrite,
     D: DateTime,
 {
+    #[allow(clippy::too_many_arguments)]
     fn new<const WRITE_BUF_LIMIT: usize>(
         io: &'a mut St,
         addr: SocketAddr,
@@ -174,11 +176,12 @@ where
         service: &'a S,
         date: &'a D,
         write_buf: W,
+        is_tls: bool,
     ) -> Self {
         Self {
             io: BufferedIo::new(io, write_buf),
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
-            ctx: Context::with_addr(addr, date),
+            ctx: Context::with_addr(addr, date, is_tls),
             service,
             _phantom: PhantomData,
         }

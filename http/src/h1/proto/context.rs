@@ -11,6 +11,7 @@ pub struct Context<'a, D, const HEADER_LIMIT: usize> {
     // http extensions reused by next request.
     exts: Extensions,
     date: &'a D,
+    pub(crate) is_tls: bool,
 }
 
 // A set of state for current request that are used after request's ownership is passed
@@ -49,21 +50,22 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     ///
     /// [DateTime]: crate::date::DateTime
     #[inline]
-    pub fn new(date: &'a D) -> Self {
-        Self::with_addr(crate::unspecified_socket_addr(), date)
+    pub fn new(date: &'a D, is_tls: bool) -> Self {
+        Self::with_addr(crate::unspecified_socket_addr(), date, is_tls)
     }
 
     /// Context is constructed with [SocketAddr] and reference of certain type that impl [DateTime] trait.
     ///
     /// [DateTime]: crate::date::DateTime
     #[inline]
-    pub fn with_addr(addr: SocketAddr, date: &'a D) -> Self {
+    pub fn with_addr(addr: SocketAddr, date: &'a D, is_tls: bool) -> Self {
         Self {
             addr,
             state: ContextState::new(),
             header: None,
             exts: Extensions::new(),
             date,
+            is_tls,
         }
     }
 

@@ -1,5 +1,6 @@
 use core::mem::MaybeUninit;
 
+use http::uri::{Authority, Scheme};
 use httparse::Status;
 
 use crate::{
@@ -71,7 +72,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 // split the headers from buffer.
                 let slice = buf.split_to(len).freeze();
 
-                let uri = Uri::from_maybe_shared(slice.slice(path_head..path_head + path_len))?;
+                let mut uri = Uri::from_maybe_shared(slice.slice(path_head..path_head + path_len))?.into_parts();
 
                 // pop a cached headermap or construct a new one.
                 let mut headers = self.take_headers();
@@ -86,6 +87,25 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 let mut req = Request::new(RequestExt::from_parts((), ext));
 
                 let extensions = self.take_extensions();
+
+                // Try to set authority from host header if not present in request path
+                if uri.authority.is_none() {
+                    // @TODO if it's a tls connection we could set the sni server name as authority instead
+                    if let Some(host) = headers.get(http::header::HOST) {
+                        uri.authority = Some(Authority::try_from(host.as_bytes())?);
+                    }
+                }
+
+                // If authority is set, this will set the correct scheme depending on the tls acceptor used in the service.
+                if uri.authority.is_some() && uri.scheme.is_none() {
+                    uri.scheme = if self.is_tls {
+                        Some(Scheme::HTTPS)
+                    } else {
+                        Some(Scheme::HTTP)
+                    };
+                }
+
+                let uri = Uri::from_parts(uri)?;
 
                 *req.method_mut() = method;
                 *req.version_mut() = version;
@@ -173,7 +193,7 @@ mod test {
 
     #[test]
     fn connection_multiple_value() {
-        let mut ctx = Context::<_, 4>::new(&());
+        let mut ctx = Context::<_, 4>::new(&(), false);
 
         let head = b"\
                 GET / HTTP/1.1\r\n\
@@ -211,7 +231,7 @@ mod test {
 
     #[test]
     fn transfer_encoding() {
-        let mut ctx = Context::<_, 4>::new(&());
+        let mut ctx = Context::<_, 4>::new(&(), false);
 
         let head = b"\
                 GET / HTTP/1.1\r\n\
@@ -310,5 +330,34 @@ mod test {
             matches!(decoder, TransferCoding::DecodeChunked(..)),
             "transfer coding is not decoded to chunked"
         );
+    }
+
+    #[test]
+    fn test_host_with_scheme() {
+        let mut ctx = Context::<_, 4>::new(&(), true);
+
+        let head = b"\
+                GET / HTTP/1.1\r\n\
+                Host: example.com\r\n\
+                \r\n\
+                ";
+        let mut buf = BytesMut::from(&head[..]);
+
+        let (req, _) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+
+        assert_eq!(req.uri().scheme(), Some(&Scheme::HTTPS));
+        assert_eq!(req.uri().authority(), Some(&Authority::from_static("example.com")));
+        assert_eq!(req.headers().get(http::header::HOST).unwrap(), "example.com");
+
+        let head = b"\
+                GET / HTTP/1.1\r\n\
+                \r\n\
+                ";
+        let mut buf = BytesMut::from(&head[..]);
+
+        let (req, _) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
+
+        assert_eq!(req.uri().scheme(), None);
+        assert_eq!(req.uri().authority(), None);
     }
 }
