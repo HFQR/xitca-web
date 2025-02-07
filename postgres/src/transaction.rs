@@ -15,7 +15,7 @@ use super::{
     BoxedFuture,
 };
 
-pub use builder::TransactionBuilder;
+pub use builder::{IsolationLevel, TransactionBuilder};
 pub use portal::Portal;
 
 pub struct Transaction<'a, C>

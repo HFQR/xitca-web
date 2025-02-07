@@ -1,10 +1,13 @@
 # unreleased 0.3.0
+## Add
+- export `transaction::builder::IsolationLevel` for building transaction with specific level of isolation
+
 ## Remove 
 - remove `ExecuteMut` trait. It's role is replaced by `impl Execute<&mut C>`
 - remove `error::AuthenticationError` type. It's error condition is covered by `error::ConfigError`
 
 ## Change
-- change `pool::Pool`'s dead connection detection lifecycle.
+- change `pool::Pool`'s dead connection detection lifecycle
 
 # 0.2.1
 ## Fix
