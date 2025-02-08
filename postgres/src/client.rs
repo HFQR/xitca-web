@@ -22,7 +22,7 @@ use super::{
     query::Query,
     session::Session,
     statement::Statement,
-    transaction::Transaction,
+    transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
 };
 
@@ -128,7 +128,7 @@ impl Client {
     /// start a transaction
     #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
-        Transaction::<Self>::builder().begin(self)
+        TransactionBuilder::new().begin(self)
     }
 
     /// Executes a `COPY FROM STDIN` statement, returning a sink used to write the copy data.

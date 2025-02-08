@@ -8,7 +8,7 @@ use xitca_postgres::{
     dev::{ClientBorrowMut, Encode, Prepare, Query, Response},
     error::{DriverDown, Error},
     iter::AsyncLendingIterator,
-    transaction::Transaction,
+    transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
     Client, Config, Execute, Postgres,
 };
@@ -103,7 +103,7 @@ impl ClientBorrowMut for PoolConnection {
 impl PoolConnection {
     // with above traits implements you can begin a transaction with your client new type
     pub async fn transaction(&mut self) -> Result<Transaction<Self>, Error> {
-        Transaction::<Self>::builder().begin(self).await
+        TransactionBuilder::new().begin(self).await
     }
 }
 

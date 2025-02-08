@@ -15,7 +15,7 @@ use super::{
     BoxedFuture,
 };
 
-pub use builder::TransactionBuilder;
+pub use builder::{IsolationLevel, TransactionBuilder};
 pub use portal::Portal;
 
 pub struct Transaction<'a, C>
@@ -93,10 +93,6 @@ impl<C> Transaction<'_, C>
 where
     C: Prepare + ClientBorrowMut,
 {
-    pub fn builder() -> TransactionBuilder {
-        TransactionBuilder::new()
-    }
-
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
     ///
     /// Portals only last for the duration of the transaction in which they are created, and can only be used on the

@@ -14,7 +14,7 @@ use futures_core::task::__internal::AtomicWaker;
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::{
     bytes::{Buf, BufRead, BytesMut},
-    io::{AsyncIo, Interest},
+    io::{AsyncIo, Interest, Ready},
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
@@ -194,36 +194,41 @@ where
                 return Ok(Some(msg));
             }
 
-            let ready = match (&mut self.read_state, &mut self.write_state) {
+            enum InterestOrReady {
+                Interest(Interest),
+                Ready(Ready),
+            }
+
+            let state = match (&mut self.read_state, &mut self.write_state) {
                 (ReadState::WantRead, WriteState::Waiting) => {
                     match self.shared_state.wait().select(self.io.ready(Interest::READABLE)).await {
                         SelectOutput::A(WaitState::WantWrite) => {
                             self.write_state = WriteState::WantWrite;
-                            self.io.ready(INTEREST_READ_WRITE).await?
+                            InterestOrReady::Interest(INTEREST_READ_WRITE)
                         }
                         SelectOutput::A(WaitState::WantClose) => {
                             self.write_state = WriteState::Closed(None);
                             continue;
                         }
-                        SelectOutput::B(ready) => ready?,
+                        SelectOutput::B(ready) => InterestOrReady::Ready(ready?),
                     }
                 }
-                (ReadState::WantRead, WriteState::WantWrite) => self.io.ready(INTEREST_READ_WRITE).await?,
+                (ReadState::WantRead, WriteState::WantWrite) => InterestOrReady::Interest(INTEREST_READ_WRITE),
                 (ReadState::WantRead, WriteState::WantFlush) => {
                     // before flush io do a quick buffer check and go into write io state if possible.
                     if !self.shared_state.guarded.lock().unwrap().buf.is_empty() {
                         self.write_state = WriteState::WantWrite;
                     }
-                    self.io.ready(INTEREST_READ_WRITE).await?
+                    InterestOrReady::Interest(INTEREST_READ_WRITE)
                 }
-                (ReadState::WantRead, WriteState::Closed(_)) => self.io.ready(Interest::READABLE).await?,
+                (ReadState::WantRead, WriteState::Closed(_)) => InterestOrReady::Interest(Interest::READABLE),
                 (ReadState::Closed(_), WriteState::WantFlush | WriteState::WantWrite) => {
-                    self.io.ready(Interest::WRITABLE).await?
+                    InterestOrReady::Interest(Interest::WRITABLE)
                 }
                 (ReadState::Closed(_), WriteState::Waiting) => match self.shared_state.wait().await {
                     WaitState::WantWrite => {
                         self.write_state = WriteState::WantWrite;
-                        self.io.ready(Interest::WRITABLE).await?
+                        InterestOrReady::Interest(Interest::WRITABLE)
                     }
                     WaitState::WantClose => {
                         self.write_state = WriteState::Closed(None);
@@ -231,12 +236,17 @@ where
                     }
                 },
                 (ReadState::Closed(None), WriteState::Closed(None)) => {
-                    poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
+                    Box::pin(poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))).await?;
                     return Ok(None);
                 }
                 (ReadState::Closed(read_err), WriteState::Closed(write_err)) => {
-                    return Err(Error::driver_io(read_err.take(), write_err.take()))
+                    return Err(Error::driver_io(read_err.take(), write_err.take()));
                 }
+            };
+
+            let ready = match state {
+                InterestOrReady::Ready(ready) => ready,
+                InterestOrReady::Interest(interest) => self.io.ready(interest).await?,
             };
 
             if ready.is_readable() {

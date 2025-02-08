@@ -25,7 +25,7 @@ use super::{
     query::Query,
     session::Session,
     statement::{Statement, StatementNamed},
-    transaction::Transaction,
+    transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
     BoxedFuture, Postgres,
 };
@@ -148,7 +148,7 @@ impl PoolConnection<'_> {
     /// function the same as [`Client::transaction`]
     #[inline]
     pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
-        Transaction::<Self>::builder().begin(self)
+        TransactionBuilder::new().begin(self)
     }
 
     /// function the same as [`Client::copy_in`]

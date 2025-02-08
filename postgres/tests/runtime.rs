@@ -5,6 +5,7 @@ use xitca_postgres::{
     iter::AsyncLendingIterator,
     pipeline::Pipeline,
     statement::Statement,
+    transaction::{IsolationLevel, TransactionBuilder},
     types::Type,
     Client, Execute, Postgres,
 };
@@ -222,6 +223,32 @@ async fn query_portal() {
     assert!(stream2.try_next().await.unwrap().is_none());
 
     assert!(stream3.try_next().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn transaction_isolation() {
+    let mut client = connect("postgres://postgres:postgres@localhost:5432").await;
+
+    std::path::Path::new("samples/test.sql").execute(&client).await.unwrap();
+
+    let transaction = TransactionBuilder::new()
+        .isolation_level(IsolationLevel::Serializable)
+        .read_only(true)
+        .deferrable(true)
+        .begin(&mut client)
+        .await
+        .unwrap();
+
+    let stmt = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
+        .execute(&transaction)
+        .await
+        .unwrap();
+
+    let mut res = stmt.query(&transaction).await.unwrap();
+
+    let row = res.try_next().await.unwrap().unwrap();
+    assert_eq!(row.get::<i32>(0), 1);
+    assert_eq!(row.get::<&str>(1), "alice");
 }
 
 #[tokio::test]

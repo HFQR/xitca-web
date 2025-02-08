@@ -45,7 +45,7 @@ pub struct TransactionBuilder {
 }
 
 impl TransactionBuilder {
-    pub(crate) fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             isolation_level: None,
             read_only: None,
