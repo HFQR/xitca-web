@@ -1,7 +1,7 @@
-use std::{collections::HashMap, future::Future, pin::Pin, time::Duration};
+use std::{collections::HashMap, future::Future, io, pin::Pin, time::Duration};
 
 #[cfg(not(target_family = "wasm"))]
-use std::{io, net};
+use std::net;
 
 use xitca_io::net::{Listener, Stream};
 
