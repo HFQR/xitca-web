@@ -47,10 +47,9 @@ impl Server {
             listeners
                 .into_iter()
                 .flat_map(|(name, listeners)| {
-                    listeners.into_iter().map(move |mut l| {
-                        let l = l.as_listener()?;
-                        Ok((name.to_owned(), Arc::new(l)))
-                    })
+                    listeners
+                        .into_iter()
+                        .map(move |l| l().map(|l| (name.to_owned(), Arc::new(l))))
                 })
                 .collect::<Result<Vec<_>, io::Error>>()
         };
@@ -110,10 +109,9 @@ impl Server {
             listeners
                 .into_iter()
                 .flat_map(|(name, listeners)| {
-                    listeners.into_iter().map(move |l| {
-                        let l = l()?;
-                        Ok((name.to_owned(), Arc::new(l)))
-                    })
+                    listeners
+                        .into_iter()
+                        .map(move |l| l().map(|l| (name.to_owned(), Arc::new(l))))
                 })
                 .collect::<Result<Vec<_>, io::Error>>()
         };
