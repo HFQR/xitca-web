@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use crate::{
     connect::Connect,
     error::Error,
-    http::Version,
+    http::{HeaderName, Version},
     pool::{exclusive, shared},
     response::Response,
     service::ServiceDyn,
@@ -166,6 +168,9 @@ pub(crate) fn base_service() -> HttpService {
                                     Ok(Ok((res, buf, decoder, is_close))) => {
                                         if is_close {
                                             _conn.destroy_on_drop();
+                                        } else {
+                                            let (timeout, max) = parse_keep_alive(&res);
+                                            _conn.keep_alive_hint(timeout, max);
                                         }
                                         let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
                                         let res = res.map(|_| crate::body::ResponseBody::H1(body));
@@ -200,4 +205,37 @@ pub(crate) fn base_service() -> HttpService {
     }
 
     Box::new(HttpService)
+}
+
+const KEEP_ALIVE: HeaderName = HeaderName::from_static("keep-alive");
+
+fn parse_keep_alive<B>(res: &crate::http::Response<B>) -> (Option<Duration>, Option<usize>) {
+    let header = match res.headers().get(KEEP_ALIVE).map(|h| h.to_str()) {
+        Some(Ok(header)) => header,
+        _ => return (None, None),
+    };
+
+    let mut timeout = None;
+    let mut max = None;
+
+    for (key, value) in header.split(',').map(|item| {
+        let mut kv = item.splitn(2, '=');
+
+        (
+            kv.next().map(|s| s.trim()).unwrap_or_default(),
+            kv.next().map(|s| s.trim()).unwrap_or_default(),
+        )
+    }) {
+        match key.to_lowercase().as_str() {
+            "timeout" => {
+                timeout = value.parse::<u64>().ok().map(Duration::from_secs);
+            }
+            "max" => {
+                max = value.parse().ok();
+            }
+            _ => {}
+        }
+    }
+
+    (timeout, max)
 }

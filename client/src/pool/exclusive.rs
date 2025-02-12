@@ -207,6 +207,19 @@ where
     }
 
     #[cfg(feature = "http1")]
+    pub(crate) fn keep_alive_hint(&mut self, timeout: Option<Duration>, max_requests: Option<usize>) {
+        if let Some(conn) = self.conn.as_mut() {
+            if let Some(timeout) = timeout {
+                conn.state.keep_alive_idle = timeout;
+            }
+
+            if let Some(max_requests) = max_requests {
+                conn.state.max_requests = max_requests;
+            }
+        }
+    }
+
+    #[cfg(feature = "http1")]
     pub(crate) fn is_destroy_on_drop(&self) -> bool {
         self.destroy_on_drop
     }
