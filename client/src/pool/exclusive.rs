@@ -21,6 +21,8 @@ pub struct Pool<K, C> {
     // the pool can have unbounded entries with different keys but a single
     // entry can only have up to cap size of C inside it.
     cap: usize,
+    keep_alive_idle: Duration,
+    keep_alive_born: Duration,
 }
 
 impl<K, C> Clone for Pool<K, C> {
@@ -28,6 +30,8 @@ impl<K, C> Clone for Pool<K, C> {
         Self {
             conns: self.conns.clone(),
             cap: self.cap,
+            keep_alive_idle: self.keep_alive_idle,
+            keep_alive_born: self.keep_alive_born,
         }
     }
 }
@@ -36,10 +40,12 @@ impl<K, C> Pool<K, C>
 where
     K: Eq + Hash + Clone,
 {
-    pub(crate) fn with_capacity(cap: usize) -> Self {
+    pub(crate) fn new(cap: usize, keep_alive_idle: Duration, keep_alive_born: Duration) -> Self {
         Self {
             conns: Arc::new(Mutex::new(HashMap::new())),
             cap,
+            keep_alive_idle,
+            keep_alive_born,
         }
     }
 
@@ -114,7 +120,7 @@ where
                 if res.is_ok() {
                     queue.push_back(PooledConn {
                         conn,
-                        state: ConnState::new(),
+                        state: ConnState::new(self.keep_alive_idle, self.keep_alive_born),
                     });
                 }
             }
@@ -123,7 +129,7 @@ where
                 let mut queue = VecDeque::with_capacity(self.cap);
                 queue.push_back(PooledConn {
                     conn,
-                    state: ConnState::new(),
+                    state: ConnState::new(self.keep_alive_idle, self.keep_alive_born),
                 });
                 conns.insert(key, (permits, queue));
             }
@@ -257,15 +263,19 @@ impl<C> DerefMut for PooledConn<C> {
 struct ConnState {
     born: Instant,
     idle_since: Instant,
+    keep_alive_idle: Duration,
+    keep_alive_born: Duration,
 }
 
 impl ConnState {
-    fn new() -> Self {
+    fn new(keep_alive_idle: Duration, keep_alive_born: Duration) -> Self {
         let now = Instant::now();
 
         Self {
             born: now,
             idle_since: now,
+            keep_alive_idle,
+            keep_alive_born,
         }
     }
 
@@ -274,7 +284,7 @@ impl ConnState {
     }
 
     fn is_expired(&self) -> bool {
-        self.born.elapsed() > Duration::from_secs(3600) || self.idle_since.elapsed() > Duration::from_secs(600)
+        self.born.elapsed() > self.keep_alive_born || self.idle_since.elapsed() > self.keep_alive_idle
     }
 }
 
@@ -299,7 +309,7 @@ where
         if let Some((_, queue)) = self.pool.conns.lock().unwrap().get_mut(&self.key) {
             queue.push_back(PooledConn {
                 conn,
-                state: ConnState::new(),
+                state: ConnState::new(self.pool.keep_alive_idle, self.pool.keep_alive_born),
             });
         }
     }

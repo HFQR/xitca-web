@@ -24,6 +24,8 @@ pub struct ClientBuilder {
     connector: Connector,
     resolver: ResolverService,
     pool_capacity: usize,
+    keep_alive_idle: Duration,
+    keep_alive_born: Duration,
     timeout_config: TimeoutConfig,
     local_addr: Option<SocketAddr>,
     max_http_version: Version,
@@ -42,6 +44,8 @@ impl ClientBuilder {
             connector: connector::nop(),
             resolver: base_resolver(),
             pool_capacity: 2,
+            keep_alive_idle: Duration::from_secs(60),
+            keep_alive_born: Duration::from_secs(3600),
             timeout_config: TimeoutConfig::new(),
             local_addr: None,
             max_http_version: max_http_version(),
@@ -296,6 +300,28 @@ impl ClientBuilder {
         self
     }
 
+    /// Set duration of keep alive idle connection.
+    ///
+    /// This duration force a connection to be closed if it's idle for this long.
+    ///
+    /// Default to 10 minutes.
+    ///
+    pub fn set_keep_alive_idle(mut self, duration: Duration) -> Self {
+        self.keep_alive_idle = duration;
+        self
+    }
+
+    /// Set duration of keep alive born connection.
+    ///
+    /// This duration force a connection to be closed if it has been created for this long.
+    ///
+    /// Default to 1 hour.
+    ///
+    pub fn set_keep_alive_born(mut self, duration: Duration) -> Self {
+        self.keep_alive_born = duration;
+        self
+    }
+
     /// Set max http version client would be used.
     ///
     /// Default to the max version of http feature enabled within Cargo.toml
@@ -425,7 +451,7 @@ impl ClientBuilder {
         };
 
         Client {
-            exclusive_pool: pool::exclusive::Pool::with_capacity(self.pool_capacity),
+            exclusive_pool: pool::exclusive::Pool::new(self.pool_capacity, self.keep_alive_idle, self.keep_alive_born),
             shared_pool: pool::shared::Pool::with_capacity(self.pool_capacity),
             connector: self.connector,
             resolver: self.resolver,
