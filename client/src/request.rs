@@ -3,7 +3,7 @@ use core::{marker::PhantomData, time::Duration};
 use futures_core::Stream;
 
 use crate::{
-    body::{BodyError, BoxBody, Once},
+    body::{BodyError, BoxBody, RequestBody},
     bytes::Bytes,
     client::Client,
     error::Error,
@@ -18,7 +18,7 @@ use crate::{
 
 /// builder type for [http::Request] with extended functionalities.
 pub struct RequestBuilder<'a, M = marker::Http> {
-    pub(crate) req: http::Request<BoxBody>,
+    pub(crate) req: http::Request<RequestBody>,
     err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
@@ -74,7 +74,7 @@ impl RequestBuilder<'_, marker::Http> {
         let bytes = Bytes::from(body);
         let val = HeaderValue::from(bytes.len());
         self.headers_mut().insert(CONTENT_LENGTH, val);
-        self.map_body(Once::new(bytes))
+        self.map_body(RequestBody::Reusable(bytes))
     }
 
     /// Use streaming type as request body.
@@ -84,7 +84,7 @@ impl RequestBuilder<'_, marker::Http> {
         B: Stream<Item = Result<Bytes, E>> + Send + 'static,
         E: Into<BodyError>,
     {
-        self.map_body(body)
+        self.map_body(RequestBody::Stream(Some(BoxBody::new(body))))
     }
 
     /// Finish request builder and send it to server.
@@ -100,7 +100,7 @@ impl<'a, M> RequestBuilder<'a, M> {
         E: Into<BodyError>,
     {
         Self {
-            req: req.map(BoxBody::new),
+            req: req.map(|_| RequestBody::default()),
             err: Vec::new(),
             client,
             timeout: client.timeout_config.request_timeout,
@@ -210,12 +210,8 @@ impl<'a, M> RequestBuilder<'a, M> {
         self
     }
 
-    fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a, M>
-    where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
-        E: Into<BodyError>,
-    {
-        self.req = self.req.map(|_| BoxBody::new(b));
+    fn map_body(mut self, b: RequestBody) -> RequestBuilder<'a, M> {
+        self.req = self.req.map(|_| b);
         self
     }
 }

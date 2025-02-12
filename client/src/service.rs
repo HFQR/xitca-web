@@ -1,7 +1,7 @@
 use core::{future::Future, pin::Pin, time::Duration};
 
 use crate::{
-    body::BoxBody,
+    body::RequestBody,
     client::Client,
     connect::Connect,
     error::Error,
@@ -65,7 +65,7 @@ where
 ///
 /// [RequestBuilder]: crate::request::RequestBuilder
 pub struct ServiceRequest<'r, 'c> {
-    pub req: &'r mut Request<BoxBody>,
+    pub req: &'r mut Request<RequestBody>,
     pub client: &'c Client,
     pub timeout: Duration,
 }
@@ -86,13 +86,20 @@ pub(crate) fn base_service() -> HttpService {
             use crate::{error::TimeoutError, timeout::Timeout};
 
             let ServiceRequest { req, client, timeout } = req;
+            let cloned_body = match req.body() {
+                RequestBody::Reusable(body) => RequestBody::Reusable(body.clone()),
+                _ => RequestBody::default(),
+            };
 
-            let uri = Uri::try_parse(req.uri())?;
+            let mut send_req = core::mem::take(req).map(|mut b| b.as_stream());
+            *req.body_mut() = cloned_body;
+
+            let uri = Uri::try_parse(send_req.uri())?;
 
             // temporary version to record possible version downgrade/upgrade happens when making connections.
             // alpn protocol and alt-svc header are possible source of version change.
             #[allow(unused_mut)]
-            let mut version = req.version();
+            let mut version = send_req.version();
 
             let mut connect = Connect::new(uri);
 
@@ -103,12 +110,12 @@ pub(crate) fn base_service() -> HttpService {
                     Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
                         shared::AcquireOutput::Conn(mut _conn) => {
                             let mut _timer = Box::pin(tokio::time::sleep(timeout));
-                            *req.version_mut() = version;
+                            *send_req.version_mut() = version;
                             #[allow(unreachable_code)]
                             return match _conn.conn {
                                 #[cfg(feature = "http2")]
                                 crate::connection::ConnectionShared::H2(ref mut conn) => {
-                                    match crate::h2::proto::send(conn, _date, core::mem::take(req))
+                                    match crate::h2::proto::send(conn, _date, send_req)
                                         .timeout(_timer.as_mut())
                                         .await
                                     {
@@ -128,7 +135,7 @@ pub(crate) fn base_service() -> HttpService {
                                 }
                                 #[cfg(feature = "http3")]
                                 crate::connection::ConnectionShared::H3(ref mut conn) => {
-                                    let res = crate::h3::proto::send(conn, _date, core::mem::take(req))
+                                    let res = crate::h3::proto::send(conn, _date, send_req)
                                         .timeout(_timer.as_mut())
                                         .await
                                         .map_err(|_| TimeoutError::Request)??;
@@ -214,12 +221,12 @@ pub(crate) fn base_service() -> HttpService {
                     },
                     version => match client.exclusive_pool.acquire(&connect.uri).await {
                         exclusive::AcquireOutput::Conn(mut _conn) => {
-                            *req.version_mut() = version;
+                            *send_req.version_mut() = version;
 
                             #[cfg(feature = "http1")]
                             {
                                 let mut timer = Box::pin(tokio::time::sleep(timeout));
-                                let res = crate::h1::proto::send(&mut *_conn, _date, req)
+                                let res = crate::h1::proto::send(&mut *_conn, _date, &mut send_req)
                                     .timeout(timer.as_mut())
                                     .await;
 
@@ -273,7 +280,7 @@ mod test {
     use std::sync::Arc;
 
     use crate::{
-        body::{BoxBody, ResponseBody},
+        body::{RequestBody, ResponseBody},
         client::Client,
         error::Error,
         http::{self, Request},
@@ -293,14 +300,14 @@ mod test {
 
     pub(crate) struct HttpServiceMockHandle(Client);
 
-    type HandlerFn = Arc<dyn Fn(Request<BoxBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync>;
+    type HandlerFn = Arc<dyn Fn(Request<RequestBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync>;
 
     impl HttpServiceMockHandle {
         /// compose a service request with given http request and it's mocked server side handler function
         pub(crate) fn mock<'r, 'c>(
             &'c self,
-            req: &'r mut Request<BoxBody>,
-            handler: impl Fn(Request<BoxBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync + 'static,
+            req: &'r mut Request<RequestBody>,
+            handler: impl Fn(Request<RequestBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync + 'static,
         ) -> ServiceRequest<'r, 'c> {
             req.extensions_mut().insert(Arc::new(handler) as HandlerFn);
             ServiceRequest {
