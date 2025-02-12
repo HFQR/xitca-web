@@ -1,5 +1,5 @@
+use xitca_http::Request;
 use crate::{
-    body::BoxBody,
     error::{Error, InvalidUri},
     http::{
         header::{
@@ -41,22 +41,21 @@ impl<S, const MAX: usize> FollowRedirect<S, MAX> {
     }
 }
 
-impl<'r, 'c, S, const MAX: usize> Service<ServiceRequest<'r, 'c>> for FollowRedirect<S, MAX>
+impl<'c, S, const MAX: usize> Service<ServiceRequest<'c>> for FollowRedirect<S, MAX>
 where
-    S: for<'r2, 'c2> Service<ServiceRequest<'r2, 'c2>, Response = Response, Error = Error> + Send + Sync,
+    S: for<'c2> Service<ServiceRequest<'c2>, Response = Response, Error = Error> + Send + Sync,
 {
     type Response = Response;
     type Error = Error;
 
-    async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, req: ServiceRequest<'c>) -> Result<Self::Response, Self::Error> {
         let ServiceRequest { req, client, timeout } = req;
-        let mut headers = req.headers().clone();
-        let mut method = req.method().clone();
-        let mut uri = req.uri().clone();
-        let ext = req.extensions().clone();
+        let (mut head, mut body) = req.into_parts();
         let mut count = 0;
 
         loop {
+            let body = core::mem::take(&mut body);
+            let req = Request::from_parts(head.clone(), body);
             let mut res = self.service.call(ServiceRequest { req, client, timeout }).await?;
 
             if count == MAX {
@@ -65,14 +64,12 @@ where
 
             match res.status() {
                 StatusCode::MOVED_PERMANENTLY | StatusCode::FOUND | StatusCode::SEE_OTHER => {
-                    if method != Method::HEAD {
-                        method = Method::GET;
+                    if head.method != Method::HEAD {
+                        head.method = Method::GET;
                     }
 
-                    *req.body_mut() = BoxBody::default();
-
                     for header in &[TRANSFER_ENCODING, CONTENT_ENCODING, CONTENT_TYPE, CONTENT_LENGTH] {
-                        headers.remove(header);
+                        head.headers.remove(header);
                     }
                 }
                 StatusCode::TEMPORARY_REDIRECT | StatusCode::PERMANENT_REDIRECT => {}
@@ -83,7 +80,7 @@ where
                 return Ok(res);
             };
 
-            let parts = uri.into_parts();
+            let parts = core::mem::take(&mut head.uri).into_parts();
 
             let parts_location = location
                 .to_str()
@@ -93,9 +90,9 @@ where
 
             // remove authenticated headers when redirected to different scheme/authority
             if parts_location.scheme != parts.scheme || parts_location.authority != parts.authority {
-                headers.remove(AUTHORIZATION);
-                headers.remove(PROXY_AUTHORIZATION);
-                headers.remove(COOKIE);
+                head.headers.remove(AUTHORIZATION);
+                head.headers.remove(PROXY_AUTHORIZATION);
+                head.headers.remove(COOKIE);
             }
 
             let mut uri_builder = Uri::builder();
@@ -109,12 +106,7 @@ where
             }
 
             let path = parts_location.path_and_query.ok_or(InvalidUri::MissingPathQuery)?;
-            uri = uri_builder.path_and_query(path).build().unwrap();
-
-            *req.uri_mut() = uri.clone();
-            *req.method_mut() = method.clone();
-            *req.headers_mut() = headers.clone();
-            *req.extensions_mut() = ext.clone();
+            head.uri = uri_builder.path_and_query(path).build().unwrap();
 
             count += 1;
         }
@@ -124,11 +116,10 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        body::ResponseBody,
+        body::{BoxBody, ResponseBody},
         http,
         service::{mock_service, Service},
     };
-
     use super::*;
 
     #[tokio::test]
@@ -155,21 +146,21 @@ mod test {
             p => panic!("unexpected uri path: {p}"),
         };
 
-        let mut req = http::Request::builder()
+        let req = http::Request::builder()
             .uri("http://foo.bar/foo")
             .body(Default::default())
             .unwrap();
 
-        let req = handle.mock(&mut req, handler);
+        let req = handle.mock(req, handler);
         let res = redirect.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::IM_A_TEAPOT);
 
-        let mut req = http::Request::builder()
+        let req = http::Request::builder()
             .uri("http://foo.bar/fur")
             .body(Default::default())
             .unwrap();
 
-        let req = handle.mock(&mut req, handler);
+        let req = handle.mock(req, handler);
         let res = redirect.call(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         assert_eq!(res.headers().get(LOCATION).unwrap().to_str().unwrap(), "/bar");

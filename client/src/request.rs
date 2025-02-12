@@ -121,7 +121,7 @@ impl<'a, M> RequestBuilder<'a, M> {
     // send request to server
     pub(crate) async fn _send(self) -> Result<Response, Error> {
         let Self {
-            mut req,
+            req,
             err,
             client,
             timeout,
@@ -132,14 +132,7 @@ impl<'a, M> RequestBuilder<'a, M> {
             return Err(err.into());
         }
 
-        client
-            .service
-            .call(ServiceRequest {
-                req: &mut req,
-                client,
-                timeout,
-            })
-            .await
+        client.service.call(ServiceRequest { req, client, timeout }).await
     }
 
     pub(crate) fn push_error(&mut self, e: Error) {

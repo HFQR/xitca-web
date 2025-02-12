@@ -22,7 +22,7 @@ use super::context::Context;
 pub(crate) async fn send<S, B, E>(
     stream: &mut S,
     date: DateTimeHandle<'_>,
-    req: &mut Request<B>,
+    mut req: Request<B>,
 ) -> Result<(Response<()>, BytesMut, TransferCoding, bool), Error>
 where
     S: AsyncIo + Unpin,
@@ -72,7 +72,7 @@ where
     let mut ctx = Context::<128>::new(&date);
 
     // encode request head and return transfer encoding for request body
-    let encoder = ctx.encode_head(&mut buf, req)?;
+    let encoder = ctx.encode_head(&mut buf, &mut req)?;
 
     // it's important to call set_head_method after encode_head. Context would remove http body it encodes/decodes
     // for head http method.
