@@ -23,6 +23,7 @@ pub struct Pool<K, C> {
     cap: usize,
     keep_alive_idle: Duration,
     keep_alive_born: Duration,
+    max_requests: usize,
 }
 
 impl<K, C> Clone for Pool<K, C> {
@@ -32,6 +33,7 @@ impl<K, C> Clone for Pool<K, C> {
             cap: self.cap,
             keep_alive_idle: self.keep_alive_idle,
             keep_alive_born: self.keep_alive_born,
+            max_requests: self.max_requests,
         }
     }
 }
@@ -40,12 +42,13 @@ impl<K, C> Pool<K, C>
 where
     K: Eq + Hash + Clone,
 {
-    pub(crate) fn new(cap: usize, keep_alive_idle: Duration, keep_alive_born: Duration) -> Self {
+    pub(crate) fn new(cap: usize, keep_alive_idle: Duration, keep_alive_born: Duration, max_requests: usize) -> Self {
         Self {
             conns: Arc::new(Mutex::new(HashMap::new())),
             cap,
             keep_alive_idle,
             keep_alive_born,
+            max_requests,
         }
     }
 
@@ -120,7 +123,7 @@ where
                 if res.is_ok() {
                     queue.push_back(PooledConn {
                         conn,
-                        state: ConnState::new(self.keep_alive_idle, self.keep_alive_born),
+                        state: ConnState::new(self.keep_alive_idle, self.keep_alive_born, self.max_requests),
                     });
                 }
             }
@@ -129,7 +132,7 @@ where
                 let mut queue = VecDeque::with_capacity(self.cap);
                 queue.push_back(PooledConn {
                     conn,
-                    state: ConnState::new(self.keep_alive_idle, self.keep_alive_born),
+                    state: ConnState::new(self.keep_alive_idle, self.keep_alive_born, self.max_requests),
                 });
                 conns.insert(key, (permits, queue));
             }
@@ -222,7 +225,7 @@ where
             let mut conns = self.pool.conns.lock().unwrap();
 
             if let Some((_, queue)) = conns.get_mut(&self.key) {
-                conn.state.update_idle();
+                conn.state.update_for_reentry();
                 queue.push_back(conn);
             }
 
@@ -263,28 +266,35 @@ impl<C> DerefMut for PooledConn<C> {
 struct ConnState {
     born: Instant,
     idle_since: Instant,
+    requests: usize,
     keep_alive_idle: Duration,
     keep_alive_born: Duration,
+    max_requests: usize,
 }
 
 impl ConnState {
-    fn new(keep_alive_idle: Duration, keep_alive_born: Duration) -> Self {
+    fn new(keep_alive_idle: Duration, keep_alive_born: Duration, max_requests: usize) -> Self {
         let now = Instant::now();
 
         Self {
             born: now,
             idle_since: now,
+            requests: 0,
             keep_alive_idle,
             keep_alive_born,
+            max_requests,
         }
     }
 
-    fn update_idle(&mut self) {
+    fn update_for_reentry(&mut self) {
         self.idle_since = Instant::now();
+        self.requests += 1;
     }
 
     fn is_expired(&self) -> bool {
-        self.born.elapsed() > self.keep_alive_born || self.idle_since.elapsed() > self.keep_alive_idle
+        self.born.elapsed() > self.keep_alive_born
+            || self.idle_since.elapsed() > self.keep_alive_idle
+            || self.requests >= self.max_requests
     }
 }
 
@@ -309,7 +319,11 @@ where
         if let Some((_, queue)) = self.pool.conns.lock().unwrap().get_mut(&self.key) {
             queue.push_back(PooledConn {
                 conn,
-                state: ConnState::new(self.pool.keep_alive_idle, self.pool.keep_alive_born),
+                state: ConnState::new(
+                    self.pool.keep_alive_idle,
+                    self.pool.keep_alive_born,
+                    self.pool.max_requests,
+                ),
             });
         }
     }
