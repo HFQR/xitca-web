@@ -69,7 +69,7 @@ impl ClientBuilder {
     /// // trait implement for the logic of middleware. most of the types are boilerplate
     /// // that can be copy/pasted. the real logic goes into `async fn call`
     /// impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for MyMiddleware {
-    ///     type Response = Response<'c>;
+    ///     type Response = Response;
     ///     type Error = Error;
     ///
     ///     async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
