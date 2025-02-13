@@ -43,6 +43,7 @@ mod service;
 mod timeout;
 mod tls;
 mod tunnel;
+mod upgrade;
 mod uri;
 
 #[cfg(feature = "http1")]
