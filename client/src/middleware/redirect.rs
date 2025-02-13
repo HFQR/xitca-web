@@ -91,14 +91,14 @@ where
                 .parse::<Uri>()?
                 .into_parts();
 
-            let mut uri_builder = Uri::builder();
-
             // remove authenticated headers when redirected to different scheme/authority
-            if parts_location.scheme != parts.scheme || parts_location.authority != parts_location.authority {
+            if parts_location.scheme != parts.scheme || parts_location.authority != parts.authority {
                 headers.remove(AUTHORIZATION);
                 headers.remove(PROXY_AUTHORIZATION);
                 headers.remove(COOKIE);
             }
+
+            let mut uri_builder = Uri::builder();
 
             if let Some(a) = parts_location.authority.or(parts.authority) {
                 uri_builder = uri_builder.authority(a);
