@@ -29,16 +29,22 @@ pub struct UpgradeResponse {
 impl<'a> UpgradeRequest<'a> {
     pub fn protocol<V>(mut self, proto: V) -> UpgradeRequestWithProtocol<'a>
     where
-        V: TryInto<HeaderValue>,
-        V::Error: std::error::Error + Send + Sync + 'static,
+        V: IntoIterator,
+        V::Item: TryInto<HeaderValue>,
+        <V::Item as TryInto<HeaderValue>>::Error: Into<crate::http::Error>,
     {
-        match proto.try_into() {
-            Ok(v) => {
-                self.req.headers_mut().insert(header::UPGRADE, v);
+        let res = proto
+            .into_iter()
+            .map(|proto| proto.try_into().map_err(|e| Error::Std(Box::new(e.into()))))
+            .collect::<Result<Vec<_>, Error>>();
+
+        match res {
+            Ok(proto) => {
+                for proto in proto {
+                    self.req.headers_mut().append(header::UPGRADE, proto);
+                }
             }
-            Err(e) => {
-                self.push_error(Error::Std(Box::new(e)));
-            }
+            Err(e) => self.push_error(e),
         };
 
         self.mutate_marker()
