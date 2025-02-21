@@ -1,4 +1,4 @@
-use crate::pipeline::{marker::BuildEnclosed, PipelineT};
+use crate::pipeline::{PipelineT, marker::BuildEnclosed};
 
 use super::Service;
 

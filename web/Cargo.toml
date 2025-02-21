@@ -1,7 +1,7 @@
 [package]
 name = "xitca-web"
 version = "0.7.0"
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 description = "an async web framework"
 repository = "https://github.com/HFQR/xitca-web"
@@ -84,7 +84,7 @@ __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
 xitca-http = { version = "0.7.0", features = ["router"], default-features = false }
-xitca-service = { version = "0.3.0", features = ["alloc", "std"] }
+xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = "0.2.0"
 
 futures-core = "0.3"

@@ -1,7 +1,7 @@
 use crate::{
     body::{BodyStream, RequestBody},
     context::WebContext,
-    error::{forward_blank_bad_request, Error},
+    error::{Error, forward_blank_bad_request},
     handler::FromRequest,
 };
 
@@ -29,15 +29,16 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
+        App,
         handler::handler_service,
         http::{
-            header::{HeaderValue, CONTENT_TYPE, TRANSFER_ENCODING},
-            request, Method, RequestExt,
+            Method, RequestExt,
+            header::{CONTENT_TYPE, HeaderValue, TRANSFER_ENCODING},
+            request,
         },
         route::post,
         service::Service,
         test::collect_body,
-        App,
     };
 
     use super::*;

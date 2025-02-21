@@ -40,10 +40,10 @@ impl<S, E> Service<Result<S, E>> for Logger {
 mod service {
     use std::error;
 
-    use tracing::{event, span, Instrument};
+    use tracing::{Instrument, event, span};
     use xitca_service::ready::ReadyService;
 
-    use crate::http::{header::HeaderMap, BorrowReq, Method, Uri};
+    use crate::http::{BorrowReq, Method, Uri, header::HeaderMap};
 
     use super::*;
 

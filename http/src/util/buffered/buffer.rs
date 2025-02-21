@@ -8,7 +8,7 @@ use std::io;
 
 use tracing::trace;
 use xitca_io::bytes::{Buf, BytesMut};
-use xitca_unsafe_collection::bytes::{read_buf, BufList, ChunkVectoredUninit};
+use xitca_unsafe_collection::bytes::{BufList, ChunkVectoredUninit, read_buf};
 
 pub use xitca_io::bytes::{BufInterest, BufRead, BufWrite};
 

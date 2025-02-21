@@ -1,9 +1,9 @@
 use xitca_http::util::service::router::{IntoObject, PathGen, RouteGen, Router, RouterError, RouterMapErr, TypedRoute};
 
 use crate::{
-    error::Error,
-    service::{ready::ReadyService, Service},
     WebContext,
+    error::Error,
+    service::{Service, ready::ReadyService},
 };
 
 /// application wrap around [Router] and transform it's error type into [Error]

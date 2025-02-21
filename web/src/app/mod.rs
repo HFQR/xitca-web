@@ -4,7 +4,7 @@ mod router;
 use core::{
     convert::Infallible,
     fmt,
-    future::{ready, Future},
+    future::{Future, ready},
     pin::Pin,
 };
 
@@ -23,7 +23,7 @@ use crate::{
     error::{Error, RouterError},
     http::{WebRequest, WebResponse},
     middleware::eraser::TypeEraser,
-    service::{ready::ReadyService, AsyncFn, EnclosedBuilder, EnclosedFnBuilder, MapBuilder, Service, ServiceExt},
+    service::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, Service, ServiceExt, ready::ReadyService},
 };
 
 use self::{object::WebObject, router::AppRouter};
@@ -414,9 +414,9 @@ where
 
     /// Enclose App with function as middleware type.
     /// See [middleware](crate::middleware) for more.
-    pub fn enclosed_fn<Req, T>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CF>
+    pub fn enclosed_fn<Req, T, O>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CF>
     where
-        T: for<'s> AsyncFn<(&'s R::Response, Req)> + Clone,
+        T: for<'s> AsyncFn(&'s R::Response, Req) -> O + Clone,
     {
         App {
             router: self.router.enclosed_fn(transform),
@@ -503,7 +503,7 @@ where
     ) -> crate::server::HttpServer<
         impl Service<
             Response = impl ReadyService
-                           + Service<WebRequest, Response = WebResponse<EitherResBody<ResB>>, Error = Infallible>,
+                       + Service<WebRequest, Response = WebResponse<EitherResBody<ResB>>, Error = Infallible>,
             Error = impl fmt::Debug,
         >,
     >
@@ -610,7 +610,7 @@ mod test {
             extension::ExtensionRef, extension::ExtensionsRef, handler_service, path::PathRef, state::StateRef,
             uri::UriRef,
         },
-        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, request, Method},
+        http::{Method, const_header_value::TEXT_UTF8, header::CONTENT_TYPE, request},
         middleware::UncheckedReady,
         route::get,
     };

@@ -3,8 +3,9 @@
 use core::{marker::PhantomData, ops::Deref};
 
 use serde::{
+    Deserialize,
     de::{self, Deserializer, Error as DeError, Visitor},
-    forward_to_deserialize_any, Deserialize,
+    forward_to_deserialize_any,
 };
 
 use xitca_http::util::service::router;
@@ -519,10 +520,10 @@ mod tests {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        http::{Request, RequestExt, Uri},
-        service::{fn_service, Service},
-        test::collect_string_body,
         App,
+        http::{Request, RequestExt, Uri},
+        service::{Service, fn_service},
+        test::collect_string_body,
     };
 
     use super::*;

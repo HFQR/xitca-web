@@ -12,4 +12,4 @@ pub use types::*;
 #[cfg(not(target_family = "wasm"))]
 pub use sync::handler_sync_service;
 
-pub use xitca_http::util::service::handler::{handler_service, FromRequest, Responder};
+pub use xitca_http::util::service::handler::{FromRequest, Responder, handler_service};

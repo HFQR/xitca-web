@@ -2,7 +2,7 @@
 
 use alloc::boxed::Box;
 
-use super::{service::Service, BoxFuture};
+use super::{BoxFuture, service::Service};
 
 /// Object-safe counterpart of [Service].
 pub trait ServiceObject<Req> {

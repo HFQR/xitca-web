@@ -1,6 +1,6 @@
 use core::{
     fmt,
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     marker::PhantomData,
     net::SocketAddr,
     pin::pin,
@@ -35,10 +35,8 @@ impl<'a, S, ReqB, ResB, BE> Dispatcher<'a, S, ReqB>
 where
     S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
-
     ReqB: From<RequestBody>,
 {
     pub(crate) fn new(io: QuicStream, addr: SocketAddr, service: &'a S) -> Self {

@@ -17,27 +17,15 @@ use super::{body::RequestBody, proto::Dispatcher};
 pub type H2Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<
-        St,
-        S,
-        ResB,
-        BE,
-        A,
-        TlsSt,
-        const HEADER_LIMIT: usize,
-        const READ_BUF_LIMIT: usize,
-        const WRITE_BUF_LIMIT: usize,
-    > Service<(St, SocketAddr)> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, S, ResB, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<(St, SocketAddr)> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
-
     A: Service<St, Response = TlsSt>,
     St: AsyncIo,
     TlsSt: AsyncIo,
-
     HttpServiceError<S::Error, BE>: From<A::Error>,
-
     ResB: Stream<Item = Result<Bytes, BE>>,
     BE: fmt::Debug,
 {
@@ -140,7 +128,6 @@ mod io_uring {
         A::Response: AsyncBufRead + AsyncBufWrite + 'static,
         B: Stream<Item = Result<Bytes, BE>>,
         HttpServiceError<S::Error, BE>: From<A::Error>,
-
         S::Error: fmt::Debug,
         BE: fmt::Debug,
     {

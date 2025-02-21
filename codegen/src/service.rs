@@ -2,11 +2,11 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
     __private::{Span, TokenStream2},
+    Error, FnArg, GenericArgument, GenericParam, Ident, ImplItemFn, ItemImpl, Pat, PatIdent, PathArguments, ReturnType,
+    Stmt, Type, TypePath, WhereClause,
     punctuated::Punctuated,
     spanned::Spanned,
     token::Comma,
-    Error, FnArg, GenericArgument, GenericParam, Ident, ImplItemFn, ItemImpl, Pat, PatIdent, PathArguments, ReturnType,
-    Stmt, Type, TypePath, WhereClause,
 };
 
 use crate::find_async_method;
@@ -184,7 +184,7 @@ impl<'a> BuilderImpl<'a> {
                 return Err(Error::new(
                     recv.span(),
                     "new_service method does not accept Self as receiver",
-                ))
+                ));
             }
             FnArg::Typed(ty) => match (ty.pat.as_ref(), ty.ty.as_ref()) {
                 (Pat::Wild(_), Type::Reference(ty_ref)) if ty_ref.mutability.is_none() => {
@@ -197,7 +197,7 @@ impl<'a> BuilderImpl<'a> {
                     return Err(Error::new(
                         ty.span(),
                         "new_service must receive ServiceFactory type as immutable reference",
-                    ))
+                    ));
                 }
             },
         };
@@ -212,7 +212,7 @@ impl<'a> BuilderImpl<'a> {
                 return Err(Error::new(
                     recv.span(),
                     "new_service method does not accept Self as receiver",
-                ))
+                ));
             }
             FnArg::Typed(ty) => match ty.pat.as_ref() {
                 Pat::Wild(_) => (default_pat_ident("_service"), &*ty.ty),
@@ -221,7 +221,7 @@ impl<'a> BuilderImpl<'a> {
                     return Err(Error::new(
                         ty.span(),
                         "new_service method must use 'arg: Arg' as second function argument",
-                    ))
+                    ));
                 }
             },
         };
@@ -271,7 +271,7 @@ impl<'a> CallImpl<'a> {
             )
         })? {
             FnArg::Receiver(recv) => {
-                return Err(Error::new(recv.span(), "call method does not accept Self as receiver"))
+                return Err(Error::new(recv.span(), "call method does not accept Self as receiver"));
             }
             FnArg::Typed(ty) => match ty.pat.as_ref() {
                 Pat::Wild(_) => (default_pat_ident("_req"), &*ty.ty),
@@ -280,7 +280,7 @@ impl<'a> CallImpl<'a> {
                     return Err(Error::new(
                         ty.span(),
                         "call method must use 'req: Req' as second function argument",
-                    ))
+                    ));
                 }
             },
         };

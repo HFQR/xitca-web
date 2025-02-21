@@ -209,7 +209,7 @@ const _: () = {
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::http::header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE};
+    use crate::http::header::{CONTENT_TYPE, COOKIE, HeaderMap, HeaderValue};
 
     use super::*;
 

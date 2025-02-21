@@ -1,6 +1,6 @@
 use crate::pipeline::{
-    marker::{BuildMap, Map},
     PipelineT,
+    marker::{BuildMap, Map},
 };
 
 use super::Service;

@@ -9,7 +9,7 @@ use crate::{
     context::WebContext,
     error::Error,
     handler::Responder,
-    http::{const_header_value::TEXT_HTML_UTF8, header::CONTENT_TYPE, WebResponse},
+    http::{WebResponse, const_header_value::TEXT_HTML_UTF8, header::CONTENT_TYPE},
     service::Service,
 };
 
@@ -84,7 +84,7 @@ where
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{http::WebRequest, App};
+    use crate::{App, http::WebRequest};
 
     use super::*;
 

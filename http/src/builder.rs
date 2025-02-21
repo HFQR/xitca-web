@@ -5,7 +5,7 @@ use xitca_service::Service;
 
 use super::{
     body::RequestBody,
-    config::{HttpServiceConfig, DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT},
+    config::{DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT, HttpServiceConfig},
     service::HttpService,
     tls,
 };

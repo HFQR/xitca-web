@@ -9,8 +9,8 @@ pub(crate) use self::service::{IntoServiceObj, ServiceObj};
 use std::{
     io, mem,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
 };

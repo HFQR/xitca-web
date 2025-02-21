@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{spanned::Spanned, Error, ItemImpl, Type};
+use syn::{Error, ItemImpl, Type, spanned::Spanned};
 
 pub(crate) fn error(_: TokenStream, item: ItemImpl) -> Result<TokenStream, Error> {
     let Type::Path(ref err_ty) = *item.self_ty else {

@@ -1,6 +1,6 @@
 use core::{
     convert::Infallible,
-    future::{ready, Future, Ready},
+    future::{Future, Ready, ready},
 };
 
 use super::Service;

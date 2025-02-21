@@ -1,4 +1,4 @@
-use crate::pipeline::{marker::AsyncFn, PipelineT};
+use crate::pipeline::{PipelineT, marker::AsyncFn};
 
 use super::ReadyService;
 

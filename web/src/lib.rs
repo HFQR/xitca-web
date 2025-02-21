@@ -354,7 +354,7 @@ pub mod route {
     //! # Ok(())
     //! # }
     //! ```
-    pub use xitca_http::util::service::route::{connect, delete, get, head, options, patch, post, put, trace, Route};
+    pub use xitca_http::util::service::route::{Route, connect, delete, get, head, options, patch, post, put, trace};
 }
 
 pub use app::{App, AppObject, NestApp};

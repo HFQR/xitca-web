@@ -149,10 +149,10 @@ mod test {
     use core::convert::Infallible;
 
     use crate::{
+        App,
         body::ResponseBody,
         http::{StatusCode, WebResponse},
         service::fn_service,
-        App,
     };
 
     use super::*;

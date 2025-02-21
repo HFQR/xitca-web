@@ -12,7 +12,7 @@ where
     type Error = T::Error;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
-        match self {
+        match *self {
             None => res.map(PipelineE::First),
             Some(ref t) => t.call(res).await.map(PipelineE::Second),
         }

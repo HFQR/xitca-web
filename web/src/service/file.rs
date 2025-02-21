@@ -4,7 +4,7 @@ use core::convert::Infallible;
 
 use std::path::PathBuf;
 
-use http_file::{runtime::AsyncFs, ServeDir as _ServeDir};
+use http_file::{ServeDir as _ServeDir, runtime::AsyncFs};
 use xitca_http::util::service::router::{PathGen, RouteGen};
 
 use crate::service::Service;
@@ -99,7 +99,7 @@ where
 }
 
 mod service {
-    use http_file::{runtime::AsyncFs, ServeDir, ServeError};
+    use http_file::{ServeDir, ServeError, runtime::AsyncFs};
 
     use crate::{
         body::ResponseBody,

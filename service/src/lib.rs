@@ -37,7 +37,6 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-mod async_fn;
 mod service;
 
 pub mod middleware;
@@ -45,9 +44,8 @@ pub mod pipeline;
 pub mod ready;
 
 pub use self::{
-    async_fn::AsyncFn,
     pipeline::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, MapErrorBuilder},
-    service::{fn_build, fn_service, FnService, Service, ServiceExt},
+    service::{FnService, Service, ServiceExt, fn_build, fn_service},
 };
 
 #[cfg(feature = "alloc")]
@@ -60,6 +58,3 @@ pub mod object;
 /// boxed [core::future::Future] trait object with no extra auto trait bound(`!Send` and `!Sync`).
 pub type BoxFuture<'a, Res, Err> =
     core::pin::Pin<alloc::boxed::Box<dyn core::future::Future<Output = Result<Res, Err>> + 'a>>;
-
-#[cfg(feature = "std")]
-extern crate std;

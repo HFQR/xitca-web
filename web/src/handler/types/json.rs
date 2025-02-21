@@ -14,9 +14,9 @@ use crate::{
     body::BodyStream,
     bytes::{BufMutWriter, Bytes, BytesMut},
     context::WebContext,
-    error::{error_from_service, forward_blank_bad_request, Error},
+    error::{Error, error_from_service, forward_blank_bad_request},
     handler::{FromRequest, Responder},
-    http::{const_header_value::JSON, header::CONTENT_TYPE, WebResponse},
+    http::{WebResponse, const_header_value::JSON, header::CONTENT_TYPE},
     service::Service,
 };
 
@@ -229,10 +229,10 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
-        handler::handler_service,
-        http::{header::CONTENT_LENGTH, WebRequest},
-        test::collect_string_body,
         App,
+        handler::handler_service,
+        http::{WebRequest, header::CONTENT_LENGTH},
+        test::collect_string_body,
     };
 
     use super::*;

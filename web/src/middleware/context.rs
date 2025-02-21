@@ -65,7 +65,7 @@ mod service {
         body::{Either, ResponseBody},
         context::WebContext,
         http::{WebRequest, WebResponse},
-        service::{ready::ReadyService, Service},
+        service::{Service, ready::ReadyService},
     };
 
     pub struct WebContextService<S> {

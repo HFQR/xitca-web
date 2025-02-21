@@ -89,7 +89,7 @@ use std::{error, io, sync::Mutex};
 use crate::{
     context::WebContext,
     http::WebResponse,
-    service::{pipeline::PipelineE, Service},
+    service::{Service, pipeline::PipelineE},
 };
 
 use self::service_impl::ErrorService;

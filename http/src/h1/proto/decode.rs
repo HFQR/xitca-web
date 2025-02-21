@@ -5,8 +5,8 @@ use httparse::Status;
 use crate::{
     bytes::{Buf, Bytes, BytesMut},
     http::{
-        header::{HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, EXPECT, TRANSFER_ENCODING, UPGRADE},
         Extension, Method, Request, RequestExt, Uri, Version,
+        header::{CONNECTION, CONTENT_LENGTH, EXPECT, HeaderMap, HeaderName, HeaderValue, TRANSFER_ENCODING, UPGRADE},
     },
 };
 

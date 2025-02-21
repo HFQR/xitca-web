@@ -3,9 +3,9 @@
 use xitca_http::util::middleware::catch_unwind::{self, CatchUnwindError};
 
 use crate::{
-    error::{Error, ThreadJoinError},
-    service::{ready::ReadyService, Service},
     WebContext,
+    error::{Error, ThreadJoinError},
+    service::{Service, ready::ReadyService},
 };
 
 /// middleware for catching panic inside [`Service::call`] and return a 500 error response.
@@ -91,9 +91,9 @@ mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
+        App,
         handler::handler_service,
         http::{Request, StatusCode},
-        App,
     };
 
     use super::*;

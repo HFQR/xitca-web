@@ -1,4 +1,4 @@
-use crate::pipeline::{marker::Map, PipelineT};
+use crate::pipeline::{PipelineT, marker::Map};
 
 use super::ReadyService;
 

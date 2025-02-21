@@ -7,10 +7,11 @@ use std::io::Cursor;
 use xitca_unsafe_collection::bytes::BytesStr;
 
 use crate::{
-    bytes::{buf::Limit, BufMut, Bytes, BytesMut},
+    bytes::{BufMut, Bytes, BytesMut, buf::Limit},
     http::{
+        HeaderMap, Method, StatusCode, Uri,
         header::{self, HeaderName},
-        uri, HeaderMap, Method, StatusCode, Uri,
+        uri,
     },
 };
 

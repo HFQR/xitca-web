@@ -30,14 +30,14 @@ impl<S, E> Service<Result<S, E>> for Decompress {
 mod service {
     use core::{cell::RefCell, convert::Infallible};
 
-    use http_encoding::{error::EncodingError, Coder};
+    use http_encoding::{Coder, error::EncodingError};
 
     use crate::{
         body::BodyStream,
         context::WebContext,
-        error::error_from_service,
         error::Error,
-        http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, StatusCode, WebResponse},
+        error::error_from_service,
+        http::{Request, StatusCode, WebResponse, const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
         service::ready::ReadyService,
     };
 
@@ -105,16 +105,16 @@ mod service {
 
 #[cfg(test)]
 mod test {
-    use http_encoding::{encoder, ContentEncoding};
+    use http_encoding::{ContentEncoding, encoder};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
+        App,
         body::ResponseBody,
         handler::handler_service,
         http::header::CONTENT_ENCODING,
         http::{WebRequest, WebResponse},
         test::collect_body,
-        App,
     };
 
     use super::*;

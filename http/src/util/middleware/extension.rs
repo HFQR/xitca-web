@@ -1,4 +1,4 @@
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{Service, ready::ReadyService};
 
 use crate::http::{BorrowReqMut, Extensions};
 
@@ -83,7 +83,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use xitca_service::{fn_service, ServiceExt};
+    use xitca_service::{ServiceExt, fn_service};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::http::Request;

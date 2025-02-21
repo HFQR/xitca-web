@@ -2,13 +2,13 @@
 
 use core::{
     convert::Infallible,
-    future::{ready, Ready},
+    future::{Ready, ready},
     marker::PhantomData,
 };
 
 use super::{FromRequest, Responder};
 
-use xitca_service::{fn_build, FnService, Service};
+use xitca_service::{FnService, Service, fn_build};
 
 /// synchronous version of [handler_service]
 ///

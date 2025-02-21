@@ -222,7 +222,7 @@ mod router_impl {
 mod test {
     use std::convert::Infallible;
 
-    use xitca_service::{fn_service, ServiceExt};
+    use xitca_service::{ServiceExt, fn_service};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::http::{Request, Response};
@@ -269,7 +269,7 @@ mod test {
     fn test_state_in_router() {
         use crate::{
             http::RequestExt,
-            util::service::{route::get, Router},
+            util::service::{Router, route::get},
         };
 
         async fn handler(req: Context<'_, Request<RequestExt<()>>, String>) -> Result<Response<()>, Infallible> {

@@ -2,7 +2,7 @@
 
 use core::any::Any;
 
-use xitca_service::{pipeline::PipelineE, Service};
+use xitca_service::{Service, pipeline::PipelineE};
 
 /// builder for middleware catching panic and unwind it to [`CatchUnwindError`].
 pub struct CatchUnwind;

@@ -9,7 +9,7 @@ use xitca_io::{
     io::{AsyncIo, Interest},
     net::TcpStream,
 };
-use xitca_service::{AsyncFn, Service};
+use xitca_service::Service;
 use xitca_unsafe_collection::bytes::read_buf;
 
 use crate::date::{DateTime, DateTimeHandle, DateTimeService};
@@ -107,7 +107,7 @@ impl<F, C> Dispatcher<F, C> {
 
 impl<F, C> Service<TcpStream> for Dispatcher<F, C>
 where
-    F: for<'h, 'b> AsyncFn<(Request<'h, C>, Response<'h>), Output = Response<'h, 3>>,
+    F: for<'h, 'b> AsyncFn(Request<'h, C>, Response<'h>) -> Response<'h, 3>,
 {
     type Response = ();
     type Error = Error;
@@ -154,7 +154,7 @@ where
                             date: self.date.get(),
                         };
 
-                        self.handler.call((req, res)).await;
+                        (self.handler)(req, res).await;
 
                         r_buf.advance(len);
                     }

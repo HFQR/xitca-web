@@ -7,7 +7,7 @@ use std::{io, rc::Rc, sync::Arc, thread};
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
 use xitca_io::net::{Listener, Stream};
-use xitca_service::{ready::ReadyService, Service};
+use xitca_service::{Service, ready::ReadyService};
 
 use self::shutdown::ShutdownHandle;
 

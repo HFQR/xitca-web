@@ -10,8 +10,8 @@ use crate::{
     error::Error,
     handler::Responder,
     http::{
-        header::{HeaderValue, LOCATION},
         StatusCode, WebResponse,
+        header::{HeaderValue, LOCATION},
     },
     service::Service,
 };
@@ -94,7 +94,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for Redirect {
 mod test {
     use xitca_unsafe_collection::futures::NowOrPanic;
 
-    use crate::{http::WebRequest, App};
+    use crate::{App, http::WebRequest};
 
     use super::*;
 

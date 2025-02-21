@@ -1,8 +1,8 @@
 use core::{
     cmp::Ordering,
     convert::Infallible,
-    future::{poll_fn, Future},
-    pin::{pin, Pin},
+    future::{Future, poll_fn},
+    pin::{Pin, pin},
     time::Duration,
 };
 
@@ -10,10 +10,10 @@ use std::io;
 
 use futures_core::stream::Stream;
 use http_ws::{
-    stream::{RequestStream, WsError},
     HandshakeError, Item, Message as WsMessage, ProtocolError, WsOutput,
+    stream::{RequestStream, WsError},
 };
-use tokio::time::{sleep, Instant};
+use tokio::time::{Instant, sleep};
 use xitca_unsafe_collection::{
     bytes::BytesStr,
     futures::{Select, SelectOutput},
@@ -26,8 +26,8 @@ use crate::{
     error::{Error, HeaderNotFound},
     handler::{FromRequest, Responder},
     http::{
-        header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
         StatusCode, WebResponse,
+        header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
     },
     service::Service,
 };
