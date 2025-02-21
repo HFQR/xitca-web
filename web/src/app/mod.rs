@@ -416,7 +416,7 @@ where
     /// See [middleware](crate::middleware) for more.
     pub fn enclosed_fn<Req, T, O>(self, transform: T) -> App<EnclosedFnBuilder<R, T>, CF>
     where
-        T: for<'s> AsyncFn(&'s R::Response, Req) -> O + Clone,
+        T: AsyncFn(&R::Response, Req) -> O + Clone,
     {
         App {
             router: self.router.enclosed_fn(transform),

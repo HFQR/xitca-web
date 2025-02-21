@@ -316,7 +316,6 @@ where
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-
         ResB: Stream<Item = Result<Bytes, BE>> + 'static,
         BE: fmt::Debug + 'static,
     {

@@ -20,7 +20,7 @@ pub trait ServiceExt<Arg>: Service<Arg> {
     /// Function version of [Self::enclosed] method.
     fn enclosed_fn<T, Req, O>(self, func: T) -> PipelineT<Self, middleware::AsyncFn<T>, marker::BuildEnclosed>
     where
-        T: for<'s> AsyncFn(&'s Self::Response, Req) -> O + Clone,
+        T: AsyncFn(&Self::Response, Req) -> O + Clone,
         Self: Sized,
     {
         self.enclosed(middleware::AsyncFn(func))

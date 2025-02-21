@@ -23,7 +23,7 @@ where
 
 impl<S, Req, F, Res, Err> Service<Req> for PipelineT<S, F, marker::AsyncFn>
 where
-    F: for<'s> core::ops::AsyncFn(&'s S, Req) -> Result<Res, Err>,
+    F: core::ops::AsyncFn(&S, Req) -> Result<Res, Err>,
 {
     type Response = Res;
     type Error = Err;
