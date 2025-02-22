@@ -1,4 +1,4 @@
-use core::{future::Future, pin::Pin, time::Duration};
+use core::{future::Future, net::SocketAddr, pin::Pin, time::Duration};
 
 use crate::{
     body::BoxBody,
@@ -66,6 +66,7 @@ where
 /// [RequestBuilder]: crate::request::RequestBuilder
 pub struct ServiceRequest<'r, 'c> {
     pub req: &'r mut Request<BoxBody>,
+    pub address: Option<SocketAddr>,
     pub client: &'c Client,
     pub timeout: Duration,
 }
@@ -85,7 +86,12 @@ pub(crate) fn base_service() -> HttpService {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
             use crate::{error::TimeoutError, timeout::Timeout};
 
-            let ServiceRequest { req, client, timeout } = req;
+            let ServiceRequest {
+                req,
+                address,
+                client,
+                timeout,
+            } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
@@ -94,7 +100,7 @@ pub(crate) fn base_service() -> HttpService {
             #[allow(unused_mut)]
             let mut version = req.version();
 
-            let mut connect = Connect::new(uri);
+            let mut connect = Connect::new(uri, address);
 
             let _date = client.date_service.handle();
 
@@ -307,6 +313,7 @@ mod test {
                 req,
                 client: &self.0,
                 timeout: self.0.timeout_config.request_timeout,
+                address: None,
             }
         }
     }
