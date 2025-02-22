@@ -21,6 +21,7 @@ pub struct Builder {
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
     pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
+    pub(crate) on_worker_stop: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
     backlog: u32,
 }
 
@@ -42,6 +43,7 @@ impl Builder {
             enable_signal: true,
             shutdown_timeout: Duration::from_secs(30),
             on_worker_start: Box::new(|| Box::pin(async {})),
+            on_worker_stop: Box::new(|| Box::pin(async {})),
             backlog: 2048,
         }
     }
@@ -125,6 +127,25 @@ impl Builder {
     {
         self.on_worker_start = Box::new(move || {
             let fut = on_start();
+            Box::pin(async {
+                fut.await;
+            })
+        });
+
+        self
+    }
+
+    #[doc(hidden)]
+    /// Async callback called when worker thread is being shut down.
+    ///
+    /// *. This API is subject to change with no stable guarantee.
+    pub fn on_worker_stop<F, Fut>(mut self, on_stop: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future + Send + 'static,
+    {
+        self.on_worker_stop = Box::new(move || {
+            let fut = on_stop();
             Box::pin(async {
                 fut.await;
             })

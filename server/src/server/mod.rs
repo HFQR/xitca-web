@@ -38,6 +38,7 @@ impl Server {
             factories,
             shutdown_timeout,
             on_worker_start,
+            on_worker_stop,
             ..
         } = builder;
 
@@ -59,6 +60,7 @@ impl Server {
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
 
         let on_start_fut = on_worker_start();
+        let on_stop_fut = on_worker_stop();
 
         let fut = async {
             on_start_fut.await;
@@ -76,6 +78,8 @@ impl Server {
             }
 
             worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown).await;
+
+            on_stop_fut.await;
 
             Ok::<_, io::Error>(())
         };
@@ -95,6 +99,7 @@ impl Server {
             factories,
             shutdown_timeout,
             on_worker_start,
+            on_worker_stop,
             ..
         } = builder;
 
@@ -151,6 +156,8 @@ impl Server {
                             }
 
                             worker::wait_for_stop(handles, services, shutdown_timeout, &is_graceful_shutdown).await;
+
+                            on_worker_stop().await;
                         };
 
                         #[cfg(not(feature = "io-uring"))]
