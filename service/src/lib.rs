@@ -44,7 +44,7 @@ pub mod pipeline;
 pub mod ready;
 
 pub use self::{
-    pipeline::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, MapErrorBuilder},
+    middleware::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, MapErrorBuilder},
     service::{FnService, Service, ServiceExt, fn_build, fn_service},
 };
 
