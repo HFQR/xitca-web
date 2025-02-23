@@ -2,8 +2,6 @@ mod and_then;
 mod enclosed;
 mod ext;
 mod function;
-mod map;
-mod map_err;
 mod opt;
 
 pub use self::{

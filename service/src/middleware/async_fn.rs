@@ -9,6 +9,15 @@ use crate::{
 /// [ServiceExt::enclosed]: crate::service::ServiceExt::enclosed
 pub struct AsyncFn<F>(pub F);
 
+impl<F> Clone for AsyncFn<F>
+where
+    F: Clone,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl<S, E, F> Service<Result<S, E>> for AsyncFn<F>
 where
     F: Clone,

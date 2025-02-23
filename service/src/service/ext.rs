@@ -1,5 +1,5 @@
 use crate::{
-    middleware,
+    middleware::{AsyncFn, EnclosedBuilder, EnclosedFnBuilder, Map, MapBuilder, MapErr, MapErrorBuilder},
     pipeline::{PipelineT, marker},
 };
 
@@ -9,7 +9,7 @@ use super::Service;
 pub trait ServiceExt<Arg>: Service<Arg> {
     /// Enclose Self with given `T as Service<<Self as Service<_>>::Response>>`. In other word T
     /// would take Self's `Service::Response` type as it's generic argument of `Service<_>` impl.
-    fn enclosed<T>(self, build: T) -> PipelineT<Self, T, marker::BuildEnclosed>
+    fn enclosed<T>(self, build: T) -> EnclosedBuilder<Self, T>
     where
         T: Service<Result<Self::Response, Self::Error>>,
         Self: Sized,
@@ -18,31 +18,31 @@ pub trait ServiceExt<Arg>: Service<Arg> {
     }
 
     /// Function version of [Self::enclosed] method.
-    fn enclosed_fn<T, Req, O>(self, func: T) -> PipelineT<Self, middleware::AsyncFn<T>, marker::BuildEnclosed>
+    fn enclosed_fn<T, Req, O>(self, func: T) -> EnclosedFnBuilder<Self, T>
     where
-        T: AsyncFn(&Self::Response, Req) -> O + Clone,
+        T: core::ops::AsyncFn(&Self::Response, Req) -> O + Clone,
         Self: Sized,
     {
-        self.enclosed(middleware::AsyncFn(func))
+        self.enclosed(AsyncFn(func))
     }
 
     /// Mutate `<<Self::Response as Service<Req>>::Future as Future>::Output` type with given
     /// closure.
-    fn map<F, Res, ResMap>(self, mapper: F) -> PipelineT<Self, F, marker::BuildMap>
+    fn map<F, Res, ResMap>(self, mapper: F) -> MapBuilder<Self, F>
     where
         F: Fn(Res) -> ResMap + Clone,
         Self: Sized,
     {
-        PipelineT::new(self, mapper)
+        self.enclosed(Map(mapper))
     }
 
     /// Mutate `<Self::Response as Service<Req>>::Error` type with given closure.
-    fn map_err<F, Err, ErrMap>(self, err: F) -> PipelineT<Self, F, marker::BuildMapErr>
+    fn map_err<F, Err, ErrMap>(self, err: F) -> MapErrorBuilder<Self, F>
     where
         F: Fn(Err) -> ErrMap + Clone,
         Self: Sized,
     {
-        PipelineT::new(self, err)
+        self.enclosed(MapErr(err))
     }
 
     /// Chain another service factory who's service takes `Self`'s `Service::Response` output as
