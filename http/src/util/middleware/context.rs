@@ -1,6 +1,6 @@
 //! middleware for adding typed state to service request.
 
-use core::{fmt, future::Future};
+use core::fmt;
 
 use xitca_service::Service;
 

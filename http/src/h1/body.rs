@@ -1,6 +1,6 @@
 use core::{
     cell::{RefCell, RefMut},
-    future::{Future, poll_fn},
+    future::poll_fn,
     ops::DerefMut,
     pin::Pin,
     task::{Context, Poll, Waker},

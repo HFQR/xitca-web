@@ -2,7 +2,7 @@
 
 #![allow(non_snake_case)]
 
-use core::{convert::Infallible, future::Future, marker::PhantomData, net::SocketAddr};
+use core::{convert::Infallible, marker::PhantomData, net::SocketAddr};
 
 use xitca_service::{Service, pipeline::PipelineE};
 

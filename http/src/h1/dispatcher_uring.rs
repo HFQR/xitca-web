@@ -1,7 +1,7 @@
 use core::{
     cell::RefCell,
     fmt,
-    future::{Future, poll_fn},
+    future::poll_fn,
     marker::PhantomData,
     mem,
     net::SocketAddr,

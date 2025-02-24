@@ -1,5 +1,4 @@
-use std::{
-    future::Future,
+use core::{
     pin::Pin,
     task::{Context, Poll, ready},
 };

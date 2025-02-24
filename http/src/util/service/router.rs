@@ -21,7 +21,7 @@ pub use self::object::RouteObject;
 /// in order to determine how the router type-erases node services.
 pub struct Router<Obj> {
     // record for last time PathGen is called with certain route string prefix.
-    prefix: Option<usize>,
+    prefix: usize,
     routes: HashMap<String, Obj>,
 }
 
@@ -34,7 +34,7 @@ impl<Obj> Default for Router<Obj> {
 impl<Obj> Router<Obj> {
     pub fn new() -> Self {
         Router {
-            prefix: None,
+            prefix: 0,
             routes: HashMap::new(),
         }
     }
@@ -183,8 +183,7 @@ where
             path.pop();
         }
 
-        let prefix = self.prefix.get_or_insert(0);
-        *prefix += path.len();
+        self.prefix += path.len();
 
         self.routes.iter_mut().for_each(|(_, v)| {
             v.path_gen(path.as_str());
@@ -427,7 +426,7 @@ pub trait TypedRoute<M = ()> {
 }
 
 mod service {
-    use xitca_service::ready::ReadyService;
+    use xitca_service::{object::ServiceObject, ready::ReadyService};
 
     use crate::http::{BorrowReq, BorrowReqMut, Uri};
 
@@ -436,13 +435,13 @@ mod service {
     pub struct RouterService<S> {
         // a length record of prefix of current router.
         // when it's Some the request path has to be sliced to exclude the string path prefix.
-        pub(super) prefix: Option<usize>,
+        pub(super) prefix: usize,
         pub(super) router: xitca_router::Router<S>,
     }
 
     impl<S, Req, E> Service<Req> for RouterService<S>
     where
-        S: Service<Req, Error = RouterError<E>>,
+        S: ServiceObject<Req, Error = RouterError<E>>,
         Req: BorrowReq<Uri> + BorrowReqMut<Params>,
     {
         type Response = S::Response;
@@ -452,17 +451,13 @@ mod service {
         // using async fn call directly would cause significant code bloating.
         #[allow(clippy::manual_async_fn)]
         #[inline]
-        fn call(&self, mut req: Req) -> impl core::future::Future<Output = Result<Self::Response, Self::Error>> {
+        fn call(&self, mut req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>> {
             async {
-                let mut path = req.borrow().path();
-
-                if let Some(prefix) = self.prefix {
-                    path = &path[prefix..];
-                }
-
-                let xitca_router::Match { value, params } = self.router.at(path).map_err(RouterError::Match)?;
+                let path = req.borrow().path();
+                let xitca_router::Match { value, params } =
+                    self.router.at(&path[self.prefix..]).map_err(RouterError::Match)?;
                 *req.borrow_mut() = params;
-                Service::call(value, req).await
+                ServiceObject::call(value, req).await
             }
         }
     }
