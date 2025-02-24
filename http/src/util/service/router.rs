@@ -426,7 +426,7 @@ pub trait TypedRoute<M = ()> {
 }
 
 mod service {
-    use xitca_service::{object::ServiceObject, ready::ReadyService};
+    use xitca_service::ready::ReadyService;
 
     use crate::http::{BorrowReq, BorrowReqMut, Uri};
 
@@ -441,7 +441,7 @@ mod service {
 
     impl<S, Req, E> Service<Req> for RouterService<S>
     where
-        S: ServiceObject<Req, Error = RouterError<E>>,
+        S: Service<Req, Error = RouterError<E>>,
         Req: BorrowReq<Uri> + BorrowReqMut<Params>,
     {
         type Response = S::Response;
@@ -457,7 +457,7 @@ mod service {
                 let xitca_router::Match { value, params } =
                     self.router.at(&path[self.prefix..]).map_err(RouterError::Match)?;
                 *req.borrow_mut() = params;
-                ServiceObject::call(value, req).await
+                Service::call(value, req).await
             }
         }
     }
