@@ -3,7 +3,6 @@ pub(crate) use native_tls::TlsAcceptor;
 use core::{
     convert::Infallible,
     fmt,
-    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };

@@ -3,8 +3,6 @@ pub(crate) use queue::*;
 
 #[cfg(any(feature = "http2", feature = "http3"))]
 mod queue {
-    use core::future::Future;
-
     use futures_util::stream::{FuturesUnordered, StreamExt};
 
     pub(crate) struct Queue<F>(FuturesUnordered<F>);

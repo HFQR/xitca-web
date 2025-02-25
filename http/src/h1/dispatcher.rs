@@ -1,6 +1,6 @@
 use core::{
     convert::Infallible,
-    future::{Future, pending, poll_fn},
+    future::{pending, poll_fn},
     marker::PhantomData,
     net::SocketAddr,
     pin::{Pin, pin},
