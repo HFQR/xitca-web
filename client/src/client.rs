@@ -197,7 +197,7 @@ impl Client {
     /// let client = Client::new();
     /// let mut upgrade_response = client
     ///     .upgrade("http://localhost:8080", Method::GET)
-    ///     .protocol("protocol1, protocol2")
+    ///     .protocol(["protocol1", "protocol2"])
     ///     .send().await?
     /// ;
     ///
