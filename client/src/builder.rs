@@ -72,11 +72,11 @@ impl ClientBuilder {
     ///
     /// // trait implement for the logic of middleware. most of the types are boilerplate
     /// // that can be copy/pasted. the real logic goes into `async fn call`
-    /// impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for MyMiddleware {
+    /// impl<'c> Service<ServiceRequest<'c>> for MyMiddleware {
     ///     type Response = Response;
     ///     type Error = Error;
     ///
-    ///     async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
+    ///     async fn call(&self, req: ServiceRequest<'c>) -> Result<Self::Response, Self::Error> {
     ///         // my middleware receive ServiceRequest and can do pre-process before passing it to
     ///         // HttpService. in this case we just print out the HTTP method of request.
     ///         println!("request method is: {}", req.req.method());
@@ -115,7 +115,7 @@ impl ClientBuilder {
     pub fn middleware<F, S>(mut self, func: F) -> Self
     where
         F: FnOnce(HttpService) -> S,
-        S: for<'r, 'c> Service<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync + 'static,
+        S: for<'c> Service<ServiceRequest<'c>, Response = Response, Error = Error> + Send + Sync + 'static,
     {
         self.service = Box::new(func(self.service));
         self

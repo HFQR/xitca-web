@@ -23,14 +23,14 @@ impl<S> Decompress<S> {
     }
 }
 
-impl<'r, 'c, S> Service<ServiceRequest<'r, 'c>> for Decompress<S>
+impl<'c, S> Service<ServiceRequest<'c>> for Decompress<S>
 where
-    S: for<'r2, 'c2> Service<ServiceRequest<'r2, 'c2>, Response = Response, Error = Error> + Send + Sync,
+    S: for<'c2> Service<ServiceRequest<'c2>, Response = Response, Error = Error> + Send + Sync,
 {
     type Response = Response;
     type Error = Error;
 
-    async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, mut req: ServiceRequest<'c>) -> Result<Self::Response, Self::Error> {
         req.req
             .headers_mut()
             .insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate, br"));

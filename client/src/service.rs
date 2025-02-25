@@ -64,28 +64,32 @@ where
 /// It's similar to [RequestBuilder] type but with additional side effect enabled.
 ///
 /// [RequestBuilder]: crate::request::RequestBuilder
-pub struct ServiceRequest<'r, 'c> {
-    pub req: &'r mut Request<BoxBody>,
+pub struct ServiceRequest<'c> {
+    pub req: Request<BoxBody>,
     pub client: &'c Client,
     pub timeout: Duration,
 }
 
 /// type alias for object safe wrapper of type implement [Service] trait.
 pub type HttpService =
-    Box<dyn for<'r, 'c> ServiceDyn<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync>;
+    Box<dyn for<'c> ServiceDyn<ServiceRequest<'c>, Response = Response, Error = Error> + Send + Sync>;
 
 pub(crate) fn base_service() -> HttpService {
     struct HttpService;
 
-    impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for HttpService {
+    impl<'c> Service<ServiceRequest<'c>> for HttpService {
         type Response = Response;
         type Error = Error;
 
-        async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
+        async fn call(&self, req: ServiceRequest<'c>) -> Result<Self::Response, Self::Error> {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
             use crate::{error::TimeoutError, timeout::Timeout};
 
-            let ServiceRequest { req, client, timeout } = req;
+            let ServiceRequest {
+                mut req,
+                client,
+                timeout,
+            } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
@@ -108,10 +112,7 @@ pub(crate) fn base_service() -> HttpService {
                             return match _conn.conn {
                                 #[cfg(feature = "http2")]
                                 crate::connection::ConnectionShared::H2(ref mut conn) => {
-                                    match crate::h2::proto::send(conn, _date, core::mem::take(req))
-                                        .timeout(_timer.as_mut())
-                                        .await
-                                    {
+                                    match crate::h2::proto::send(conn, _date, req).timeout(_timer.as_mut()).await {
                                         Ok(Ok(res)) => {
                                             let timeout = client.timeout_config.response_timeout;
                                             Ok(Response::new(res, _timer, timeout))
@@ -128,7 +129,7 @@ pub(crate) fn base_service() -> HttpService {
                                 }
                                 #[cfg(feature = "http3")]
                                 crate::connection::ConnectionShared::H3(ref mut conn) => {
-                                    let res = crate::h3::proto::send(conn, _date, core::mem::take(req))
+                                    let res = crate::h3::proto::send(conn, _date, req)
                                         .timeout(_timer.as_mut())
                                         .await
                                         .map_err(|_| TimeoutError::Request)??;
@@ -297,11 +298,11 @@ mod test {
 
     impl HttpServiceMockHandle {
         /// compose a service request with given http request and it's mocked server side handler function
-        pub(crate) fn mock<'r, 'c>(
-            &'c self,
-            req: &'r mut Request<BoxBody>,
+        pub(crate) fn mock(
+            &self,
+            mut req: Request<BoxBody>,
             handler: impl Fn(Request<BoxBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync + 'static,
-        ) -> ServiceRequest<'r, 'c> {
+        ) -> ServiceRequest<'_> {
             req.extensions_mut().insert(Arc::new(handler) as HandlerFn);
             ServiceRequest {
                 req,
@@ -311,17 +312,17 @@ mod test {
         }
     }
 
-    impl<'r, 'c> Service<ServiceRequest<'r, 'c>> for HttpServiceMock {
+    impl<'c> Service<ServiceRequest<'c>> for HttpServiceMock {
         type Response = Response;
         type Error = Error;
 
         async fn call(
             &self,
-            ServiceRequest { req, timeout, .. }: ServiceRequest<'r, 'c>,
+            ServiceRequest { req, timeout, .. }: ServiceRequest<'c>,
         ) -> Result<Self::Response, Self::Error> {
             let handler = req.extensions().get::<HandlerFn>().unwrap().clone();
 
-            let res = handler(core::mem::take(req))?;
+            let res = handler(req)?;
 
             Ok(Response::new(
                 res,
