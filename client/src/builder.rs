@@ -122,7 +122,7 @@ impl ClientBuilder {
 
     /// add a middleware function to client builder.
     ///
-    /// func is an async closure, that receive the next middleware in the chain and the incoming request.
+    /// func is an async closure receiving the next middleware in the chain and the incoming request.
     ///
     /// # Examples
     /// ```rust
@@ -134,15 +134,17 @@ impl ClientBuilder {
     ///
     /// // start a new client builder and apply our middleware to it:
     /// let builder = ClientBuilder::new()
-    ///     // use a closure to receive HttpService and construct my middleware type.
-    ///     .middleware_fn(async |mut req: ServiceRequest, http_service: &HttpService| {
+    ///     // use an async closure to receive HttpService and construct my middleware type.
+    ///     .middleware_fn(async |mut req, http_service| {
     ///         req.req.headers_mut().insert("x-my-header", HeaderValue::from_static("my-value"));
-    ///
     ///         http_service.call(req).await
     ///     });
     /// ```
     pub fn middleware_fn<F>(mut self, func: F) -> Self
     where
+        // bound to std::ops::AsyncFn allows us avoid explicit annotating closure argument types
+        F: core::ops::AsyncFn(ServiceRequest<'_, '_>, &HttpService) -> Result<Response, Error>,
+        // bound to homebrew AsyncFn allows us express `Send` bound to the returned future type
         F: for<'s, 'r, 'c> AsyncFn<(ServiceRequest<'r, 'c>, &'s HttpService), Output = Result<Response, Error>>
             + Send
             + Sync

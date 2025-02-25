@@ -2,11 +2,9 @@
 
 use core::future::Future;
 
-/// Same as `std::ops::Fn` trait but for async output.
-///
-/// It is necessary in the the HRTB bounds for async fn's with reference parameters because it
-/// allows the output future to be bound to the parameter lifetime.
-///     `F: for<'a> AsyncFn<(&'a u8,) Output=u8>`
+// TODO: use `std::ops::AsyncFn` instead
+/// Similar to `std::ops::AsyncFn` except the associated types are named and their trait bounds can be annotated.
+/// It's necessary to express `Send` bound on the `Future` associated type.
 pub trait AsyncFn<Arg> {
     type Output;
     type Future: Future<Output = Self::Output>;
