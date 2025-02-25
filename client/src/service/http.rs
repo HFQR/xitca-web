@@ -239,3 +239,23 @@ fn parse_keep_alive<B>(res: &crate::http::Response<B>) -> (Option<Duration>, Opt
 
     (timeout, max)
 }
+
+#[cfg(test)]
+mod test {
+    use crate::{body::ResponseBody, http};
+
+    use super::*;
+
+    #[test]
+    fn test_parse_timeout_and_max() {
+        let res = http::Response::builder()
+            .header("keep-alive", "timeout=100, max=10")
+            .body(ResponseBody::Eof)
+            .unwrap();
+
+        let (timeout, max) = parse_keep_alive(&res);
+
+        assert_eq!(timeout, Some(Duration::from_secs(100)));
+        assert_eq!(max, Some(10));
+    }
+}
