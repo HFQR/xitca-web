@@ -7,11 +7,10 @@ use crate::{
     connect::Connect,
     date::DateTimeService,
     error::Error,
-    pool,
+    middleware, pool,
     resolver::{base_resolver, ResolverService},
     response::Response,
-    service::{base_service, HttpService},
-    service::{Service, ServiceRequest},
+    service::{async_fn::AsyncFn, http::base_service, HttpService, Service, ServiceRequest},
     timeout::TimeoutConfig,
     tls::{
         connector::{self, Connector},
@@ -118,6 +117,39 @@ impl ClientBuilder {
         S: for<'r, 'c> Service<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync + 'static,
     {
         self.service = Box::new(func(self.service));
+        self
+    }
+
+    /// add a middleware function to client builder.
+    ///
+    /// func is an async closure, that receive the next middleware in the chain and the incoming request.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use xitca_client::{
+    ///     error::Error,
+    ///     ClientBuilder, HttpService, Response, Service, ServiceRequest
+    /// };
+    /// use xitca_http::http::HeaderValue;
+    ///
+    /// // start a new client builder and apply our middleware to it:
+    /// let builder = ClientBuilder::new()
+    ///     // use a closure to receive HttpService and construct my middleware type.
+    ///     .middleware_fn(async |mut req: ServiceRequest, http_service: &HttpService| {
+    ///         req.req.headers_mut().insert("x-my-header", HeaderValue::from_static("my-value"));
+    ///
+    ///         http_service.call(req).await
+    ///     });
+    /// ```
+    pub fn middleware_fn<F>(mut self, func: F) -> Self
+    where
+        F: for<'s, 'r, 'c> AsyncFn<(ServiceRequest<'r, 'c>, &'s HttpService), Output = Result<Response, Error>>
+            + Send
+            + Sync
+            + 'static,
+        for<'s, 'r, 'c> <F as AsyncFn<(ServiceRequest<'r, 'c>, &'s HttpService)>>::Future: Send,
+    {
+        self.service = Box::new(middleware::AsyncFn::new(self.service, func));
         self
     }
 
