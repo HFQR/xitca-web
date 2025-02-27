@@ -3,14 +3,14 @@ use std::{collections::HashMap, future::Future, io, pin::Pin, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use std::net;
 
-use xitca_io::net::{Listener, Stream};
+use xitca_io::net::{ListenObj, Stream};
 
 use crate::{
     net::IntoListener,
     server::{IntoServiceObj, Server, ServerFuture, ServiceObj},
 };
 
-type ListenerFn = Box<dyn FnOnce() -> io::Result<Listener> + Send>;
+type ListenerFn = Box<dyn FnOnce() -> io::Result<ListenObj> + Send>;
 
 pub struct Builder {
     pub(crate) server_threads: usize,

@@ -17,8 +17,7 @@ pub use tcp::{TcpListener, TcpStream};
 #[cfg(unix)]
 pub use unix::{UnixListener, UnixStream};
 
-use core::net::SocketAddr;
-
+use core::{future::Future, net::SocketAddr, pin::Pin};
 use std::io;
 
 macro_rules! default_aio_impl {
@@ -117,8 +116,40 @@ pub enum Listener {
     Unix(UnixListener),
 }
 
-impl Listener {
-    pub async fn accept(&self) -> io::Result<Stream> {
+type BoxFuture<'f, T> = Pin<Box<dyn Future<Output = T> + Send + 'f>>;
+
+pub trait Listen {
+    fn accept(&self) -> impl Future<Output = io::Result<Stream>> + Send;
+}
+
+pub trait ListenDyn {
+    fn accept(&self) -> BoxFuture<io::Result<Stream>>;
+}
+
+pub type ListenObj = Box<dyn ListenDyn + Send + Sync>;
+
+impl<S> ListenDyn for S
+where
+    S: Listen,
+{
+    #[inline]
+    fn accept(&self) -> BoxFuture<io::Result<Stream>> {
+        Box::pin(Listen::accept(self))
+    }
+}
+
+impl<I> Listen for Box<I>
+where
+    I: ListenDyn + ?Sized + Send + Sync,
+{
+    #[inline]
+    async fn accept(&self) -> io::Result<Stream> {
+        ListenDyn::accept(&**self).await
+    }
+}
+
+impl Listen for Listener {
+    async fn accept(&self) -> io::Result<Stream> {
         match *self {
             Self::Tcp(ref tcp) => {
                 let (stream, addr) = tcp.accept().await?;

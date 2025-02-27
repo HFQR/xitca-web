@@ -1,14 +1,14 @@
 use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use tokio::task::JoinHandle;
-use xitca_io::net::{Listener, Stream};
+use xitca_io::net::{ListenObj, Stream};
 use xitca_service::{Service, ready::ReadyService};
 
 use crate::worker::{self, ServiceAny};
 
 pub type ServiceObj = Box<
     dyn for<'a> xitca_service::object::ServiceObject<
-            (&'a str, &'a [(String, Arc<Listener>)]),
+            (&'a str, &'a [(String, Arc<ListenObj>)]),
             Response = (Vec<JoinHandle<()>>, ServiceAny),
             Error = (),
         > + Send
@@ -20,7 +20,7 @@ struct Container<F, Req> {
     _t: PhantomData<fn(Req)>,
 }
 
-impl<'a, F, Req> Service<(&'a str, &'a [(String, Arc<Listener>)])> for Container<F, Req>
+impl<'a, F, Req> Service<(&'a str, &'a [(String, Arc<ListenObj>)])> for Container<F, Req>
 where
     F: IntoServiceObj<Req>,
     Req: TryFrom<Stream> + 'static,
@@ -30,7 +30,7 @@ where
 
     async fn call(
         &self,
-        (name, listeners): (&'a str, &'a [(String, Arc<Listener>)]),
+        (name, listeners): (&'a str, &'a [(String, Arc<ListenObj>)]),
     ) -> Result<Self::Response, Self::Error> {
         let service = self.inner.call(()).await.map_err(|_| ())?;
         let service = Rc::new(service);
