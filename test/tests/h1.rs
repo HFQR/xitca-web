@@ -34,7 +34,7 @@ async fn h1_get() -> Result<(), Error> {
         assert_eq!("GET Response", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -270,6 +270,52 @@ async fn h1_keepalive() -> Result<(), Error> {
     Ok(())
 }
 
+#[tokio::test]
+async fn h1_shutdown_during_request() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+
+    let mut stream = TcpStream::connect(handle.addr())?;
+
+    let mut buf = [0; 128];
+
+    // write first half of the request.
+    stream.write_all(SLEEP_GET_REQ_PART_1)?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // shutdown server.
+    handle.try_handle()?.stop(true);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // write second half of the request.
+    stream.write_all(SLEEP_GET_REQ_PART_2)?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // write second half of the request.
+    stream.write_all(SLEEP_GET_REQ_PART_3)?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // read response.
+    loop {
+        let n = stream.read(&mut buf)?;
+
+        if n == 0 {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "unexpected eof",
+            )))?;
+        }
+
+        // it should be chunked so it ends with 0\r\n\r\n
+        if buf[..n].ends_with(b"0\r\n\r\n") {
+            break;
+        }
+    }
+
+    handle.await?;
+
+    Ok(())
+}
+
 async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") | (&Method::HEAD, "/") => Ok(Response::new(Bytes::from("GET Response").into())),
@@ -309,8 +355,17 @@ async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<Re
             res.headers_mut().insert(CONNECTION, HeaderValue::from_static("close"));
             Ok(res)
         }
+        (&Method::GET, "/sleep") => {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            Ok(Response::new(ResponseBody::stream(BoxBody::new(req.into_body()))))
+        }
         _ => todo!(),
     }
 }
 
 const SIMPLE_GET_REQ: &[u8] = b"GET / HTTP/1.1\r\ncontent-length: 0\r\n\r\n";
+
+const SLEEP_GET_REQ_PART_1: &[u8] = b"GET /sleep HTTP/1.1\r\n";
+const SLEEP_GET_REQ_PART_2: &[u8] = b"content-length: 10\r\n\r\n01";
+const SLEEP_GET_REQ_PART_3: &[u8] = b"23456789";

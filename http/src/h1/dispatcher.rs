@@ -1,3 +1,5 @@
+use std::{io, rc::Rc};
+
 use core::{
     convert::Infallible,
     future::{pending, poll_fn},
@@ -7,9 +9,8 @@ use core::{
     time::Duration,
 };
 
-use std::io;
-
 use futures_core::stream::Stream;
+use tokio_util::sync::CancellationToken;
 use tracing::trace;
 use xitca_io::io::{AsyncIo, Interest, Ready};
 use xitca_service::Service;
@@ -41,6 +42,7 @@ use super::proto::{
     encode::CONTINUE,
     error::ProtoError,
 };
+use crate::util::futures::WaitOrPending;
 
 type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 
@@ -63,6 +65,7 @@ pub(crate) async fn run<
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     service: &'a S,
     date: &'a D,
+    cancellation_token: CancellationToken,
 ) -> Result<(), Error<S::Error, BE>>
 where
     S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
@@ -77,7 +80,7 @@ where
         EitherBuf::Right(WriteBuf::<WRITE_BUF_LIMIT>::default())
     };
 
-    Dispatcher::new(io, addr, timer, config, service, date, write_buf)
+    Dispatcher::new(io, addr, timer, config, service, date, write_buf, cancellation_token)
         .run()
         .await
 }
@@ -89,6 +92,8 @@ struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_B
     ctx: Context<'a, D, HEADER_LIMIT>,
     service: &'a S,
     _phantom: PhantomData<ReqB>,
+    cancellation_token: CancellationToken,
+    request_guard: Rc<()>,
 }
 
 // timer state is transformed in following order:
@@ -166,6 +171,7 @@ where
     W: H1BufWrite,
     D: DateTime,
 {
+    #[allow(clippy::too_many_arguments)]
     fn new<const WRITE_BUF_LIMIT: usize>(
         io: &'a mut St,
         addr: SocketAddr,
@@ -174,6 +180,7 @@ where
         service: &'a S,
         date: &'a D,
         write_buf: W,
+        cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             io: BufferedIo::new(io, write_buf),
@@ -181,6 +188,8 @@ where
             ctx: Context::with_addr(addr, date),
             service,
             _phantom: PhantomData,
+            cancellation_token,
+            request_guard: Rc::new(()),
         }
     }
 
@@ -198,12 +207,21 @@ where
                 }
                 Err(Error::Proto(_)) => self.request_error(|| status_only(StatusCode::BAD_REQUEST)),
                 Err(e) => return Err(e),
-            }
+            };
 
             // TODO: add timeout for drain write?
             self.io.drain_write().await?;
 
+            // shutdown io if connection is closed.
             if self.ctx.is_connection_closed() {
+                return self.io.shutdown().await.map_err(Into::into);
+            }
+
+            // shutdown io if there is no more read buf
+            if self.io.read_buf.is_empty()
+                && self.cancellation_token.is_cancelled()
+                && Rc::strong_count(&self.request_guard) == 1
+            {
                 return self.io.shutdown().await.map_err(Into::into);
             }
         }
@@ -211,17 +229,29 @@ where
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
         self.timer.update(self.ctx.date().now());
-        self.io
+
+        match self
+            .io
             .read()
+            .select(WaitOrPending::new(
+                self.cancellation_token.cancelled(),
+                self.cancellation_token.is_cancelled(),
+            ))
             .timeout(self.timer.get())
             .await
-            .map_err(|_| self.timer.map_to_err())??;
+        {
+            Err(_) => return Err(self.timer.map_to_err()),
+            Ok(SelectOutput::A(Ok(_))) => {}
+            Ok(SelectOutput::A(Err(_))) => return Err(Error::KeepAliveExpire),
+            Ok(SelectOutput::B(())) => {}
+        }
 
         while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)? {
             self.timer.reset_state();
 
             let (mut body_reader, body) = BodyReader::from_coding(decoder);
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
+            let _guard = self.request_guard.clone();
 
             let (parts, body) = match self
                 .service

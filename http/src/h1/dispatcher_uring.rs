@@ -14,6 +14,7 @@ use std::{io, net::Shutdown, rc::Rc};
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
+use tokio_util::sync::CancellationToken;
 use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
@@ -54,6 +55,8 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     write_buf: BufOwned,
     notify: Notify<BufOwned>,
     _phantom: PhantomData<ReqB>,
+    cancellation_token: CancellationToken,
+    request_guard: Rc<()>,
 }
 
 #[derive(Default)]
@@ -118,6 +121,7 @@ where
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
+        cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             io: Rc::new(io),
@@ -128,6 +132,8 @@ where
             write_buf: BufOwned::new(),
             notify: Notify::new(),
             _phantom: PhantomData,
+            cancellation_token,
+            request_guard: Rc::new(()),
         }
     }
 
@@ -145,7 +151,7 @@ where
                 }
                 Err(Error::Proto(_)) => self.request_error(|| status_only(StatusCode::BAD_REQUEST)),
                 Err(e) => return Err(e),
-            }
+            };
 
             self.write_buf.write_io(&*self.io).await?;
 
@@ -166,7 +172,10 @@ where
             .map_err(|_| self.timer.map_to_err())??;
 
         if read == 0 {
-            self.ctx.set_close();
+            if !self.cancellation_token.is_cancelled() {
+                self.ctx.set_close();
+            }
+
             return Ok(());
         }
 
@@ -190,6 +199,7 @@ where
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
+            let _guard = self.request_guard.clone();
             let (parts, body) = self.service.call(req).await.map_err(Error::Service)?.into_parts();
 
             let mut encoder = self.ctx.encode_head(parts, &body, &mut *self.write_buf)?;

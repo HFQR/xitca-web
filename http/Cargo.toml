@@ -46,6 +46,7 @@ http = "1"
 httpdate = "1.0"
 pin-project-lite = "0.2.10"
 tracing = { version = "0.1.40", default-features = false }
+tokio-util = "0.7.13"
 
 # native tls support
 native-tls = { version = "0.2.7", features = ["alpn"], optional = true }

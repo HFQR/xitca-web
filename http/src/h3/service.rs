@@ -1,6 +1,7 @@
 use core::{fmt, net::SocketAddr};
 
 use futures_core::Stream;
+use tokio_util::sync::CancellationToken;
 use xitca_io::net::QuicStream;
 use xitca_service::{Service, ready::ReadyService};
 
@@ -24,7 +25,7 @@ impl<S> H3Service<S> {
     }
 }
 
-impl<S, ResB, BE> Service<(QuicStream, SocketAddr)> for H3Service<S>
+impl<S, ResB, BE> Service<((QuicStream, SocketAddr), CancellationToken)> for H3Service<S>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
@@ -33,8 +34,11 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    async fn call(&self, (stream, addr): (QuicStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
-        let dispatcher = Dispatcher::new(stream, addr, &self.service);
+    async fn call(
+        &self,
+        ((stream, addr), cancellation_token): ((QuicStream, SocketAddr), CancellationToken),
+    ) -> Result<Self::Response, Self::Error> {
+        let dispatcher = Dispatcher::new(stream, addr, &self.service, cancellation_token);
 
         dispatcher.run().await?;
 

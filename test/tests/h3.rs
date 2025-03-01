@@ -24,7 +24,7 @@ async fn h3_get() -> Result<(), Error> {
         assert_eq!("GET Response", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -50,7 +50,7 @@ async fn h3_no_host_header() -> Result<(), Error> {
         assert_eq!("", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -64,18 +64,33 @@ async fn h3_post() -> Result<(), Error> {
     let c = Client::new();
 
     let server_url = format!("https://localhost:{}/", handle.addr().port());
+    let mut body = BytesMut::new();
+    for _ in 0..1024 * 1024 {
+        body.extend_from_slice(b"Hello,World!");
+    }
+    let body = body.freeze();
 
     for _ in 0..3 {
-        let mut body = BytesMut::new();
-        for _ in 0..1024 * 1024 {
-            body.extend_from_slice(b"Hello,World!");
-        }
-        let mut res = c.post(&server_url).version(Version::HTTP_3).text(body).send().await?;
+        let mut res = c
+            .post(&server_url)
+            .version(Version::HTTP_3)
+            .text(body.clone())
+            .send()
+            .await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
     }
 
-    handle.try_handle()?.stop(false);
+    let res = c
+        .post(&server_url)
+        .version(Version::HTTP_3)
+        .text(body.clone())
+        .send()
+        .await?;
+    handle.try_handle()?.stop(true);
+    let content = res.string().await?;
+
+    assert_eq!("POST Response", content);
 
     handle.await?;
 
@@ -117,7 +132,9 @@ async fn handle(req: Request<RequestExt<h3::RequestBody>>) -> Result<Response<Re
 
             assert_eq!(buf.len(), length);
 
-            Ok(Response::new(Bytes::new().into()))
+            let res_body = Bytes::from("POST Response").into();
+
+            Ok(Response::new(res_body))
         }
         _ => todo!(),
     }

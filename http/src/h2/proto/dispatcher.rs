@@ -13,6 +13,7 @@ use ::h2::{
     server::{Connection, SendResponse},
 };
 use futures_core::stream::Stream;
+use tokio_util::sync::CancellationToken;
 use tracing::trace;
 use xitca_io::io::{AsyncRead, AsyncWrite};
 use xitca_service::Service;
@@ -28,7 +29,10 @@ use crate::{
         Extension, Request, RequestExt, Response, Version,
         header::{CONNECTION, CONTENT_LENGTH, DATE, HeaderMap, HeaderName, HeaderValue, TRAILER},
     },
-    util::{futures::Queue, timer::KeepAlive},
+    util::{
+        futures::{Queue, WaitOrPending},
+        timer::KeepAlive,
+    },
 };
 
 /// Http/2 dispatcher
@@ -39,6 +43,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
     ka_dur: Duration,
     service: &'a S,
     date: &'a DateTimeHandle,
+    cancellation_token: CancellationToken,
     _req_body: PhantomData<ReqB>,
 }
 
@@ -58,6 +63,7 @@ where
         ka_dur: Duration,
         service: &'a S,
         date: &'a DateTimeHandle,
+        cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             io,
@@ -67,6 +73,7 @@ where
             service,
             date,
             _req_body: PhantomData,
+            cancellation_token,
         }
     }
 
@@ -78,6 +85,7 @@ where
             ka_dur,
             service,
             date,
+            cancellation_token,
             ..
         } = self;
 
@@ -99,7 +107,15 @@ where
         let mut queue = Queue::new();
 
         loop {
-            match io.accept().select(try_poll_queue(&mut queue, &mut ping_pong)).await {
+            if queue.is_empty() && cancellation_token.is_cancelled() {
+                break;
+            }
+
+            match io
+                .accept()
+                .select(try_poll_queue(&mut queue, &mut ping_pong, cancellation_token.clone()))
+                .await
+            {
                 SelectOutput::A(Some(Ok((req, tx)))) => {
                     // Convert http::Request body type to crate::h2::Body
                     // and reconstruct as HttpRequest.
@@ -135,6 +151,7 @@ where
 async fn try_poll_queue<F, E, S, B>(
     queue: &mut Queue<F>,
     ping_ping: &mut H2PingPong<'_>,
+    cancellation_token: CancellationToken,
 ) -> SelectOutput<(), Result<(), ::h2::Error>>
 where
     F: Future<Output = Result<ConnectionState, E>>,
@@ -144,7 +161,16 @@ where
 {
     loop {
         if queue.is_empty() {
-            return SelectOutput::B(ping_ping.await);
+            return match ping_ping
+                .select(WaitOrPending::new(
+                    cancellation_token.cancelled(),
+                    cancellation_token.is_cancelled(),
+                ))
+                .await
+            {
+                SelectOutput::A(res) => SelectOutput::B(res),
+                SelectOutput::B(_) => SelectOutput::A(()),
+            };
         }
 
         match queue.next2().await {
