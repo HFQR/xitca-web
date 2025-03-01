@@ -6,23 +6,16 @@
 //!
 //! use xitca_service::{fn_service, Service, ServiceExt};
 //! # async fn call() -> Result<(), Infallible> {
-//!
-//! // a middleware function that has ownership of the argument and output of S as Service
-//! // trait implementor.
-//! async fn middleware<S>(s: &S, req: String) -> Result<String, Infallible>
-//! where
-//!     S: Service<String, Response = String, Error = Infallible>
-//! {
-//!     let req2 = req.clone();
-//!     let mut res = s.call(req).await?;
-//!     assert_eq!(res, req2);
-//!     res.push_str("-dagongren");
-//!     Ok(res)
-//! }
-//!
 //! // apply middleware to async function as service.
 //! let builder = fn_service(|req: String| async { Ok::<_, Infallible>(req) })
-//!     .enclosed_fn(middleware);
+//!     // a middleware function that has ownership of the argument and output of S as Service
+//!     // trait implementor.
+//!     .enclosed_fn(async |service, req| {
+//!         service.call(req).await.map(|mut res| {
+//!             res.push_str("-dagongren");
+//!             res
+//!         })
+//!     });
 //!
 //! // build the composited service.
 //! let service = builder.call(()).await?;
