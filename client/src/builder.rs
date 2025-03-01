@@ -126,10 +126,7 @@ impl ClientBuilder {
     ///
     /// # Examples
     /// ```rust
-    /// use xitca_client::{
-    ///     error::Error,
-    ///     ClientBuilder, HttpService, Response, Service, ServiceRequest
-    /// };
+    /// use xitca_client::{ClientBuilder, Service, ServiceRequest,error::Error};
     /// use xitca_http::http::HeaderValue;
     ///
     /// // start a new client builder and apply our middleware to it:

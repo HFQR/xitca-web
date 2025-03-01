@@ -8,7 +8,7 @@ pub use http::HttpService;
 
 type BoxFuture<'f, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'f>>;
 
-/// trait for composable http services. Used for middleware,resolver and tls connector.
+/// trait for composable http services. Used for middleware, resolver and tls connector.
 pub trait Service<Req> {
     type Response;
     type Error;
@@ -16,14 +16,20 @@ pub trait Service<Req> {
     fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>> + Send;
 }
 
-pub trait ServiceDyn<Req> {
-    type Response;
-    type Error;
+mod _seal {
+    #[doc(hidden)]
+    /// dynamic compatible counterpart for [`Service`](crate::service::Service) trait.
+    pub trait ServiceDyn<Req> {
+        type Response;
+        type Error;
 
-    fn call<'s>(&'s self, req: Req) -> BoxFuture<'s, Self::Response, Self::Error>
-    where
-        Req: 's;
+        fn call<'s>(&'s self, req: Req) -> super::BoxFuture<'s, Self::Response, Self::Error>
+        where
+            Req: 's;
+    }
 }
+
+pub(crate) use _seal::ServiceDyn;
 
 impl<S, Req> ServiceDyn<Req> for S
 where
