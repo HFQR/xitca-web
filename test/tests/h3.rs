@@ -13,7 +13,7 @@ use xitca_test::{test_h3_server, Error};
 async fn h3_get() -> Result<(), Error> {
     let mut handle = test_h3_server(fn_service(handle))?;
 
-    let c = Client::new();
+    let c = Client::builder().allow_invalid_certificate().finish();
     let server_url = format!("https://localhost:{}/", handle.addr().port());
 
     for _ in 0..3 {
@@ -37,7 +37,7 @@ async fn h3_no_host_header() -> Result<(), Error> {
 
     let server_url = format!("https://{}/host", handle.ip_port_string());
 
-    let c = Client::new();
+    let c = Client::builder().allow_invalid_certificate().finish();
 
     for _ in 0..3 {
         let mut req = c.get(&server_url).version(Version::HTTP_3);
@@ -61,7 +61,7 @@ async fn h3_no_host_header() -> Result<(), Error> {
 async fn h3_post() -> Result<(), Error> {
     let mut handle = test_h3_server(fn_service(handle))?;
 
-    let c = Client::new();
+    let c = Client::builder().allow_invalid_certificate().finish();
 
     let server_url = format!("https://localhost:{}/", handle.addr().port());
 
