@@ -389,7 +389,7 @@ where
                             body.decoder.limit,
                             body.decoder.read_buf.len()
                         );
-                        return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, msg))));
+                        return Poll::Ready(Some(Err(io::Error::other(msg))));
                     }
 
                     let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else {
