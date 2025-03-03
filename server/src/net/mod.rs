@@ -1,12 +1,14 @@
-use std::io;
+use std::{io, sync::Arc};
 
 #[cfg(feature = "quic")]
 use xitca_io::net::QuicListenerBuilder;
 #[cfg(unix)]
 use xitca_io::net::UnixListener;
-use xitca_io::net::{ListenObj, Listener, TcpListener};
+use xitca_io::net::{ListenDyn, TcpListener};
 
 use tracing::info;
+
+pub type ListenObj = Arc<dyn ListenDyn + Send + Sync>;
 
 /// Helper trait for converting listener types and register them to xitca-server
 /// By delay the conversion and make the process happen in server thread(s) it avoid possible panic due to runtime locality.
@@ -19,7 +21,7 @@ impl IntoListener for std::net::TcpListener {
         self.set_nonblocking(true)?;
         let listener = TcpListener::from_std(self)?;
         info!("Started Tcp listening on: {:?}", listener.local_addr().ok());
-        Ok(Box::new(Listener::Tcp(listener)))
+        Ok(Arc::new(listener))
     }
 }
 
@@ -29,7 +31,7 @@ impl IntoListener for std::os::unix::net::UnixListener {
         self.set_nonblocking(true)?;
         let listener = UnixListener::from_std(self)?;
         info!("Started Unix listening on: {:?}", listener.local_addr().ok());
-        Ok(Box::new(Listener::Unix(listener)))
+        Ok(Arc::new(listener))
     }
 }
 
@@ -38,6 +40,6 @@ impl IntoListener for QuicListenerBuilder {
     fn into_listener(self) -> io::Result<ListenObj> {
         let udp = self.build()?;
         info!("Started Udp listening on: {:?}", udp.endpoint().local_addr().ok());
-        Ok(Box::new(Listener::Udp(udp)))
+        Ok(Arc::new(udp))
     }
 }

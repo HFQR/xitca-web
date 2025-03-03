@@ -3,10 +3,10 @@ use std::{collections::HashMap, future::Future, io, pin::Pin, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use std::net;
 
-use xitca_io::net::{ListenObj, Stream};
+use xitca_io::net::Stream;
 
 use crate::{
-    net::IntoListener,
+    net::{IntoListener, ListenObj},
     server::{IntoServiceObj, Server, ServerFuture, ServiceObj},
 };
 

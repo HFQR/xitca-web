@@ -46,11 +46,7 @@ impl Server {
         let fut = async {
             listeners
                 .into_iter()
-                .flat_map(|(name, listeners)| {
-                    listeners
-                        .into_iter()
-                        .map(move |l| l().map(|l| (name.to_owned(), Arc::new(l))))
-                })
+                .flat_map(|(name, listeners)| listeners.into_iter().map(move |l| l().map(|l| (name.to_owned(), l))))
                 .collect::<Result<Vec<_>, io::Error>>()
         };
 
@@ -108,11 +104,7 @@ impl Server {
         let fut = async {
             listeners
                 .into_iter()
-                .flat_map(|(name, listeners)| {
-                    listeners
-                        .into_iter()
-                        .map(move |l| l().map(|l| (name.to_owned(), Arc::new(l))))
-                })
+                .flat_map(|(name, listeners)| listeners.into_iter().map(move |l| l().map(|l| (name.to_owned(), l))))
                 .collect::<Result<Vec<_>, io::Error>>()
         };
 
