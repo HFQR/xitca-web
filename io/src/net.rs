@@ -108,11 +108,12 @@ use default_aio_impl;
 
 type BoxFuture<'f, T> = Pin<Box<dyn Future<Output = T> + Send + 'f>>;
 
-pub trait Listen {
+pub trait Listen: Send + Sync {
     fn accept(&self) -> impl Future<Output = io::Result<Stream>> + Send;
 }
 
-pub trait ListenDyn {
+#[doc(hidden)]
+pub trait ListenDyn: Send + Sync {
     fn accept(&self) -> BoxFuture<io::Result<Stream>>;
 }
 

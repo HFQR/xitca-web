@@ -2,21 +2,19 @@ mod shutdown;
 
 use core::{any::Any, sync::atomic::AtomicBool, time::Duration};
 
-use std::{io, rc::Rc, thread};
+use std::{io, rc::Rc, sync::Arc, thread};
 
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
-use xitca_io::net::Stream;
+use xitca_io::net::{ListenDyn, Stream};
 use xitca_service::{Service, ready::ReadyService};
-
-use crate::net::ListenObj;
 
 use self::shutdown::ShutdownHandle;
 
 // erase Rc<S: ReadyService<_>> type and only use it for counting the reference counter of Rc.
 pub(crate) type ServiceAny = Rc<dyn Any>;
 
-pub(crate) fn start<S, Req>(listener: &ListenObj, service: &Rc<S>) -> JoinHandle<()>
+pub(crate) fn start<S, Req>(listener: &Arc<dyn ListenDyn>, service: &Rc<S>) -> JoinHandle<()>
 where
     S: ReadyService + Service<Req> + 'static,
     S::Ready: 'static,
