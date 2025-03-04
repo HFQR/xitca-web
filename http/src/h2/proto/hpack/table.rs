@@ -304,7 +304,7 @@ impl Table {
 
         let pos_idx = 0usize.wrapping_sub(self.inserted);
 
-        let prev = mem::replace(&mut self.indices[probe], Some(Pos { index: pos_idx, hash }));
+        let prev = self.indices[probe].replace(Pos { index: pos_idx, hash });
 
         if let Some(mut prev) = prev {
             // Shift forward
@@ -313,7 +313,7 @@ impl Table {
             probe_loop!(probe < self.indices.len(), {
                 let pos = &mut self.indices[probe];
 
-                prev = match mem::replace(pos, Some(prev)) {
+                prev = match pos.replace(prev) {
                     Some(p) => p,
                     None => break,
                 };

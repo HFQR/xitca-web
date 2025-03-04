@@ -272,12 +272,6 @@ mod test {
             util::service::{Router, route::get},
         };
 
-        async fn handler(req: Context<'_, Request<RequestExt<()>>, String>) -> Result<Response<()>, Infallible> {
-            let (_, state) = req.into_parts();
-            assert_eq!(state, "string_state");
-            Ok(Response::new(()))
-        }
-
         async fn enclosed<S, Req, C, Res, Err>(service: &S, req: Context<'_, Req, C>) -> Result<Res, Err>
         where
             S: for<'c> Service<Context<'c, Req, C>, Response = Res, Error = Err>,
@@ -285,7 +279,16 @@ mod test {
             service.call(req).await
         }
 
-        let router = || Router::new().insert("/", get(fn_service(handler)));
+        let router = || {
+            Router::new().insert(
+                "/",
+                get(fn_service(async |req: Context<'_, Request<RequestExt<()>>, String>| {
+                    let (_, state) = req.into_parts();
+                    assert_eq!(state, "string_state");
+                    Ok::<_, Infallible>(Response::new(()))
+                })),
+            )
+        };
 
         let router_with_ctx = || {
             router().enclosed_fn(enclosed).enclosed(ContextBuilder::new(|| async {

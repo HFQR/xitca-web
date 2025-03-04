@@ -1,10 +1,6 @@
 #![allow(non_snake_case)]
 
-use core::{
-    convert::Infallible,
-    future::{Ready, ready},
-    marker::PhantomData,
-};
+use core::{convert::Infallible, marker::PhantomData};
 
 use super::{FromRequest, Responder};
 
@@ -34,30 +30,30 @@ use xitca_service::{FnService, Service, fn_build};
 ///     // .at("/invalid1", handler_sync_service(|_: UriRef<'_>| { "uri ref is borrowed value" }))
 ///     // uncomment the line below would result in compile error.
 ///     // .at("/invalid2", handler_sync_service(|_: &WebContext<'_>| { "web request is borrowed value and not thread safe" }))
-///     # .at("/nah", handler_service(|_: &WebContext<'_>| async { "" }));
+///     # .at("/nah", handler_service(async |_: &WebContext<'_>| { "" }));
 /// ```
 ///
 /// [handler_service]: super::handler_service
-pub fn handler_sync_service<Arg, F, T, O>(func: F) -> FnService<impl Fn(Arg) -> Ready<FnServiceOutput<F, T, O>>>
+pub fn handler_sync_service<Arg, F, T>(func: F) -> FnService<impl AsyncFn(Arg) -> FnServiceOutput<F, T>>
 where
     F: Closure<T> + Send + Clone,
 {
-    fn_build(move |_| {
-        ready(Ok(HandlerServiceSync {
+    fn_build(async move |_| {
+        Ok(HandlerServiceSync {
             func: func.clone(),
             _p: PhantomData,
-        }))
+        })
     })
 }
 
-type FnServiceOutput<F, T, O> = Result<HandlerServiceSync<F, T, O>, Infallible>;
+type FnServiceOutput<F, T> = Result<HandlerServiceSync<F, T>, Infallible>;
 
-pub struct HandlerServiceSync<F, T, O> {
+pub struct HandlerServiceSync<F, T> {
     func: F,
-    _p: PhantomData<(T, O)>,
+    _p: PhantomData<T>,
 }
 
-impl<F, Req, T, O> Service<Req> for HandlerServiceSync<F, T, O>
+impl<F, Req, T, O> Service<Req> for HandlerServiceSync<F, T>
 where
     // for borrowed extractors, `T` is the `'static` version of the extractors
     T: FromRequest<'static, Req>,

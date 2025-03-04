@@ -81,9 +81,7 @@ impl<Io: AsyncIo> AsyncIo for TlsStream<Io> {
                 return Poll::Pending;
             }
             Err(e) => {
-                return Poll::Ready(Err(e
-                    .into_io_error()
-                    .unwrap_or_else(|e| io::Error::new(io::ErrorKind::Other, e))));
+                return Poll::Ready(Err(e.into_io_error().unwrap_or_else(io::Error::other)));
             }
         }
 

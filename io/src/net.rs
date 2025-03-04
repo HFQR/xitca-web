@@ -143,6 +143,7 @@ impl Listener {
 }
 
 /// A collection of stream types of different protocol.
+#[allow(clippy::large_enum_variant)]
 pub enum Stream {
     Tcp(std::net::TcpStream, SocketAddr),
     #[cfg(feature = "quic")]
