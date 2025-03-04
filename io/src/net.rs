@@ -17,8 +17,7 @@ pub use tcp::{TcpListener, TcpStream};
 #[cfg(unix)]
 pub use unix::{UnixListener, UnixStream};
 
-use core::net::SocketAddr;
-
+use core::{future::Future, net::SocketAddr, pin::Pin};
 use std::io;
 
 macro_rules! default_aio_impl {
@@ -107,38 +106,51 @@ macro_rules! default_aio_impl {
 
 use default_aio_impl;
 
-/// A collection of listener types of different protocol.
-#[derive(Debug)]
-pub enum Listener {
-    Tcp(TcpListener),
-    #[cfg(feature = "quic")]
-    Udp(QuicListener),
-    #[cfg(unix)]
-    Unix(UnixListener),
+type BoxFuture<'f, T> = Pin<Box<dyn Future<Output = T> + Send + 'f>>;
+
+pub trait Listen: Send + Sync {
+    fn accept(&self) -> impl Future<Output = io::Result<Stream>> + Send;
 }
 
-impl Listener {
-    pub async fn accept(&self) -> io::Result<Stream> {
-        match *self {
-            Self::Tcp(ref tcp) => {
-                let (stream, addr) = tcp.accept().await?;
-                let stream = stream.into_std()?;
-                Ok(Stream::Tcp(stream, addr))
-            }
-            #[cfg(feature = "quic")]
-            Self::Udp(ref udp) => {
-                let stream = udp.accept().await?;
-                let addr = stream.peer_addr();
-                Ok(Stream::Udp(stream, addr))
-            }
-            #[cfg(unix)]
-            Self::Unix(ref unix) => {
-                let (stream, _) = unix.accept().await?;
-                let stream = stream.into_std()?;
-                let addr = stream.peer_addr()?;
-                Ok(Stream::Unix(stream, addr))
-            }
-        }
+#[doc(hidden)]
+pub trait ListenDyn: Send + Sync {
+    fn accept(&self) -> BoxFuture<io::Result<Stream>>;
+}
+
+impl<S> ListenDyn for S
+where
+    S: Listen,
+{
+    #[inline]
+    fn accept(&self) -> BoxFuture<io::Result<Stream>> {
+        Box::pin(Listen::accept(self))
+    }
+}
+
+impl Listen for TcpListener {
+    async fn accept(&self) -> io::Result<Stream> {
+        let (stream, addr) = self.accept().await?;
+        let stream = stream.into_std()?;
+        Ok(Stream::Tcp(stream, addr))
+    }
+}
+
+#[cfg(feature = "quic")]
+impl Listen for QuicListener {
+    async fn accept(&self) -> io::Result<Stream> {
+        let stream = self.accept().await?;
+        let addr = stream.peer_addr();
+        Ok(Stream::Udp(stream, addr))
+    }
+}
+
+#[cfg(unix)]
+impl Listen for UnixListener {
+    async fn accept(&self) -> io::Result<Stream> {
+        let (stream, _) = self.accept().await?;
+        let stream = stream.into_std()?;
+        let addr = stream.peer_addr()?;
+        Ok(Stream::Unix(stream, addr))
     }
 }
 

@@ -3,14 +3,16 @@ use std::{collections::HashMap, future::Future, io, pin::Pin, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use std::net;
 
-use xitca_io::net::{Listener, Stream};
+use std::sync::Arc;
+
+use xitca_io::net::{ListenDyn, Stream};
 
 use crate::{
     net::IntoListener,
     server::{IntoServiceObj, Server, ServerFuture, ServiceObj},
 };
 
-type ListenerFn = Box<dyn FnOnce() -> io::Result<Listener> + Send>;
+type ListenerFn = Box<dyn FnOnce() -> io::Result<Arc<dyn ListenDyn>> + Send>;
 
 pub struct Builder {
     pub(crate) server_threads: usize,
@@ -143,7 +145,9 @@ impl Builder {
         self.listeners
             .entry(name.as_ref().to_string())
             .or_default()
-            .push(Box::new(|| listener.into_listener()));
+            .push(Box::new(|| {
+                listener.into_listener().map(|l| Arc::new(l) as Arc<dyn ListenDyn>)
+            }));
 
         self.factories.insert(name.as_ref().to_string(), service.into_object());
 
@@ -241,10 +245,9 @@ impl Builder {
 
         let builder = xitca_io::net::QuicListenerBuilder::new(addr, config).backlog(self.backlog);
 
-        self.listeners
-            .get_mut(name.as_ref())
-            .unwrap()
-            .push(Box::new(|| builder.into_listener()));
+        self.listeners.get_mut(name.as_ref()).unwrap().push(Box::new(|| {
+            builder.into_listener().map(|l| Arc::new(l) as Arc<dyn ListenDyn>)
+        }));
 
         Ok(self)
     }
