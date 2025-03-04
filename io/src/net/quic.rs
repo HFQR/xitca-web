@@ -17,6 +17,10 @@ pub struct QuicListener {
 }
 
 impl QuicListener {
+    pub fn new(endpoint: Endpoint) -> Self {
+        Self { endpoint }
+    }
+
     pub fn endpoint(&self) -> &Endpoint {
         &self.endpoint
     }
