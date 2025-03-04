@@ -127,16 +127,6 @@ where
     }
 }
 
-impl<I> Listen for Box<I>
-where
-    I: ListenDyn + ?Sized + Send + Sync,
-{
-    #[inline]
-    async fn accept(&self) -> io::Result<Stream> {
-        ListenDyn::accept(&**self).await
-    }
-}
-
 impl Listen for TcpListener {
     async fn accept(&self) -> io::Result<Stream> {
         let (stream, addr) = self.accept().await?;
