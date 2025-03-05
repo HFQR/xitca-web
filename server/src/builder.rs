@@ -5,14 +5,14 @@ use std::net;
 
 use std::sync::Arc;
 
-use xitca_io::net::{ListenDyn, Stream};
+use xitca_io::net::Stream;
 
 use crate::{
-    net::IntoListener,
+    net::{IntoListener, ListenerDyn},
     server::{IntoServiceObj, Server, ServerFuture, ServiceObj},
 };
 
-type ListenerFn = Box<dyn FnOnce() -> io::Result<Arc<dyn ListenDyn>> + Send>;
+type ListenerFn = Box<dyn FnOnce() -> io::Result<ListenerDyn> + Send>;
 
 pub struct Builder {
     pub(crate) server_threads: usize,
@@ -145,9 +145,7 @@ impl Builder {
         self.listeners
             .entry(name.as_ref().to_string())
             .or_default()
-            .push(Box::new(|| {
-                listener.into_listener().map(|l| Arc::new(l) as Arc<dyn ListenDyn>)
-            }));
+            .push(Box::new(|| listener.into_listener().map(|l| Arc::new(l) as _)));
 
         self.factories.insert(name.as_ref().to_string(), service.into_object());
 
@@ -245,9 +243,10 @@ impl Builder {
 
         let builder = xitca_io::net::QuicListenerBuilder::new(addr, config).backlog(self.backlog);
 
-        self.listeners.get_mut(name.as_ref()).unwrap().push(Box::new(|| {
-            builder.into_listener().map(|l| Arc::new(l) as Arc<dyn ListenDyn>)
-        }));
+        self.listeners
+            .get_mut(name.as_ref())
+            .unwrap()
+            .push(Box::new(|| builder.into_listener().map(|l| Arc::new(l) as _)));
 
         Ok(self)
     }
