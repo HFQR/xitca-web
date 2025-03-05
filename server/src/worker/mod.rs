@@ -29,7 +29,7 @@ where
         loop {
             let ready = service.ready().await;
 
-            match listener.accept().await {
+            match listener.accept_dyn().await {
                 Ok(stream) => {
                     if let Ok(req) = TryFrom::try_from(stream) {
                         let service = service.clone();
