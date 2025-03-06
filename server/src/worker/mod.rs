@@ -2,19 +2,21 @@ mod shutdown;
 
 use core::{any::Any, sync::atomic::AtomicBool, time::Duration};
 
-use std::{io, rc::Rc, sync::Arc, thread};
+use std::{io, rc::Rc, thread};
 
 use tokio::{task::JoinHandle, time::sleep};
 use tracing::{error, info};
-use xitca_io::net::{ListenDyn, Stream};
+use xitca_io::net::Stream;
 use xitca_service::{Service, ready::ReadyService};
+
+use crate::net::ListenerDyn;
 
 use self::shutdown::ShutdownHandle;
 
 // erase Rc<S: ReadyService<_>> type and only use it for counting the reference counter of Rc.
 pub(crate) type ServiceAny = Rc<dyn Any>;
 
-pub(crate) fn start<S, Req>(listener: &Arc<dyn ListenDyn>, service: &Rc<S>) -> JoinHandle<()>
+pub(crate) fn start<S, Req>(listener: &ListenerDyn, service: &Rc<S>) -> JoinHandle<()>
 where
     S: ReadyService + Service<Req> + 'static,
     S::Ready: 'static,
@@ -27,7 +29,7 @@ where
         loop {
             let ready = service.ready().await;
 
-            match listener.accept().await {
+            match listener.accept_dyn().await {
                 Ok(stream) => {
                     if let Ok(req) = TryFrom::try_from(stream) {
                         let service = service.clone();
