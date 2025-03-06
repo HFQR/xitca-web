@@ -29,6 +29,7 @@
     }
   }
   ```
+- `HttpServer::listen` accepts generic type impl `xitca_server::net::IntoListener` trait. The concrete type must be known before received by said function
 - change `codegen::error_impl` marco to coop with the change to `Error` type. the impl method must receive `error::Request` type as `WebContext`'s type param. Example:
   ```rust
   struct CustomError;

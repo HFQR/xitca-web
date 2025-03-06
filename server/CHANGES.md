@@ -1,4 +1,7 @@
 # unreleased 0.5.0
+## Add
+- add `net::Listen` trait for customizable connection accepting
+
 ## Change
 - bump MSRV to `1.85` and Rust edition 2024
 - rename `net::AsListener` trait to `IntoListener`. improve it's interface and reduce possibility of panicing
