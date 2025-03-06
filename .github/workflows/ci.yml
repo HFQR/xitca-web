@@ -47,7 +47,7 @@ jobs:
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-http"
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-http"
 
   check_web:
     strategy:
@@ -89,7 +89,7 @@ jobs:
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-web"
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-web"
 
   check_client:
     strategy:
@@ -131,7 +131,7 @@ jobs:
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-client"
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-client"
 
   check_other:
     strategy:
@@ -173,7 +173,7 @@ jobs:
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
         run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"
+          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"
 
   test_linux:
     strategy:
@@ -223,12 +223,12 @@ jobs:
     - name: test-linux-other
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-other"  
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-other"  
 
     - name: test-linux-test
       if: matrix.target.os == 'ubuntu-latest'
       run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-test"  
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-test"  
 
   check_examples:
     strategy:
@@ -275,4 +275,4 @@ jobs:
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
         run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/usr/share/rust/.cargo/bin && cd examples && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-examples"
+          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && cd examples && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-examples"
