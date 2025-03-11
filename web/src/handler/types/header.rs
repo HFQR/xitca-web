@@ -108,6 +108,26 @@ impl<'a, 'r, C, B, const HEADER_NAME: usize> FromRequest<'a, WebContext<'r, C, B
     }
 }
 
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for &'a HeaderMap {
+    type Type<'b> = &'b HeaderMap;
+    type Error = Error;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().headers())
+    }
+}
+
+impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for HeaderMap {
+    type Type<'b> = HeaderMap;
+    type Error = Error;
+
+    #[inline]
+    async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
+        Ok(ctx.req().headers().clone())
+    }
+}
+
 impl<'r, C, B> Responder<WebContext<'r, C, B>> for (HeaderName, HeaderValue) {
     type Response = WebResponse;
     type Error = Error;
