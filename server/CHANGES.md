@@ -1,4 +1,6 @@
-# unreleased 0.5.0
+# unreleased
+
+# 0.5.0
 ## Add
 - add `net::Listen` trait for customizable connection accepting
 

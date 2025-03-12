@@ -1,4 +1,6 @@
-# unreleased 0.7.0
+# unreleased
+
+# 0.7.0
 ## Add
 - add `HttpServer::bind_h3` easing enabling HTTP/3 as transport layer. The API can be enabled with `http3` crate feature  
 - add default impl to `handler::state::BorrowState` trait for `Box`, `Rc` and `Arc` types

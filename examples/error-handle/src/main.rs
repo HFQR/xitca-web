@@ -76,9 +76,9 @@ impl error::Error for MyError {
     }
 }
 
-// Error<C> is the main error type xitca-web uses and at some point MyError would
+// Error is the main error type xitca-web uses and at some point MyError would
 // need to be converted to it.
-impl<C> From<MyError> for Error<C> {
+impl From<MyError> for Error {
     fn from(e: MyError) -> Self {
         Error::from_service(e)
     }
@@ -95,9 +95,10 @@ impl<'r, C> Service<WebContext<'r, C>> for MyError {
 }
 
 // a middleware function used for intercept and interact with app handler outputs.
-async fn error_handler<S, C>(s: &S, mut ctx: WebContext<'_, C>) -> Result<WebResponse, Error<C>>
+async fn error_handler<S, C>(s: &S, mut ctx: WebContext<'_, C>) -> Result<WebResponse, Error>
 where
-    S: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Error<C>>,
+    C: 'static,
+    S: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Error>,
 {
     match s.call(ctx.reborrow()).await {
         Ok(res) => Ok(res),

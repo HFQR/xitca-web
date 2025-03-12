@@ -2,12 +2,12 @@
 name = "xitca-http-multi-services"
 version = "0.1.0"
 authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-xitca-http = { version = "0.6", features = ["http2", "http3", "openssl", "rustls"] }
-xitca-server = { version = "0.4", features = ["quic"] }
-xitca-service = "0.2"
+xitca-http = { version = "0.7", features = ["http2", "http3", "openssl", "rustls"] }
+xitca-server = { version = "0.5", features = ["quic"] }
+xitca-service = "0.3"
 
 openssl = "0.10.44"
 quinn = { version = "0.11", features = ["ring"] }

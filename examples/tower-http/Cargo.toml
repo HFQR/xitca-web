@@ -2,9 +2,9 @@
 name = "xitca-web-tower"
 version = "0.1.0"
 authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-xitca-web = { version = "0.6", features = ["tower-http-compat"] }
+xitca-web = { version = "0.7", features = ["tower-http-compat"] }
 
-tower-http = { version = "0.5", features = ["fs", "compression-gzip"] }
+tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
