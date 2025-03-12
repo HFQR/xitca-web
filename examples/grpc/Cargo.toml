@@ -2,12 +2,12 @@
 name = "xitca-http-grpc"
 version = "0.1.0"
 authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-xitca-http = { version = "0.6", default-features = false, features = ["http2", "router"] }
-xitca-server = "0.4"
-xitca-service = "0.2"
+xitca-http = { version = "0.7", default-features = false, features = ["http2", "router"] }
+xitca-server = "0.5"
+xitca-service = "0.3"
 
 anyhow = "1.0.66"
 futures-util = { version = "0.3", default-features = false }

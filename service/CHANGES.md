@@ -1,4 +1,6 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.0
 ## Change
 - bump MSRV to 1.85 and Rust edition 2024
 - remove `AsyncClosure` trait. use `std::ops::AsyncFn` trait for functional middleware

@@ -1,9 +1,9 @@
 [package]
 name = "xitca-web-error-handle"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-xitca-web = { version = "0.6", features = ["codegen", "nightly"] }
+xitca-web = { version = "0.7", features = ["codegen", "nightly"] }
 
-thiserror = "1"
+thiserror = "2"

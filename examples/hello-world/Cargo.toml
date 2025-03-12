@@ -2,7 +2,7 @@
 name = "xitca-web-hello"
 version = "0.1.0"
 authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-xitca-web = "0.6"
+xitca-web = "0.7"

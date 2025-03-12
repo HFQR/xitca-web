@@ -2,7 +2,7 @@
 name = "xitca-web-websocket"
 version = "0.1.0"
 authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-xitca-web = { version = "0.6", features = ["websocket"] }
+xitca-web = { version = "0.7", features = ["websocket"] }

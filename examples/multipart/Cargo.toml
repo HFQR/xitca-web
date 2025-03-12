@@ -2,10 +2,10 @@
 name = "xitca-web-multipart"
 version = "0.1.0"
 authors = ["fakeshadow <24548779@qq.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-xitca-web = { version = "0.6", features = ["logger", "multipart"] }
+xitca-web = { version = "0.7", features = ["logger", "multipart"] }
 
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }

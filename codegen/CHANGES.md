@@ -1,4 +1,6 @@
-# unreleased 0.4.0
+# unreleased
+
+# 0.4.0
 ## Change
 - macro is refactored to target xitca-web `0.7.0`
 - bump MSRV to `1.85` and Rust edition 2024
