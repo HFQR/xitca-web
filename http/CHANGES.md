@@ -1,4 +1,7 @@
-# unreleased
+# unreleased 0.7.1
+## Change
+- update `h3` to `0.0.7`
+- update `h3-quinn` to `0.0.9`
 
 # 0.7.0
 ## Change
