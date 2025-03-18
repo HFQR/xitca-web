@@ -20,7 +20,7 @@
   <br />
   <i>
     A HTTP library and web framework written in 100% safe Rust with zero-copy
-    serialization/deserilization support
+    serialization/deserialization support
   </i>
 </p>
 
