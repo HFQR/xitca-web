@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.7.1
+## Change
+- update `xitca-http` to `0.7.1`
 
 # 0.7.0
 ## Add
