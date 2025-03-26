@@ -68,8 +68,12 @@ where
         }
     }
 
+    let is_tls = req
+        .uri()
+        .scheme()
+        .is_some_and(|scheme| scheme == "https" || scheme == "wss");
     // TODO: make const generic params configurable.
-    let mut ctx = Context::<128>::new(&date);
+    let mut ctx = Context::<128>::new(&date, is_tls);
 
     // encode request head and return transfer encoding for request body
     let encoder = ctx.encode_head(&mut buf, req)?;
