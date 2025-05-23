@@ -98,6 +98,7 @@ where
             request::Parts {
                 mut headers,
                 extensions,
+                version,
                 ..
             },
             _,
@@ -107,6 +108,7 @@ where
         let mut res = Response::new(body.into());
         *res.headers_mut() = headers;
         *res.extensions_mut() = extensions;
+        *res.version_mut() = version;
 
         res
     }
