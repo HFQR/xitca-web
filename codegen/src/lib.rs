@@ -54,17 +54,17 @@ pub fn service_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 fn find_async_method<'a>(items: &'a [ImplItem], ident_str: &str) -> Option<Result<&'a ImplItemFn, Error>> {
     for item in items.iter() {
-        if let ImplItem::Fn(func) = item {
-            if func.sig.ident.to_string().as_str() == ident_str {
-                if func.sig.asyncness.is_none() {
-                    return Some(Err(Error::new(
-                        func.span(),
-                        format!("{ident_str} method must be async fn"),
-                    )));
-                }
-
-                return Some(Ok(func));
+        if let ImplItem::Fn(func) = item
+            && func.sig.ident.to_string().as_str() == ident_str
+        {
+            if func.sig.asyncness.is_none() {
+                return Some(Err(Error::new(
+                    func.span(),
+                    format!("{ident_str} method must be async fn"),
+                )));
             }
+
+            return Some(Ok(func));
         }
     }
 

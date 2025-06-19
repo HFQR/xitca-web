@@ -350,20 +350,15 @@ impl<'a> ReadyImpl<'a> {
 
 // Extract Result<T, E> types from a return type of function.
 fn res_ty(ret: &ReturnType) -> Result<(&Type, &Type), Error> {
-    if let ReturnType::Type(_, ty) = ret {
-        if let Type::Path(path) = ty.as_ref() {
-            if let Some(sig) = path.path.segments.first() {
-                if sig.ident == "Result" {
-                    if let PathArguments::AngleBracketed(ref arg) = sig.arguments {
-                        if let (Some(GenericArgument::Type(ok_ty)), Some(GenericArgument::Type(err_ty))) =
-                            (arg.args.first(), arg.args.last())
-                        {
-                            return Ok((ok_ty, err_ty));
-                        }
-                    }
-                }
-            }
-        }
+    if let ReturnType::Type(_, ty) = ret
+        && let Type::Path(path) = ty.as_ref()
+        && let Some(sig) = path.path.segments.first()
+        && sig.ident == "Result"
+        && let PathArguments::AngleBracketed(ref arg) = sig.arguments
+        && let (Some(GenericArgument::Type(ok_ty)), Some(GenericArgument::Type(err_ty))) =
+            (arg.args.first(), arg.args.last())
+    {
+        return Ok((ok_ty, err_ty));
     }
 
     Err(Error::new(ret.span(), "expect Result<Self, <Error>> as return type"))
@@ -389,18 +384,14 @@ fn default_pat_ident(ident: &str) -> PatIdent {
 }
 
 fn find_new_service_rt_err_ty(func: &ImplItemFn) -> Result<&Type, Error> {
-    if let ReturnType::Type(_, ref new_service_rt_ty) = func.sig.output {
-        if let Type::Path(ref path) = **new_service_rt_ty {
-            if let Some(path) = path.path.segments.first() {
-                if path.ident == "Result" {
-                    if let PathArguments::AngleBracketed(ref bracket) = path.arguments {
-                        if let Some(GenericArgument::Type(ty)) = bracket.args.last() {
-                            return Ok(ty);
-                        }
-                    };
-                }
-            }
-        };
+    if let ReturnType::Type(_, ref new_service_rt_ty) = func.sig.output
+        && let Type::Path(ref path) = **new_service_rt_ty
+        && let Some(path) = path.path.segments.first()
+        && path.ident == "Result"
+        && let PathArguments::AngleBracketed(ref bracket) = path.arguments
+        && let Some(GenericArgument::Type(ty)) = bracket.args.last()
+    {
+        return Ok(ty);
     }
 
     Err(Error::new(func.sig.output.span(), "expect Result<_, _> as return type"))
