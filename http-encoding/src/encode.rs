@@ -1,7 +1,7 @@
 //! Stream encoders.
 
 use futures_core::Stream;
-use http::{header, Response, StatusCode};
+use http::{header, Response, StatusCode, Version};
 
 use super::{
     coder::{Coder, FeaturedCode},
@@ -28,7 +28,7 @@ where
         match encoding {
             #[cfg(feature = "de")]
             ContentEncoding::Deflate => {
-                update_header(&mut parts.headers, "deflate");
+                update_header(&mut parts.headers, "deflate", parts.version);
                 FeaturedCode::EncodeDe(super::deflate::Encoder::new(
                     super::writer::BytesMutWriter::new(),
                     flate2::Compression::fast(),
@@ -36,7 +36,7 @@ where
             }
             #[cfg(feature = "gz")]
             ContentEncoding::Gzip => {
-                update_header(&mut parts.headers, "gzip");
+                update_header(&mut parts.headers, "gzip", parts.version);
                 FeaturedCode::EncodeGz(super::gzip::Encoder::new(
                     super::writer::BytesMutWriter::new(),
                     flate2::Compression::fast(),
@@ -44,7 +44,7 @@ where
             }
             #[cfg(feature = "br")]
             ContentEncoding::Br => {
-                update_header(&mut parts.headers, "br");
+                update_header(&mut parts.headers, "br", parts.version);
                 FeaturedCode::EncodeBr(super::brotli::Encoder::new(3))
             }
             _ => FeaturedCode::default(),
@@ -56,8 +56,13 @@ where
 }
 
 #[cfg(any(feature = "br", feature = "gz", feature = "de"))]
-fn update_header(headers: &mut header::HeaderMap, value: &'static str) {
+fn update_header(headers: &mut header::HeaderMap, value: &'static str, version: Version) {
     headers.insert(header::CONTENT_ENCODING, header::HeaderValue::from_static(value));
     headers.remove(header::CONTENT_LENGTH);
-    headers.insert(header::TRANSFER_ENCODING, header::HeaderValue::from_static("chunked"));
+
+    // Connection specific headers are not allowed in HTTP/2 and later versions.
+    // see https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.2
+    if version < Version::HTTP_2 {
+        headers.insert(header::TRANSFER_ENCODING, header::HeaderValue::from_static("chunked"));
+    }
 }
