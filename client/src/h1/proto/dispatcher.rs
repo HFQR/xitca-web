@@ -107,12 +107,21 @@ where
     // (In rare case the server could starting streaming back response without read all the request body)
 
     // try to send request body.
-    // continue to read response no matter the outcome.
-    if send_body(stream, encoder, req.body_mut(), &mut buf).await.is_err() {
+    if let Err(e) = send_body(stream, encoder, req.body_mut(), &mut buf).await {
         // an error indicate connection should be closed.
         ctx.set_close();
         // clear the buffer as there could be unfinished request data inside.
         buf.clear();
+        
+        // we ignore io errors, as the server may want to explain why we cannot write the request body.
+        // if this is a connection error it will be handled when we try to read the response.
+        // other errors should be propagated as something bad happened and backend may still be waiting for the request body
+        // before it can send a response, so it would hang forever if we continue to read the response.
+        match e {
+            Error::Std(e) => return Err(Error::Std(e)),
+            Error::Proto(e) => return Err(Error::Proto(e)),
+            Error::Io(_) => (),
+        }
     }
 
     // read response head and get body decoder.
