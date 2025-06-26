@@ -167,7 +167,7 @@ mod test {
         let g2 = Gcra::new(Quota::per_second(2));
         assert_eq!(g, g);
         assert_ne!(g, g2);
-        assert_gt!(format!("{:?}", g).len(), 0);
+        assert_gt!(format!("{g:?}").len(), 0);
     }
 
     /// Exercise derives and convenience impls on NotUntil to make coverage happy
