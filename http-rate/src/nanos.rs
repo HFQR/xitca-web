@@ -119,7 +119,7 @@ mod test {
     #[test]
     fn nanos_impls() {
         let n = Nanos::new(20);
-        assert_eq!("Nanos(20ns)", format!("{:?}", n));
+        assert_eq!("Nanos(20ns)", format!("{n:?}"));
     }
 
     #[test]

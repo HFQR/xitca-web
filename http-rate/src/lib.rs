@@ -185,7 +185,7 @@ mod test {
         assert!(lb.check_n(num).unwrap().is_ok());
 
         clock.advance(ms);
-        assert!(lb.check_n(num).unwrap().is_err(), "{:?}", lb);
+        assert!(lb.check_n(num).unwrap().is_err(), "{lb:?}");
     }
 
     #[test]
@@ -294,7 +294,7 @@ mod test {
         let clock = FakeRelativeClock::default();
         let lb = RateLimiter::hashmap_with_clock(Quota::per_second(5), &clock);
         for key in KEYS {
-            assert!(lb.check_key(&key).is_ok(), "key {:?}", key);
+            assert!(lb.check_key(&key).is_ok(), "key {key:?}");
         }
     }
 

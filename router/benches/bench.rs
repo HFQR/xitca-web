@@ -139,7 +139,7 @@ macro_rules! register {
             concat!("/user/starred/", $p1, "/", $p2),
             concat!("/repos/", $p1, "/", $p2, "/subscribers"),
             concat!("/users/", $p1, "/subscriptions"),
-            concat!("/user/subscriptions"),
+           "/user/subscriptions",
             concat!("/repos/", $p1, "/", $p2, "/subscription"),
             concat!("/user/subscriptions/", $p1, "/", $p2),
             concat!("/users/", $p1, "/gists"),

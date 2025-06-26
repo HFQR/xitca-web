@@ -185,8 +185,8 @@ mod test {
             .check()
             .map_err(|nu| {
                 assert_eq!(nu, nu);
-                assert_gt!(format!("{:?}", nu).len(), 0);
-                assert_eq!(format!("{}", nu), "rate-limited until Nanos(1s)");
+                assert_gt!(format!("{nu:?}").len(), 0);
+                assert_eq!(format!("{nu}"), "rate-limited until Nanos(1s)");
                 assert_eq!(nu.quota(), quota);
             })
             .is_err());

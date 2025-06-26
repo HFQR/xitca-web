@@ -121,7 +121,7 @@ mod test {
             if hits > value {
                 break;
             }
-            println!("Didn't trigger a collision in {} iterations", tries);
+            println!("Didn't trigger a collision in {tries} iterations");
         }
         assert_gt!(hits, value);
     }
@@ -129,6 +129,6 @@ mod test {
     #[test]
     fn in_memory_state_impls() {
         let state = InMemoryState(AtomicU64::new(0));
-        assert_gt!(format!("{:?}", state).len(), 0);
+        assert_gt!(format!("{state:?}").len(), 0);
     }
 }

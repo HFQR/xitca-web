@@ -181,7 +181,7 @@ mod test {
         let c = DefaultTimer;
         let now = c.now();
         let ns_dur = Duration::from(one_ns);
-        assert_ne!(now + ns_dur, now, "{:?} + {:?}", ns_dur, now);
+        assert_ne!(now + ns_dur, now, "{ns_dur:?} + {now:?}");
         assert_eq!(one_ns, Reference::duration_since(&(now + one_ns), now));
         assert_eq!(Nanos::new(0), Reference::duration_since(&now, now + one_ns));
         assert_eq!(Reference::saturating_sub(&(now + Duration::from_nanos(1)), one_ns), now);
