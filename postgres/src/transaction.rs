@@ -116,14 +116,14 @@ where
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint.
     ///     
     /// [`Client::transaction`]: crate::client::Client::transaction
-    pub async fn transaction(&mut self) -> Result<Transaction<C>, Error> {
+    pub async fn transaction(&mut self) -> Result<Transaction<'_, C>, Error> {
         self._save_point(None).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint with the specified name.
     ///
     /// [`Client::transaction`]: crate::client::Client::transaction
-    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<C>, Error>
+    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<'_, C>, Error>
     where
         I: Into<String>,
     {
@@ -146,7 +146,7 @@ where
         Ok(())
     }
 
-    fn new(client: &mut C) -> Transaction<C> {
+    fn new(client: &mut C) -> Transaction<'_, C> {
         Transaction {
             client,
             save_point: SavePoint::None,
@@ -154,7 +154,7 @@ where
         }
     }
 
-    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<C>, Error> {
+    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<'_, C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
         save_point.save_point_query().execute(self).await?;
 

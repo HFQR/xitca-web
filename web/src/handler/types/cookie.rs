@@ -105,7 +105,7 @@ impl CookieJar {
 
     /// get cookie with given key name
     #[inline]
-    pub fn get(&self, name: &str) -> Option<&Cookie> {
+    pub fn get(&self, name: &str) -> Option<&Cookie<'_>> {
         self.jar.get(name)
     }
 
@@ -176,7 +176,7 @@ macro_rules! cookie_variant {
 
         impl<K> CookieJar<$variant<K>> {
             #[inline]
-            pub fn get(&self, name: &str) -> Option<Cookie> {
+            pub fn get(&self, name: &str) -> Option<Cookie<'_>> {
                 self.jar.$method(&self.key).get(name)
             }
 

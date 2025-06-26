@@ -174,7 +174,7 @@ impl Statement {
 
     /// Convert self to a drop guarded statement which would cancel on drop.
     #[inline]
-    pub fn into_guarded<C>(self, cli: &C) -> StatementGuarded<C>
+    pub fn into_guarded<C>(self, cli: &C) -> StatementGuarded<'_, C>
     where
         C: Query,
     {

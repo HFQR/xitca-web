@@ -67,7 +67,7 @@ mod _seal {
     #[doc(hidden)]
     /// dynamic compat trait for [Listen]
     pub trait ListenDyn: Send + Sync {
-        fn accept_dyn(&self) -> BoxFuture<io::Result<Stream>>;
+        fn accept_dyn(&self) -> BoxFuture<'_, io::Result<Stream>>;
     }
 
     impl<S> ListenDyn for S
@@ -75,7 +75,7 @@ mod _seal {
         S: Listen,
     {
         #[inline]
-        fn accept_dyn(&self) -> BoxFuture<io::Result<Stream>> {
+        fn accept_dyn(&self) -> BoxFuture<'_, io::Result<Stream>> {
             Box::pin(Listen::accept(self))
         }
     }

@@ -102,7 +102,7 @@ impl ClientBorrowMut for PoolConnection {
 
 impl PoolConnection {
     // with above traits implements you can begin a transaction with your client new type
-    pub async fn transaction(&mut self) -> Result<Transaction<Self>, Error> {
+    pub async fn transaction(&mut self) -> Result<Transaction<'_, Self>, Error> {
         TransactionBuilder::new().begin(self).await
     }
 }

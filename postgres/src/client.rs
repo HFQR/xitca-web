@@ -127,7 +127,7 @@ struct CachedTypeInfo {
 impl Client {
     /// start a transaction
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
         TransactionBuilder::new().begin(self)
     }
 
@@ -136,7 +136,7 @@ impl Client {
     /// PostgreSQL does not support parameters in `COPY` statements, so this method does not take any. The copy *must*
     /// be explicitly completed via [`CopyIn::finish`]. If it is not, the copy will be aborted.
     #[inline]
-    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<Self>, Error>> + Send {
+    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<'_, Self>, Error>> + Send {
         CopyIn::new(self, stmt)
     }
 

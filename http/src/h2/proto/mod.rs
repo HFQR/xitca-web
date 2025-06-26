@@ -245,10 +245,10 @@ mod io_uring {
                                 let stream = &mut flow.ordered_map[key];
                                 stream.window += window.size_increment() as usize;
                                 let waker = stream.waker.take();
-                                if flow.connection_window > 0 {
-                                    if let Some(waker) = waker {
-                                        waker.wake();
-                                    }
+                                if flow.connection_window > 0
+                                    && let Some(waker) = waker
+                                {
+                                    waker.wake();
                                 }
                             };
                         }
