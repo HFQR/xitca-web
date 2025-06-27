@@ -82,10 +82,10 @@ pub struct RequestBodySender(RequestBodyInner);
 // TODO: rework early eof error handling.
 impl Drop for RequestBodySender {
     fn drop(&mut self) {
-        if let Some(mut inner) = self.try_inner()
-            && !inner.eof
-        {
-            inner.feed_error(io::ErrorKind::UnexpectedEof.into());
+        if let Some(mut inner) = self.try_inner() {
+            if !inner.eof {
+                inner.feed_error(io::ErrorKind::UnexpectedEof.into());
+            }
         }
     }
 }

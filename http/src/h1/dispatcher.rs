@@ -246,10 +246,10 @@ where
                 {
                     SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
                     SelectOutput::B(Ok(ready)) => {
-                        if ready.is_readable()
-                            && let Err(e) = self.io.try_read()
-                        {
-                            body_reader.feed_error(e);
+                        if ready.is_readable() {
+                            if let Err(e) = self.io.try_read() {
+                                body_reader.feed_error(e);
+                            }
                         }
                         if ready.is_writable() {
                             self.io.try_write()?;
