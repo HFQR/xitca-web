@@ -167,7 +167,7 @@ mod test {
         let g2 = Gcra::new(Quota::per_second(2));
         assert_eq!(g, g);
         assert_ne!(g, g2);
-        assert_gt!(format!("{:?}", g).len(), 0);
+        assert_gt!(format!("{g:?}").len(), 0);
     }
 
     /// Exercise derives and convenience impls on NotUntil to make coverage happy
@@ -185,8 +185,8 @@ mod test {
             .check()
             .map_err(|nu| {
                 assert_eq!(nu, nu);
-                assert_gt!(format!("{:?}", nu).len(), 0);
-                assert_eq!(format!("{}", nu), "rate-limited until Nanos(1s)");
+                assert_gt!(format!("{nu:?}").len(), 0);
+                assert_eq!(format!("{nu}"), "rate-limited until Nanos(1s)");
                 assert_eq!(nu.quota(), quota);
             })
             .is_err());

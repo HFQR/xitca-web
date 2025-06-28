@@ -78,7 +78,7 @@ impl TransactionBuilder {
     /// Begins the transaction.
     ///
     /// The transaction will roll back by default - use the `commit` method to commit it.
-    pub async fn begin<C>(self, cli: &mut C) -> Result<Transaction<C>, Error>
+    pub async fn begin<C>(self, cli: &mut C) -> Result<Transaction<'_, C>, Error>
     where
         C: Prepare + Query + ClientBorrowMut,
     {

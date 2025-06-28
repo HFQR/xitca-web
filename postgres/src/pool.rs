@@ -147,13 +147,13 @@ pub struct PoolConnection<'a> {
 impl PoolConnection<'_> {
     /// function the same as [`Client::transaction`]
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
         TransactionBuilder::new().begin(self)
     }
 
     /// function the same as [`Client::copy_in`]
     #[inline]
-    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<Self>, Error>> + Send {
+    pub fn copy_in(&mut self, stmt: &Statement) -> impl Future<Output = Result<CopyIn<'_, Self>, Error>> + Send {
         CopyIn::new(self, stmt)
     }
 

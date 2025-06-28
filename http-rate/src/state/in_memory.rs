@@ -63,7 +63,7 @@ impl StateStore for InMemoryState {
 impl Debug for InMemoryState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let d = Duration::from_nanos(self.0.load(Ordering::Relaxed));
-        write!(f, "InMemoryState({:?})", d)
+        write!(f, "InMemoryState({d:?})")
     }
 }
 
@@ -121,7 +121,7 @@ mod test {
             if hits > value {
                 break;
             }
-            println!("Didn't trigger a collision in {} iterations", tries);
+            println!("Didn't trigger a collision in {tries} iterations");
         }
         assert_gt!(hits, value);
     }
@@ -129,6 +129,6 @@ mod test {
     #[test]
     fn in_memory_state_impls() {
         let state = InMemoryState(AtomicU64::new(0));
-        assert_gt!(format!("{:?}", state).len(), 0);
+        assert_gt!(format!("{state:?}").len(), 0);
     }
 }

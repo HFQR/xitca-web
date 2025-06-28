@@ -1,11 +1,6 @@
-use core::{
-    fmt,
-    ops::Add,
-    sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
-};
+use core::{fmt, ops::Add, time::Duration};
 
-use std::{sync::Arc, time::Instant};
+use std::time::Instant;
 
 use super::nanos::Nanos;
 
@@ -53,50 +48,62 @@ impl Add<Nanos> for Duration {
     }
 }
 
-/// A mock implementation of a clock. All it does is keep track of
-/// what "now" is (relative to some point meaningful to the program),
-/// and returns that.
-///
-/// # Thread safety
-/// The mock time is represented as an atomic u64 count of nanoseconds, behind an [`Arc`].
-/// Clones of this clock will all show the same time, even if the original advances.
-#[derive(Debug, Clone, Default)]
-pub struct FakeRelativeClock {
-    now: Arc<AtomicU64>,
-}
+#[cfg(test)]
+pub(crate) use test_timer::*;
 
-impl FakeRelativeClock {
+#[cfg(test)]
+mod test_timer {
+    use core::sync::atomic::{AtomicU64, Ordering};
+
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// A mock implementation of a clock. All it does is keep track of
+    /// what "now" is (relative to some point meaningful to the program),
+    /// and returns that.
+    ///
+    /// # Thread safety
+    /// The mock time is represented as an atomic u64 count of nanoseconds, behind an [`Arc`].
+    /// Clones of this clock will all show the same time, even if the original advances.
+    #[derive(Debug, Clone, Default)]
+    pub struct FakeRelativeClock {
+        now: Arc<AtomicU64>,
+    }
+
     #[cfg(test)]
-    // Advances the fake clock by the given amount.
-    pub(crate) fn advance(&self, by: Duration) {
-        let by: u64 = by
-            .as_nanos()
-            .try_into()
-            .expect("Can not represent times past ~584 years");
+    impl FakeRelativeClock {
+        // Advances the fake clock by the given amount.
+        pub(crate) fn advance(&self, by: Duration) {
+            let by: u64 = by
+                .as_nanos()
+                .try_into()
+                .expect("Can not represent times past ~584 years");
 
-        let mut prev = self.now.load(Ordering::Acquire);
-        let mut next = prev + by;
-        while let Err(next_prev) = self
-            .now
-            .compare_exchange_weak(prev, next, Ordering::Release, Ordering::Relaxed)
-        {
-            prev = next_prev;
-            next = prev + by;
+            let mut prev = self.now.load(Ordering::Acquire);
+            let mut next = prev + by;
+            while let Err(next_prev) = self
+                .now
+                .compare_exchange_weak(prev, next, Ordering::Release, Ordering::Relaxed)
+            {
+                prev = next_prev;
+                next = prev + by;
+            }
         }
     }
-}
 
-impl PartialEq for FakeRelativeClock {
-    fn eq(&self, other: &Self) -> bool {
-        self.now.load(Ordering::Relaxed) == other.now.load(Ordering::Relaxed)
+    impl PartialEq for FakeRelativeClock {
+        fn eq(&self, other: &Self) -> bool {
+            self.now.load(Ordering::Relaxed) == other.now.load(Ordering::Relaxed)
+        }
     }
-}
 
-impl Timer for FakeRelativeClock {
-    type Instant = Nanos;
+    impl Timer for FakeRelativeClock {
+        type Instant = Nanos;
 
-    fn now(&self) -> Self::Instant {
-        self.now.load(Ordering::Relaxed).into()
+        fn now(&self) -> Self::Instant {
+            self.now.load(Ordering::Relaxed).into()
+        }
     }
 }
 
@@ -136,6 +143,8 @@ impl Timer for DefaultTimer {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use super::*;
 
     #[test]
@@ -172,7 +181,7 @@ mod test {
         let c = DefaultTimer;
         let now = c.now();
         let ns_dur = Duration::from(one_ns);
-        assert_ne!(now + ns_dur, now, "{:?} + {:?}", ns_dur, now);
+        assert_ne!(now + ns_dur, now, "{ns_dur:?} + {now:?}");
         assert_eq!(one_ns, Reference::duration_since(&(now + one_ns), now));
         assert_eq!(Nanos::new(0), Reference::duration_since(&now, now + one_ns));
         assert_eq!(Reference::saturating_sub(&(now + Duration::from_nanos(1)), one_ns), now);
