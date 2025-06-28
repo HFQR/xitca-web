@@ -107,7 +107,7 @@ serde_json = { version = "1", optional = true }
 serde_urlencoded = { version = "0.7.1", optional = true }
 
 # compress-x
-http-encoding = { version = "0.2", optional = true }
+http-encoding = { version = "0.2.1", optional = true }
 
 # cookie
 cookie = { version = "0.18", features = ["percent-encode", "secure"], optional = true }

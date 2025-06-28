@@ -1,6 +1,7 @@
 # unreleased 0.7.1
 ## Change
 - update `xitca-http` to `0.7.1`
+- update `http-encoding` to `0.2.1`
 
 # 0.7.0
 ## Add

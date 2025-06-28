@@ -112,7 +112,7 @@ where
         ctx.set_close();
         // clear the buffer as there could be unfinished request data inside.
         buf.clear();
-        
+
         // we ignore io errors, as the server may want to explain why we cannot write the request body.
         // if this is a connection error it will be handled when we try to read the response.
         // other errors should be propagated as something bad happened and backend may still be waiting for the request body
