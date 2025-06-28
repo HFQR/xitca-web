@@ -127,21 +127,21 @@ impl ServerFutureInner {
 
     #[inline(never)]
     fn poll_cmd(&mut self, cx: &mut Context<'_>) -> Poll<Command> {
-        if let Some(signals) = self.signals.as_mut()
-            && let Poll::Ready(sig) = Pin::new(signals).poll(cx)
-        {
-            tracing::info!("Signal {:?} received.", sig);
-            let cmd = match sig {
-                Signal::Int | Signal::Quit => Command::ForceStop,
-                Signal::Term => Command::GracefulStop,
-                // Remove signal listening and keep Server running when
-                // terminal closed which xitca-server process belong.
-                Signal::Hup => {
-                    self.signals = None;
-                    return Poll::Pending;
-                }
-            };
-            return Poll::Ready(cmd);
+        if let Some(signals) = self.signals.as_mut() {
+            if let Poll::Ready(sig) = Pin::new(signals).poll(cx) {
+                tracing::info!("Signal {:?} received.", sig);
+                let cmd = match sig {
+                    Signal::Int | Signal::Quit => Command::ForceStop,
+                    Signal::Term => Command::GracefulStop,
+                    // Remove signal listening and keep Server running when
+                    // terminal closed which xitca-server process belong.
+                    Signal::Hup => {
+                        self.signals = None;
+                        return Poll::Pending;
+                    }
+                };
+                return Poll::Ready(cmd);
+            }
         }
 
         match ready!(Pin::new(&mut self.server.rx_cmd).poll_recv(cx)) {
