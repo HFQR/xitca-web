@@ -14,6 +14,7 @@ use super::{
     date::{DateTime, DateTimeService},
     error::{HttpServiceError, TimeoutError},
     http::{Request, RequestExt, Response},
+    tls::IsTls,
     util::timer::{KeepAlive, Timeout},
     version::AsVersion,
 };
@@ -73,7 +74,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
-    A: Service<TcpStream>,
+    A: Service<TcpStream> + IsTls,
     A::Response: AsyncIo + AsVersion,
     HttpServiceError<S::Error, BE>: From<A::Error>,
     S::Error: fmt::Debug,
@@ -120,6 +121,7 @@ where
                         self.config,
                         &self.service,
                         self.date.get(),
+                        self.tls_acceptor.is_tls(),
                     )
                     .await
                     .map_err(From::from),
@@ -168,6 +170,7 @@ where
                         self.config,
                         &self.service,
                         self.date.get(),
+                        self.tls_acceptor.is_tls(),
                     )
                     .await
                     .map_err(From::from)
