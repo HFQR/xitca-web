@@ -37,6 +37,7 @@ pub(crate) struct Dispatcher<'a, TlsSt, S, ReqB> {
     addr: SocketAddr,
     keep_alive: Pin<&'a mut KeepAlive>,
     ka_dur: Duration,
+    pong_timeout: Duration,
     service: &'a S,
     date: &'a DateTimeHandle,
     _req_body: PhantomData<ReqB>,
@@ -56,6 +57,7 @@ where
         addr: SocketAddr,
         keep_alive: Pin<&'a mut KeepAlive>,
         ka_dur: Duration,
+        pong_timeout: Duration,
         service: &'a S,
         date: &'a DateTimeHandle,
     ) -> Self {
@@ -64,6 +66,7 @@ where
             addr,
             keep_alive,
             ka_dur,
+            pong_timeout,
             service,
             date,
             _req_body: PhantomData,
@@ -76,6 +79,7 @@ where
             addr,
             mut keep_alive,
             ka_dur,
+            pong_timeout,
             service,
             date,
             ..
@@ -94,6 +98,7 @@ where
             ping_pong,
             date,
             ka_dur,
+            pong_timeout,
         };
 
         let mut queue = Queue::new();
@@ -161,6 +166,7 @@ struct H2PingPong<'a> {
     ping_pong: PingPong,
     date: &'a DateTimeHandle,
     ka_dur: Duration,
+    pong_timeout: Duration,
 }
 
 impl Future for H2PingPong<'_> {
@@ -193,10 +199,9 @@ impl Future for H2PingPong<'_> {
 
                 this.ping_pong.send_ping(Ping::opaque())?;
 
-                // Update the keep alive to 10 times the normal keep alive duration.
-                // There is no particular reason for the duration choice here. as h2 connection is
-                // suggested to be kept alive for a relative long time.
-                let deadline = this.date.now() + (this.ka_dur * 10);
+                // Update the keep alive to the pong timeout, if pong is not received within this
+                // time. The connection is considered dead.
+                let deadline = this.date.now() + this.ka_dur + this.pong_timeout;
 
                 this.keep_alive.as_mut().update(deadline);
 
