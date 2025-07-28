@@ -38,6 +38,7 @@ impl HttpTunnelRequest<'_> {
             return Err(Error::from(ErrorResponse {
                 expect_status,
                 status,
+                res,
                 description: "connect tunnel can't be established",
             }));
         }
