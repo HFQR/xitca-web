@@ -60,6 +60,7 @@ impl WsRequest<'_> {
         if let Some(expect_status) = expect_status {
             return Err(Error::from(ErrorResponse {
                 expect_status,
+                res,
                 status,
                 description: "websocket connection can't be established",
             }));
