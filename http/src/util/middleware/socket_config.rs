@@ -149,7 +149,7 @@ impl<S> SocketConfigService<S> {
     fn apply_config<'s>(&self, stream: impl Into<SockRef<'s>>) -> io::Result<()> {
         let stream_ref = stream.into();
 
-        stream_ref.set_nodelay(self.config.nodelay)?;
+        stream_ref.set_tcp_nodelay(self.config.nodelay)?;
 
         if let Some(ka) = self.config.ka.as_ref() {
             stream_ref.set_tcp_keepalive(ka)?;
