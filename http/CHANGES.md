@@ -1,5 +1,7 @@
 # unreleased 0.7.1
 ## Change
+- update `socket2` to `0.6.0`
+- update `tokio` to `1.47.1`
 - update `h3` to `0.0.7`
 - update `h3-quinn` to `0.0.9`
 

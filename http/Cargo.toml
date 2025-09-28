@@ -68,7 +68,7 @@ h3 = { version = "0.0.7", optional = true }
 h3-quinn = { version = "0.0.9", optional = true }
 
 # async runtime support.
-tokio = { version = "1.30", features = ["rt", "time"], optional = true }
+tokio = { version = "1.47.1", features = ["rt", "time"], optional = true }
 
 # util service support
 xitca-router = { version = "0.3.0", optional = true }
@@ -77,7 +77,7 @@ xitca-router = { version = "0.3.0", optional = true }
 tokio-uring = { version = "0.5.0", features = ["bytes"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-socket2 = { version = "0.5.1", features = ["all"] }
+socket2 = { version = "0.6.0", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.5"

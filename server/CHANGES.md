@@ -1,4 +1,7 @@
 # unreleased
+## Change
+- update `socket2` to `0.6.0`
+- update `tokio` to `1.47.1`
 
 # 0.5.0
 ## Add
