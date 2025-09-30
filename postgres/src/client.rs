@@ -244,8 +244,8 @@ impl ClientBorrowMut for Client {
 
 impl Prepare for Arc<Client> {
     #[inline]
-    fn _get_type(&self, oid: Oid) -> crate::BoxedFuture<'_, Result<Type, Error>> {
-        Client::_get_type(self, oid)
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        Client::_get_type(self, oid).await
     }
 
     #[inline]

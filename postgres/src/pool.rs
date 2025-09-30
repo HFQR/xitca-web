@@ -249,8 +249,8 @@ impl ClientBorrowMut for PoolConnection<'_> {
 
 impl Prepare for PoolConnection<'_> {
     #[inline]
-    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
-        self.conn().client._get_type(oid)
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        self.conn().client._get_type(oid).await
     }
 
     #[inline]
