@@ -156,7 +156,7 @@ impl Statement {
     pub fn bind_dyn<'p, 't>(
         &self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> StatementQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p> {
+    ) -> StatementQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
         self.bind(params.iter().cloned())
     }
 
@@ -255,7 +255,7 @@ impl<'a> StatementUnnamed<'a> {
     pub fn bind_dyn<'p, 't>(
         self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> StatementUnnamedBind<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + 'p> {
+    ) -> StatementUnnamedBind<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
         self.bind(params.iter().cloned())
     }
 }

@@ -241,9 +241,9 @@ impl ResponseMessage {
 
 /// traits for converting typed parameters into exact sized iterator where it yields
 /// item can be converted in binary format of postgres type.
-pub trait AsParams: IntoIterator<IntoIter: ExactSizeIterator<Item: BorrowToSql>> {}
+pub trait AsParams: IntoIterator<IntoIter: ExactSizeIterator<Item: BorrowToSql> + Clone> {}
 
-impl<I> AsParams for I where I: IntoIterator<IntoIter: ExactSizeIterator<Item: BorrowToSql>> {}
+impl<I> AsParams for I where I: IntoIterator<IntoIter: ExactSizeIterator<Item: BorrowToSql> + Clone> {}
 
 mod sealed {
     pub trait Sealed {}

@@ -283,21 +283,18 @@ where
         }));
     }
 
-    let params = params.zip(types).collect::<Vec<_>>();
+    let params = params.zip(types);
 
     frontend::bind(
         portal,
         stmt,
-        params.iter().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
-        params.iter(),
-        |(param, ty), buf| {
-            param
-                .borrow_to_sql()
-                .to_sql_checked(ty, buf)
-                .map(|is_null| match is_null {
-                    IsNull::No => postgres_protocol::IsNull::No,
-                    IsNull::Yes => postgres_protocol::IsNull::Yes,
-                })
+        params.clone().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
+        params,
+        |(p, ty), buf| {
+            p.borrow_to_sql().to_sql_checked(ty, buf).map(|is_null| match is_null {
+                IsNull::No => postgres_protocol::IsNull::No,
+                IsNull::Yes => postgres_protocol::IsNull::Yes,
+            })
         },
         Some(1),
         buf,
