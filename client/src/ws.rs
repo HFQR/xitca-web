@@ -61,7 +61,6 @@ impl WsRequest<'_> {
             return Err(Error::from(ErrorResponse {
                 expect_status,
                 res,
-                status,
                 description: "websocket connection can't be established",
             }));
         }

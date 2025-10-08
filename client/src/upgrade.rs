@@ -65,7 +65,6 @@ impl UpgradeRequestWithProtocol<'_> {
             return Err(Error::from(ErrorResponse {
                 expect_status,
                 res,
-                status,
                 description: "upgrade tunnel can't be established",
             }));
         }

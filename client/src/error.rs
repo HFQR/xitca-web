@@ -265,7 +265,6 @@ impl From<crate::h3::Error> for Error {
 #[derive(Debug)]
 pub struct ErrorResponse {
     pub expect_status: StatusCode,
-    pub status: StatusCode,
     pub res: Response,
     pub description: &'static str,
 }
@@ -275,7 +274,7 @@ impl fmt::Display for ErrorResponse {
         write!(
             f,
             "expecting response with status code {}, got {} instead. {}",
-            self.expect_status, self.status, self.description
+            self.expect_status, self.res.status(), self.description
         )
     }
 }
