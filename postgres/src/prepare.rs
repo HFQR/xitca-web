@@ -1,3 +1,5 @@
+use core::future::Future;
+
 use postgres_types::{Field, Kind, Oid};
 
 use super::{
@@ -13,59 +15,61 @@ use super::{
 
 /// trait generic over preparing statement and canceling of prepared statement
 pub trait Prepare: Query + Sync {
-    // get type is called recursively so a boxed future is needed.
-    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>>;
+    fn _get_type(&self, oid: Oid) -> impl Future<Output = Result<Type, Error>> + Send;
+
+    #[doc(hidden)]
+    fn _get_type_boxed(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
+        Box::pin(self._get_type(oid))
+    }
 
     // blocking version of [`Prepare::_get_type`].
     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error>;
 }
 
 impl Prepare for Client {
-    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
-        Box::pin(async move {
-            if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
-                return Ok(ty);
-            }
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
+            return Ok(ty);
+        }
 
-            let stmt = self.typeinfo_statement().await?;
+        let stmt = self.typeinfo_statement().await?;
 
-            let mut rows = stmt.bind([oid]).query(self).await?;
-            let row = rows.try_next().await?.ok_or_else(Error::unexpected)?;
+        let mut rows = stmt.bind([oid]).query(self).await?;
+        let row = rows.try_next().await?.ok_or_else(Error::unexpected)?;
 
-            let name = row.try_get::<String>(0)?;
-            let type_ = row.try_get::<i8>(1)?;
-            let elem_oid = row.try_get::<Oid>(2)?;
-            let rngsubtype = row.try_get::<Option<Oid>>(3)?;
-            let basetype = row.try_get::<Oid>(4)?;
-            let schema = row.try_get::<String>(5)?;
-            let relid = row.try_get::<Oid>(6)?;
+        let name = row.try_get::<String>(0)?;
+        let type_ = row.try_get::<i8>(1)?;
+        let elem_oid = row.try_get::<Oid>(2)?;
+        let rngsubtype = row.try_get::<Option<Oid>>(3)?;
+        let basetype = row.try_get::<Oid>(4)?;
+        let schema = row.try_get::<String>(5)?;
+        let relid = row.try_get::<Oid>(6)?;
 
-            let kind = if type_ == b'e' as i8 {
-                let variants = self.get_enum_variants(oid).await?;
-                Kind::Enum(variants)
-            } else if type_ == b'p' as i8 {
-                Kind::Pseudo
-            } else if basetype != 0 {
-                let type_ = self._get_type(basetype).await?;
-                Kind::Domain(type_)
-            } else if elem_oid != 0 {
-                let type_ = self._get_type(elem_oid).await?;
-                Kind::Array(type_)
-            } else if relid != 0 {
-                let fields = self.get_composite_fields(relid).await?;
-                Kind::Composite(fields)
-            } else if let Some(rngsubtype) = rngsubtype {
-                let type_ = self._get_type(rngsubtype).await?;
-                Kind::Range(type_)
-            } else {
-                Kind::Simple
-            };
+        let kind = if type_ == b'e' as i8 {
+            let variants = self.get_enum_variants(oid).await?;
+            Kind::Enum(variants)
+        } else if type_ == b'p' as i8 {
+            Kind::Pseudo
+        } else if basetype != 0 {
+            let type_ = self._get_type_boxed(basetype).await?;
+            Kind::Domain(type_)
+        } else if elem_oid != 0 {
+            let type_ = self._get_type_boxed(elem_oid).await?;
+            Kind::Array(type_)
+        } else if relid != 0 {
+            let fields = self.get_composite_fields(relid).await?;
+            Kind::Composite(fields)
+        } else if let Some(rngsubtype) = rngsubtype {
+            let type_ = self._get_type_boxed(rngsubtype).await?;
+            Kind::Range(type_)
+        } else {
+            Kind::Simple
+        };
 
-            let type_ = Type::new(name, oid, kind, schema);
-            self.set_type(oid, &type_);
+        let type_ = Type::new(name, oid, kind, schema);
+        self.set_type(oid, &type_);
 
-            Ok(type_)
-        })
+        Ok(type_)
     }
 
     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
@@ -178,7 +182,7 @@ impl Client {
         while let Some(row) = rows.try_next().await? {
             let name = row.try_get(0)?;
             let oid = row.try_get(1)?;
-            let type_ = self._get_type(oid).await?;
+            let type_ = self._get_type_boxed(oid).await?;
             fields.push(Field::new(name, type_));
         }
         Ok(fields)

@@ -12,7 +12,6 @@ use super::{
     query::Query,
     statement::Statement,
     types::{Oid, ToSql, Type},
-    BoxedFuture,
 };
 
 pub use builder::{IsolationLevel, TransactionBuilder};
@@ -175,8 +174,8 @@ where
     C: Prepare + ClientBorrowMut,
 {
     #[inline]
-    fn _get_type(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
-        self.client._get_type(oid)
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        self.client._get_type(oid).await
     }
 
     #[inline]

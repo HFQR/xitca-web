@@ -1,6 +1,6 @@
 //! example for implementing pooling with xitca-postgres
 
-use std::future::{Future, IntoFuture};
+use std::future::IntoFuture;
 
 // use bb8 as connection pool
 use bb8::{ManageConnection, Pool};
@@ -13,9 +13,6 @@ use xitca_postgres::{
     Client, Config, Execute, Postgres,
 };
 
-// type alias for reduce type naming complexity
-type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
 // a pool manager type containing necessary information for constructing a xitca-postgres connection
 pub struct PoolManager {
     config: Config,
@@ -27,31 +24,20 @@ impl ManageConnection for PoolManager {
     type Error = Error;
 
     // logic where a new connection is created
-    fn connect<'s, 'f>(&'s self) -> BoxFuture<'f, Result<Self::Connection, Self::Error>>
-    where
-        's: 'f,
-    {
-        Box::pin(async {
-            let (conn, driver) = Postgres::new(self.config.clone()).connect().await?;
-            tokio::spawn(driver.into_future());
-            Ok(PoolConnection { conn })
-        })
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        let (conn, driver) = Postgres::new(self.config.clone()).connect().await?;
+        tokio::spawn(driver.into_future());
+        Ok(PoolConnection { conn })
     }
 
     // logic where connection validation is checked. usually it's a sql query to database act like a ping.
     // but as this being an example we simply check if the connection is gone from local pov.
-    fn is_valid<'s, 'c, 'f>(&'s self, conn: &'c mut Self::Connection) -> BoxFuture<'f, Result<(), Self::Error>>
-    where
-        's: 'f,
-        'c: 'f,
-    {
-        Box::pin(async {
-            if conn.conn.closed() {
-                Err(DriverDown.into())
-            } else {
-                Ok(())
-            }
-        })
+    async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        if conn.conn.closed() {
+            Err(DriverDown.into())
+        } else {
+            Ok(())
+        }
     }
 
     // like the is_valid method but at different lifetime cycle.
@@ -73,8 +59,8 @@ pub struct PoolConnection {
 
 // trait for how a statement is prepared.
 impl Prepare for PoolConnection {
-    fn _get_type(&self, oid: Oid) -> BoxFuture<'_, Result<Type, Error>> {
-        self.conn._get_type(oid)
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        self.conn._get_type(oid).await
     }
 
     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {

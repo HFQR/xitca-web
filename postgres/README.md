@@ -198,7 +198,7 @@ async fn derive_macro(cli: Client) -> Result<(), Error> {
     // bind statement to custom type and execute. this works because the derive macro
     // added necessary trait implement that make Worker type can be encoded and used 
     // as custom type we just created.
-    stmt.bind([Worker { id: 9527, wage: 0}]).execute(&cli).await?;
+    stmt.bind([&Worker { id: 9527, wage: 0}]).execute(&cli).await?;
     Ok(())
 }
 ```
