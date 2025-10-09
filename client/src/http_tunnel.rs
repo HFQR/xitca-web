@@ -32,12 +32,11 @@ impl HttpTunnelRequest<'_> {
     pub async fn send(self) -> Result<Tunnel<HttpTunnel>, Error> {
         let res = self._send().await?;
 
-        let status = res.status();
         let expect_status = StatusCode::OK;
-        if status != expect_status {
+        if res.status() != expect_status {
             return Err(Error::from(ErrorResponse {
                 expect_status,
-                status,
+                res,
                 description: "connect tunnel can't be established",
             }));
         }

@@ -12,6 +12,7 @@ pub enum Error {
     Io(io::Error),
     Std(Box<dyn error::Error + Send + Sync>),
     InvalidUri(InvalidUri),
+    UnexpectedResponse(ErrorResponse),
     #[cfg(feature = "http1")]
     H1(crate::h1::Error),
     #[cfg(feature = "http2")]
@@ -208,6 +209,7 @@ mod _openssl {
     }
 }
 
+use crate::Response;
 #[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
 pub(crate) use _rustls::*;
 
@@ -263,7 +265,7 @@ impl From<crate::h3::Error> for Error {
 #[derive(Debug)]
 pub struct ErrorResponse {
     pub expect_status: StatusCode,
-    pub status: StatusCode,
+    pub res: Response,
     pub description: &'static str,
 }
 
@@ -272,7 +274,7 @@ impl fmt::Display for ErrorResponse {
         write!(
             f,
             "expecting response with status code {}, got {} instead. {}",
-            self.expect_status, self.status, self.description
+            self.expect_status, self.res.status(), self.description
         )
     }
 }
@@ -281,7 +283,7 @@ impl error::Error for ErrorResponse {}
 
 impl From<ErrorResponse> for Error {
     fn from(e: ErrorResponse) -> Self {
-        Self::Std(Box::new(e))
+        Self::UnexpectedResponse(e)
     }
 }
 

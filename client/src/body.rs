@@ -26,7 +26,7 @@ pub enum ResponseBody {
     #[cfg(feature = "http3")]
     H3(crate::h3::body::ResponseBody),
     Eof,
-    Unknown(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + 'static>>),
+    Unknown(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + Sync + 'static>>),
 }
 
 impl fmt::Debug for ResponseBody {
