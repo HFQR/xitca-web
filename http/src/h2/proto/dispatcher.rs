@@ -211,6 +211,8 @@ enum ConnectionState {
     Close,
 }
 
+const EMPTY_DATA_FRAME : Bytes = Bytes::from_static(b"");
+
 // handle request/response and return if connection should go into graceful shutdown.
 async fn h2_handler<Fut, B, SE, BE>(
     fut: Fut,
@@ -297,8 +299,17 @@ where
             }
         }
     }
-
-    stream.send_trailers(trailers)?;
+    
+    if trailers.is_empty() {
+        // If trailers is empty, send an empty data frame to signal end of stream.
+        // It should be ok to send trailers even if empty but some client library does not like it.
+        // see https://gitlab.gnome.org/GNOME/libsoup/-/issues/457
+        // and https://github.com/hyperium/h2/issues/845
+        stream.send_data(EMPTY_DATA_FRAME, true)?;
+    } else {
+        // send trailers if there is any.
+        stream.send_trailers(trailers)?;
+    }
 
     Ok(state)
 }
