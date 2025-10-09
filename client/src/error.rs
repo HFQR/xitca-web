@@ -274,7 +274,9 @@ impl fmt::Display for ErrorResponse {
         write!(
             f,
             "expecting response with status code {}, got {} instead. {}",
-            self.expect_status, self.res.status(), self.description
+            self.expect_status,
+            self.res.status(),
+            self.description
         )
     }
 }
