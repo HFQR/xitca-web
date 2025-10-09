@@ -109,9 +109,7 @@ async fn _connect(client: &Endpoint, addr: SocketAddr, hostname: &str) -> Result
     let (mut task, conn) = h3::client::new(h3_quinn::Connection::new(conn)).await?;
 
     tokio::spawn(async move {
-        poll_fn(|cx| task.poll_close(cx))
-            .await
-            .expect("http3 connection failed");
+        let _ = poll_fn(|cx| task.poll_close(cx)).await;
     });
 
     Ok(conn)
