@@ -211,7 +211,7 @@ enum ConnectionState {
     Close,
 }
 
-const EMPTY_DATA_FRAME : Bytes = Bytes::from_static(b"");
+const EMPTY_DATA_FRAME: Bytes = Bytes::from_static(b"");
 
 // handle request/response and return if connection should go into graceful shutdown.
 async fn h2_handler<Fut, B, SE, BE>(
@@ -299,7 +299,7 @@ where
             }
         }
     }
-    
+
     if trailers.is_empty() {
         // If trailers is empty, send an empty data frame to signal end of stream.
         // It should be ok to send trailers even if empty but some client library does not like it.
