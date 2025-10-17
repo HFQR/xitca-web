@@ -29,6 +29,7 @@ pub use driver::quic::QuicStream;
 
 pub use self::{
     client::Client,
+    column::Column,
     config::Config,
     driver::Driver,
     error::Error,
