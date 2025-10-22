@@ -40,6 +40,12 @@ impl From<http::uri::InvalidUri> for ProtoError {
     }
 }
 
+impl From<http::uri::InvalidUriParts> for ProtoError {
+    fn from(_: http::uri::InvalidUriParts) -> Self {
+        Self::Uri
+    }
+}
+
 impl From<http::status::InvalidStatusCode> for ProtoError {
     fn from(_: http::status::InvalidStatusCode) -> Self {
         Self::Status

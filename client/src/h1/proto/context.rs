@@ -29,7 +29,7 @@ impl<const HEADER_LIMIT: usize> DerefMut for Context<'_, '_, HEADER_LIMIT> {
 }
 
 impl<'c, 'd, const HEADER_LIMIT: usize> Context<'c, 'd, HEADER_LIMIT> {
-    pub(crate) fn new(date: &'c DateTimeHandle<'d>) -> Self {
-        Self(context::Context::new(date))
+    pub(crate) fn new(date: &'c DateTimeHandle<'d>, is_tls: bool) -> Self {
+        Self(context::Context::new(date, is_tls))
     }
 }
