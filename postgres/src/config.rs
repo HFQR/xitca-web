@@ -13,9 +13,10 @@ use super::{error::Error, session::TargetSessionAttrs};
 #[non_exhaustive]
 pub enum SslMode {
     /// Do not use TLS.
+    #[cfg_attr(not(feature = "tls"), default)]
     Disable,
     /// Attempt to connect with TLS but allow sessions without.
-    #[default]
+    #[cfg_attr(feature = "tls", default)]
     Prefer,
     /// Require the use of TLS.
     Require,
@@ -65,14 +66,14 @@ impl Default for Config {
 
 impl Config {
     /// Creates a new configuration.
-    pub const fn new() -> Config {
+    pub fn new() -> Config {
         Config {
             user: None,
             password: None,
             dbname: None,
             options: None,
             application_name: None,
-            ssl_mode: SslMode::Prefer,
+            ssl_mode: SslMode::default(),
             ssl_negotiation: SslNegotiation::Postgres,
             host: Vec::new(),
             port: Vec::new(),

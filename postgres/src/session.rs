@@ -159,6 +159,8 @@ where
     let msg = buf.split();
     drv.send(msg).await?;
 
+    let mut scram = None;
+
     loop {
         match drv.recv().await? {
             backend::Message::AuthenticationOk => return Ok(()),
@@ -206,28 +208,26 @@ where
                     (false, false) => return Err(Error::todo()),
                 };
 
-                let mut scram = sasl::ScramSha256::new(pass, channel_binding);
+                let scram_sha = sasl::ScramSha256::new(pass, channel_binding);
 
-                frontend::sasl_initial_response(mechanism, scram.message(), buf)?;
+                frontend::sasl_initial_response(mechanism, scram_sha.message(), buf)?;
+
+                scram = Some(scram_sha);
+
                 let msg = buf.split();
                 drv.send(msg).await?;
-
-                match drv.recv().await? {
-                    backend::Message::AuthenticationSaslContinue(body) => {
-                        scram.update(body.data())?;
-                        frontend::sasl_response(scram.message(), buf)?;
-                        let msg = buf.split();
-                        drv.send(msg).await?;
-                    }
-                    _ => return Err(Error::todo()),
-                }
-
-                match drv.recv().await? {
-                    backend::Message::AuthenticationSaslFinal(body) => scram.finish(body.data())?,
-                    _ => return Err(Error::todo()),
-                }
             }
-            backend::Message::ErrorResponse(_) => return Err(Error::from(ConfigError::WrongPassWord)),
+            backend::Message::AuthenticationSaslContinue(body) => {
+                let scram = scram.as_mut().ok_or_else(Error::unexpected)?;
+                scram.update(body.data())?;
+                frontend::sasl_response(scram.message(), buf)?;
+                let msg = buf.split();
+                drv.send(msg).await?;
+            }
+            backend::Message::AuthenticationSaslFinal(body) => {
+                scram.as_mut().ok_or_else(Error::unexpected)?.finish(body.data())?
+            }
+            backend::Message::ErrorResponse(body) => return Err(Error::db(body.fields())),
             _ => {}
         }
     }
