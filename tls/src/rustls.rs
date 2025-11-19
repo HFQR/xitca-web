@@ -74,17 +74,19 @@ where
     /// }
     /// ```
     pub async fn handshake(mut io: Io, mut conn: C) -> io::Result<Self> {
-        while let Err(e) = conn.complete_io(&mut io) {
-            if !matches!(e.kind(), io::ErrorKind::WouldBlock) {
-                return Err(e);
+        while conn.is_handshaking() {
+            if let Err(e) = conn.complete_io(&mut io) {
+                if !matches!(e.kind(), io::ErrorKind::WouldBlock) {
+                    return Err(e);
+                }
+                let interest = match (conn.wants_read(), conn.wants_write()) {
+                    (true, true) => Interest::READABLE | Interest::WRITABLE,
+                    (true, false) => Interest::READABLE,
+                    (false, true) => Interest::WRITABLE,
+                    (false, false) => unreachable!(),
+                };
+                io.ready(interest).await?;
             }
-            let interest = match (conn.wants_read(), conn.wants_write()) {
-                (true, true) => Interest::READABLE | Interest::WRITABLE,
-                (true, false) => Interest::READABLE,
-                (false, true) => Interest::WRITABLE,
-                (false, false) => unreachable!(),
-            };
-            io.ready(interest).await?;
         }
 
         Ok(TlsStream { io, conn })
