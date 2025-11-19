@@ -1,5 +1,9 @@
 # unreleased
 
+# 0.4.1
+## Fix
+- fix possible io hanging when utilizing `rustls` feature 
+
 # 0.4.0
 ## Change
 - bump MSRV to `1.79`
