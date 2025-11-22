@@ -3,7 +3,7 @@ pub(crate) mod response;
 
 use core::{
     future::{poll_fn, Future},
-    task::{ready, Poll},
+    task::{ready, Context, Poll},
 };
 
 use postgres_protocol::message::backend;
@@ -46,13 +46,15 @@ impl Response {
     }
 
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
-        poll_fn(|cx| {
-            if self.buf.is_empty() {
-                let res = ready!(self.rx.poll_recv(cx));
-                self.on_recv(res)?;
-            }
-            Poll::Ready(self.parse_message())
-        })
+        poll_fn(|cx| self.poll_recv(cx))
+    }
+
+    pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
+        if self.buf.is_empty() {
+            let res = ready!(self.rx.poll_recv(cx));
+            self.on_recv(res)?;
+        }
+        Poll::Ready(self.parse_message())
     }
 
     pub(crate) async fn try_into_row_affected(mut self) -> Result<u64, Error> {
