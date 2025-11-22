@@ -8,6 +8,7 @@
 - remove `error::AuthenticationError` type. It's error condition is covered by `error::ConfigError`
 
 ## Change
+- change `Execute` trait to use plain async trait method
 - change `Prepare::_get_type` to accept plain async trait method 
 - change `pool::Pool`'s dead connection detection lifecycle
 

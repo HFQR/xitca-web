@@ -2,7 +2,7 @@ use crate::{
     driver::codec::AsParams,
     error::Error,
     prepare::Prepare,
-    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
+    query::{Query, RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{
         Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementQuery, StatementUnnamedBind,
         StatementUnnamedQuery,
@@ -20,8 +20,7 @@ where
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Self::ExecuteOutput {
-        let stream = self.query_blocking(cli)?;
-        RowAffected::from(stream).wait()
+        self.query_blocking(cli)?.res.try_into_row_affected_blocking()
     }
 
     #[inline]
@@ -39,8 +38,7 @@ where
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Self::ExecuteOutput {
-        let stream = self.query_blocking(cli)?;
-        RowAffected::from(stream).wait()
+        self.query_blocking(cli)?.res.try_into_row_affected_blocking()
     }
 
     #[inline]
@@ -78,8 +76,7 @@ where
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let stream = self.query_blocking(cli)?;
-        RowAffected::from(stream).wait()
+        self.query_blocking(cli)?.res.try_into_row_affected_blocking()
     }
 
     #[inline]
@@ -98,8 +95,7 @@ where
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
-        let stream = self.query_blocking(cli)?;
-        RowAffected::from(stream).wait()
+        self.query_blocking(cli)?.res.try_into_row_affected_blocking()
     }
 
     #[inline]

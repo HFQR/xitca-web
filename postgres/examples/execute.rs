@@ -1,9 +1,6 @@
 //! example of using Execute trait to expand functionality of xitca-postgres
 
-use std::{
-    future::{Future, IntoFuture},
-    pin::Pin,
-};
+use std::future::IntoFuture;
 
 use xitca_postgres::{
     iter::AsyncLendingIteratorExt, types::Type, Client, Error, Execute, Postgres, RowStreamOwned, Statement,
@@ -43,32 +40,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     {
         // new execute future we are returning is a boxed async code bock. the 'c lifetime annotation is
         // to tell the compiler the async block referencing &'c Client can live as long as 'c is alive
-        type ExecuteOutput = Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + 'c>>;
+        type ExecuteOutput = Result<u64, Error>;
 
         // like the execute but output an async stream iterator that produces database rows.
-        type QueryOutput = Pin<Box<dyn Future<Output = Result<RowStreamOwned, Error>> + Send + 'c>>;
+        type QueryOutput = Result<RowStreamOwned, Error>;
 
-        fn execute(self, cli: &'c Client) -> Self::ExecuteOutput {
-            // move PrepareAndExecute<'p> and &'c Client into an async block.
-            // inside it we use the state and client to prepare a statement and execute it.
-            Box::pin(async move {
-                Statement::named(self.stmt, self.types)
-                    .execute(cli)
-                    .await?
-                    .execute(cli)
-                    .await
-            })
+        async fn execute(self, cli: &Client) -> Self::ExecuteOutput {
+            Statement::named(self.stmt, self.types)
+                .execute(cli)
+                .await?
+                .execute(cli)
+                .await
         }
 
-        fn query(self, cli: &'c Client) -> Self::QueryOutput {
-            Box::pin(async move {
-                // prepare statement and query for async iterator of rows
-                let stmt = Statement::named(self.stmt, self.types).execute(cli).await?;
-                let stream = stmt.query(cli).await?;
-                // convert borrowed stream to owned stream. as borrowed stream reference the statement this function
-                // just produced.
-                Ok(RowStreamOwned::from(stream))
-            })
+        async fn query(self, cli: &Client) -> Self::QueryOutput {
+            // prepare statement and query for async iterator of rows
+            let stmt = Statement::named(self.stmt, self.types).execute(cli).await?;
+            let stream = stmt.query(cli).await?;
+            // convert borrowed stream to owned stream. as borrowed stream reference the statement this function
+            // just produced.
+            Ok(RowStreamOwned::from(stream))
         }
     }
 

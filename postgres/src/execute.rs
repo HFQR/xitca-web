@@ -1,6 +1,8 @@
 mod async_impl;
 mod sync_impl;
 
+use core::future::Future;
+
 /// Defining how a query is executed. can be used for customizing encoding, executing and database
 /// data decoding.
 ///
@@ -36,10 +38,10 @@ where
     type QueryOutput;
 
     /// define how a statement is executed with single time response
-    fn execute(self, cli: C) -> Self::ExecuteOutput;
+    fn execute(self, cli: C) -> impl Future<Output = Self::ExecuteOutput>;
 
     /// define how a statement is queried with repeated response
-    fn query(self, cli: C) -> Self::QueryOutput;
+    fn query(self, cli: C) -> impl Future<Output = Self::QueryOutput>;
 }
 
 /// blocking version of [`Execute`] for synchronous environment

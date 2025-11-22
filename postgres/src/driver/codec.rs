@@ -3,7 +3,7 @@ pub(crate) mod response;
 
 use core::{
     future::{poll_fn, Future},
-    task::{ready, Context, Poll},
+    task::{ready, Poll},
 };
 
 use postgres_protocol::message::backend;
@@ -46,23 +46,34 @@ impl Response {
     }
 
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
-        poll_fn(|cx| self.poll_recv(cx))
-    }
-
-    pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
-        if self.buf.is_empty() {
-            let res = ready!(self.rx.poll_recv(cx));
-            self.on_recv(res)?;
-        }
-        Poll::Ready(self.parse_message())
-    }
-
-    pub(crate) fn try_into_row_affected(mut self) -> impl Future<Output = Result<u64, Error>> + Send {
-        let mut rows = 0;
-        poll_fn(move |cx| {
-            ready!(self.poll_try_into_ready(&mut rows, cx))?;
-            Poll::Ready(Ok(rows))
+        poll_fn(|cx| {
+            if self.buf.is_empty() {
+                let res = ready!(self.rx.poll_recv(cx));
+                self.on_recv(res)?;
+            }
+            Poll::Ready(self.parse_message())
         })
+    }
+
+    pub(crate) async fn try_into_row_affected(mut self) -> Result<u64, Error> {
+        let mut rows = 0;
+        loop {
+            match self.recv().await? {
+                backend::Message::BindComplete
+                | backend::Message::NoData
+                | backend::Message::ParseComplete
+                | backend::Message::ParameterDescription(_)
+                | backend::Message::RowDescription(_)
+                | backend::Message::DataRow(_)
+                | backend::Message::EmptyQueryResponse
+                | backend::Message::PortalSuspended => {}
+                backend::Message::CommandComplete(body) => {
+                    rows = body_to_affected_rows(&body)?;
+                }
+                backend::Message::ReadyForQuery(_) => return Ok(rows),
+                _ => return Err(Error::unexpected()),
+            }
+        }
     }
 
     pub(crate) fn try_into_row_affected_blocking(mut self) -> Result<u64, Error> {
@@ -82,26 +93,6 @@ impl Response {
                 }
                 backend::Message::ReadyForQuery(_) => return Ok(rows),
                 _ => return Err(Error::unexpected()),
-            }
-        }
-    }
-
-    pub(crate) fn poll_try_into_ready(&mut self, rows: &mut u64, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        loop {
-            match ready!(self.poll_recv(cx))? {
-                backend::Message::BindComplete
-                | backend::Message::NoData
-                | backend::Message::ParseComplete
-                | backend::Message::ParameterDescription(_)
-                | backend::Message::RowDescription(_)
-                | backend::Message::DataRow(_)
-                | backend::Message::EmptyQueryResponse
-                | backend::Message::PortalSuspended => {}
-                backend::Message::CommandComplete(body) => {
-                    *rows = body_to_affected_rows(&body)?;
-                }
-                backend::Message::ReadyForQuery(_) => return Poll::Ready(Ok(())),
-                _ => return Poll::Ready(Err(Error::unexpected())),
             }
         }
     }

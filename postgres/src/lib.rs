@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
+#![allow(refining_impl_trait)]
 
 mod cancel;
 mod client;

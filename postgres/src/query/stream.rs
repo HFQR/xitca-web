@@ -1,10 +1,4 @@
-use core::{
-    future::Future,
-    marker::PhantomData,
-    ops::Range,
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
+use core::{future::Future, marker::PhantomData, ops::Range};
 
 use std::sync::Arc;
 
@@ -370,45 +364,6 @@ where
                 },
                 Err(e) => return Some(Err(e)),
             }
-        }
-    }
-}
-
-pub struct RowAffected {
-    res: Response,
-    rows_affected: u64,
-}
-
-impl Future for RowAffected {
-    type Output = Result<u64, Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        ready!(this.res.poll_try_into_ready(&mut this.rows_affected, cx))?;
-        Poll::Ready(Ok(this.rows_affected))
-    }
-}
-
-impl RowAffected {
-    pub(crate) fn wait(self) -> Result<u64, Error> {
-        self.res.try_into_row_affected_blocking()
-    }
-}
-
-impl<C, M> From<GenericRowStream<C, M>> for RowAffected {
-    fn from(stream: GenericRowStream<C, M>) -> Self {
-        Self {
-            res: stream.res,
-            rows_affected: 0,
-        }
-    }
-}
-
-impl<C> From<RowStreamGuarded<'_, C>> for RowAffected {
-    fn from(stream: RowStreamGuarded<'_, C>) -> Self {
-        Self {
-            res: stream.res,
-            rows_affected: 0,
         }
     }
 }

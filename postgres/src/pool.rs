@@ -300,26 +300,24 @@ impl PoolClient {
     }
 }
 
-impl<'c, 's> Execute<&'c mut PoolConnection<'_>> for StatementNamed<'s>
-where
-    's: 'c,
-{
-    type ExecuteOutput = StatementCacheFuture<'c>;
+impl Execute<&mut PoolConnection<'_>> for StatementNamed<'_> {
+    type ExecuteOutput = Result<Arc<Statement>, Error>;
     type QueryOutput = Self::ExecuteOutput;
 
-    fn execute(self, cli: &'c mut PoolConnection) -> Self::ExecuteOutput {
-        match cli.conn().statements.get(self.stmt) {
-            Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
-            None => StatementCacheFuture::Prepared(Box::pin(async move {
+    async fn execute(self, cli: &mut PoolConnection<'_>) -> Self::ExecuteOutput {
+        let res = cli.conn().statements.get(self.stmt);
+        match res {
+            Some(stmt) => Ok(stmt.clone()),
+            None => {
                 let stmt = self.execute(&*cli).await?.leak();
                 Ok(cli.insert_cache(self.stmt, stmt))
-            })),
+            }
         }
     }
 
     #[inline]
-    fn query(self, cli: &'c mut PoolConnection) -> Self::QueryOutput {
-        self.execute(cli)
+    async fn query(self, cli: &mut PoolConnection<'_>) -> Self::QueryOutput {
+        self.execute(cli).await
     }
 }
 
