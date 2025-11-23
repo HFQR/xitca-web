@@ -13,7 +13,7 @@
   <a href=""
     ><img
       alt="Maintenance"
-      src="https://img.shields.io/maintenance/yes/2024?style=flat-square"
+      src="https://img.shields.io/maintenance/yes/2025?style=flat-square"
     />
   </a>
   <br />
