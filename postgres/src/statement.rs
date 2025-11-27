@@ -359,6 +359,12 @@ pub(crate) mod compat {
                 inner: Arc::new(_StatementGuarded { stmt, cli }),
             }
         }
+
+        /// obtain client reference from guarded statement
+        /// can be helpful in use case where clinet object is not cheaply avaiable
+        pub fn client(&self) -> &C {
+            &self.inner.cli
+        }
     }
 }
 
