@@ -2,6 +2,8 @@
 
 use core::{ops::Deref, sync::atomic::Ordering};
 
+use std::sync::Arc;
+
 use super::{
     column::Column,
     driver::codec::{encode::StatementCancel, AsParams},
@@ -77,27 +79,19 @@ where
 // StatementGuarded impls Deref trait and with Clone trait it will be possible to copy Statement out of a
 // StatementGuarded. This is not a desired behavior and obtaining a Statement from it's guard should only
 // be possible with StatementGuarded::leak API.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Statement {
-    name: Box<str>,
-    params: Box<[Type]>,
-    columns: Box<[Column]>,
+    name: Arc<str>,
+    params: Arc<[Type]>,
+    columns: Arc<[Column]>,
 }
 
 impl Statement {
     pub(crate) fn new(name: String, params: Vec<Type>, columns: Vec<Column>) -> Self {
         Self {
-            name: name.into_boxed_str(),
-            params: params.into_boxed_slice(),
-            columns: columns.into_boxed_slice(),
-        }
-    }
-
-    pub(crate) fn duplicate(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            params: self.params.clone(),
-            columns: self.columns.clone(),
+            name: name.into(),
+            params: Arc::from(params),
+            columns: columns.into(),
         }
     }
 
@@ -295,8 +289,6 @@ impl<'a, 'c, P, C> From<(StatementUnnamedBind<'a, P>, &'c C)> for StatementUnnam
 pub(crate) mod compat {
     use core::ops::Deref;
 
-    use std::sync::Arc;
-
     use super::{Query, Statement, StatementCancel};
 
     /// functions the same as [`StatementGuarded`]
@@ -309,18 +301,11 @@ pub(crate) mod compat {
     where
         C: Query,
     {
-        inner: Arc<_StatementGuarded<C>>,
-    }
-
-    struct _StatementGuarded<C>
-    where
-        C: Query,
-    {
         stmt: Statement,
         cli: C,
     }
 
-    impl<C> Drop for _StatementGuarded<C>
+    impl<C> Drop for StatementGuarded<C>
     where
         C: Query,
     {
@@ -336,7 +321,7 @@ pub(crate) mod compat {
         type Target = Statement;
 
         fn deref(&self) -> &Self::Target {
-            &self.inner.stmt
+            &self.stmt
         }
     }
 
@@ -345,7 +330,7 @@ pub(crate) mod compat {
         C: Query,
     {
         fn as_ref(&self) -> &Statement {
-            &self.inner.stmt
+            &self.stmt
         }
     }
 
@@ -355,15 +340,13 @@ pub(crate) mod compat {
     {
         /// construct a new statement guard with raw statement and client
         pub fn new(stmt: Statement, cli: C) -> Self {
-            Self {
-                inner: Arc::new(_StatementGuarded { stmt, cli }),
-            }
+            Self { stmt, cli }
         }
 
         /// obtain client reference from guarded statement
         /// can be helpful in use case where clinet object is not cheaply avaiable
         pub fn client(&self) -> &C {
-            &self.inner.cli
+            &self.cli
         }
     }
 }

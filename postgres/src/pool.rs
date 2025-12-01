@@ -7,7 +7,7 @@ use core::{
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -225,8 +225,7 @@ impl PoolConnection<'_> {
         self.conn().client.cancel_token()
     }
 
-    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
-        let stmt = Arc::new(stmt);
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Statement {
         self.conn_mut().statements.insert(Box::from(named), stmt.clone());
         stmt
     }
@@ -288,7 +287,7 @@ impl Drop for PoolConnection<'_> {
 
 struct PoolClient {
     client: Client,
-    statements: HashMap<Box<str>, Arc<Statement>>,
+    statements: HashMap<Box<str>, Statement>,
 }
 
 impl PoolClient {
@@ -324,13 +323,13 @@ where
 }
 
 pub enum StatementCacheFuture<'c> {
-    Cached(Arc<Statement>),
-    Prepared(BoxedFuture<'c, Result<Arc<Statement>, Error>>),
+    Cached(Statement),
+    Prepared(BoxedFuture<'c, Result<Statement, Error>>),
     Done,
 }
 
 impl Future for StatementCacheFuture<'_> {
-    type Output = Result<Arc<Statement>, Error>;
+    type Output = Result<Statement, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
