@@ -7,7 +7,7 @@ use core::{
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -225,9 +225,8 @@ impl PoolConnection<'_> {
         self.conn().client.cancel_token()
     }
 
-    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Arc<Statement> {
-        let stmt = Arc::new(stmt);
-        self.conn_mut().statements.insert(Box::from(named), stmt.clone());
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Statement {
+        self.conn_mut().statements.insert(Box::from(named), stmt.duplicate());
         stmt
     }
 
@@ -288,7 +287,7 @@ impl Drop for PoolConnection<'_> {
 
 struct PoolClient {
     client: Client,
-    statements: HashMap<Box<str>, Arc<Statement>>,
+    statements: HashMap<Box<str>, Statement>,
 }
 
 impl PoolClient {
@@ -309,7 +308,7 @@ where
 
     fn execute(self, cli: &'c mut PoolConnection) -> Self::ExecuteOutput {
         match cli.conn().statements.get(self.stmt) {
-            Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
+            Some(stmt) => StatementCacheFuture::Cached(stmt.duplicate()),
             None => StatementCacheFuture::Prepared(Box::pin(async move {
                 let stmt = self.execute(&*cli).await?.leak();
                 Ok(cli.insert_cache(self.stmt, stmt))
@@ -324,13 +323,13 @@ where
 }
 
 pub enum StatementCacheFuture<'c> {
-    Cached(Arc<Statement>),
-    Prepared(BoxedFuture<'c, Result<Arc<Statement>, Error>>),
+    Cached(Statement),
+    Prepared(BoxedFuture<'c, Result<Statement, Error>>),
     Done,
 }
 
 impl Future for StatementCacheFuture<'_> {
-    type Output = Result<Arc<Statement>, Error>;
+    type Output = Result<Statement, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
