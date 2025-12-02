@@ -116,8 +116,9 @@ where
                 _ => return Err(Error::unexpected()),
             };
 
-            let mut params = Vec::new();
             let mut it = parameter_description.parameters();
+            let mut params = Vec::with_capacity(it.size_hint().0);
+
             while let Some(oid) = it.next()? {
                 let ty = cli._get_type(oid).await?;
                 params.push(ty);
@@ -126,6 +127,7 @@ where
             let mut columns = Vec::new();
             if let Some(row_description) = row_description {
                 let mut it = row_description.fields();
+                columns.reserve(it.size_hint().0);
                 while let Some(field) = it.next()? {
                     let type_ = cli._get_type(field.type_oid()).await?;
                     let column = Column::new(field.name(), type_);
@@ -170,8 +172,9 @@ where
             _ => return Err(Error::unexpected()),
         };
 
-        let mut params = Vec::new();
         let mut it = parameter_description.parameters();
+        let mut params = Vec::with_capacity(it.size_hint().0);
+
         while let Some(oid) = it.next()? {
             let ty = cli._get_type_blocking(oid)?;
             params.push(ty);
@@ -180,6 +183,7 @@ where
         let mut columns = Vec::new();
         if let Some(row_description) = row_description {
             let mut it = row_description.fields();
+            columns.reserve(it.size_hint().0);
             while let Some(field) = it.next()? {
                 let type_ = cli._get_type_blocking(field.type_oid())?;
                 let column = Column::new(field.name(), type_);

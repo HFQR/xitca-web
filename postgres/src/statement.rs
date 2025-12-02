@@ -2,6 +2,8 @@
 
 use core::{ops::Deref, sync::atomic::Ordering};
 
+use std::sync::Arc;
+
 use super::{
     column::Column,
     driver::codec::{encode::StatementCancel, AsParams},
@@ -79,20 +81,21 @@ where
 // be possible with StatementGuarded::leak API.
 #[derive(Default)]
 pub struct Statement {
-    name: Box<str>,
-    params: Box<[Type]>,
-    columns: Box<[Column]>,
+    name: Arc<str>,
+    params: Arc<[Type]>,
+    columns: Arc<[Column]>,
 }
 
 impl Statement {
     pub(crate) fn new(name: String, params: Vec<Type>, columns: Vec<Column>) -> Self {
         Self {
-            name: name.into_boxed_str(),
-            params: params.into_boxed_slice(),
-            columns: columns.into_boxed_slice(),
+            name: name.into(),
+            params: params.into(),
+            columns: columns.into(),
         }
     }
 
+    // cloning of statement inside library must be carefully utlized to keep cancelation happen properly on drop.
     pub(crate) fn duplicate(&self) -> Self {
         Self {
             name: self.name.clone(),
@@ -304,15 +307,7 @@ pub(crate) mod compat {
     /// instead of work with a reference this guard offers ownership without named lifetime constraint.
     ///
     /// [`StatementGuarded`]: super::StatementGuarded
-    #[derive(Clone)]
     pub struct StatementGuarded<C>
-    where
-        C: Query,
-    {
-        inner: Arc<_StatementGuarded<C>>,
-    }
-
-    struct _StatementGuarded<C>
     where
         C: Query,
     {
@@ -320,12 +315,29 @@ pub(crate) mod compat {
         cli: C,
     }
 
-    impl<C> Drop for _StatementGuarded<C>
+    impl<C> Clone for StatementGuarded<C>
+    where
+        C: Query + Clone,
+    {
+        fn clone(&self) -> Self {
+            Self {
+                stmt: self.stmt.duplicate(),
+                cli: self.cli.clone(),
+            }
+        }
+    }
+
+    impl<C> Drop for StatementGuarded<C>
     where
         C: Query,
     {
         fn drop(&mut self) {
-            let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
+            // cancel statement when the last copy is about to be dropped.
+            if Arc::strong_count(&self.stmt.name) == 1 {
+                debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
+                debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
+                let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
+            }
         }
     }
 
@@ -336,7 +348,7 @@ pub(crate) mod compat {
         type Target = Statement;
 
         fn deref(&self) -> &Self::Target {
-            &self.inner.stmt
+            &self.stmt
         }
     }
 
@@ -345,7 +357,7 @@ pub(crate) mod compat {
         C: Query,
     {
         fn as_ref(&self) -> &Statement {
-            &self.inner.stmt
+            &self.stmt
         }
     }
 
@@ -355,15 +367,13 @@ pub(crate) mod compat {
     {
         /// construct a new statement guard with raw statement and client
         pub fn new(stmt: Statement, cli: C) -> Self {
-            Self {
-                inner: Arc::new(_StatementGuarded { stmt, cli }),
-            }
+            Self { stmt, cli }
         }
 
         /// obtain client reference from guarded statement
         /// can be helpful in use case where clinet object is not cheaply avaiable
         pub fn client(&self) -> &C {
-            &self.inner.cli
+            &self.cli
         }
     }
 }
