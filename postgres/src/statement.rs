@@ -334,8 +334,8 @@ pub(crate) mod compat {
         fn drop(&mut self) {
             // cancel statement when the last copy is about to be dropped.
             if Arc::strong_count(&self.stmt.name) == 1 {
-                debug_assert!(Arc::strong_count(&self.stmt.params), 1);
-                debug_assert!(Arc::strong_count(&self.stmt.columns), 1);
+                debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
+                debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
                 let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
             }
         }
