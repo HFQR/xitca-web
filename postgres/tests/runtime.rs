@@ -3,7 +3,6 @@ use core::future::IntoFuture;
 use xitca_postgres::{
     error::{Completed, DbError, SqlState},
     iter::AsyncLendingIterator,
-    pipeline::Pipeline,
     statement::Statement,
     transaction::{IsolationLevel, TransactionBuilder},
     types::Type,
@@ -316,58 +315,4 @@ async fn query_unnamed_with_transaction() {
         .await
         .unwrap();
     assert!(stream.try_next().await.unwrap().is_none());
-}
-
-#[tokio::test]
-async fn pipeline() {
-    let cli = connect("postgres://postgres:postgres@localhost:5432").await;
-
-    "CREATE TEMPORARY TABLE foo (name TEXT, age INT);"
-        .execute(&cli)
-        .await
-        .unwrap();
-
-    Statement::unnamed(
-        "INSERT INTO foo (name, age) VALUES ($1, $2), ($3, $4), ($5, $6);",
-        &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
-    )
-    .bind_dyn(&[&"alice", &20i32, &"bob", &30i32, &"charlie", &40i32])
-    .execute(&cli)
-    .await
-    .unwrap();
-
-    let stmt = Statement::named("SELECT * FROM foo", &[]).execute(&cli).await.unwrap();
-
-    let mut pipe = Pipeline::new();
-
-    stmt.query(&mut pipe).unwrap();
-    stmt.query(&mut pipe).unwrap();
-
-    let mut res = pipe.query(&cli).unwrap();
-
-    {
-        let mut item = res.try_next().await.unwrap().unwrap();
-        let row = item.try_next().await.unwrap().unwrap();
-        assert_eq!(row.get::<&str>(0), "alice");
-        assert_eq!(row.get::<i32>(1), 20);
-
-        let row = item.try_next().await.unwrap().unwrap();
-        assert_eq!(row.get::<&str>(0), "bob");
-        assert_eq!(row.get::<i32>(1), 30);
-    }
-
-    {
-        let mut item = res.try_next().await.unwrap().unwrap();
-        item.try_next().await.unwrap().unwrap();
-        item.try_next().await.unwrap().unwrap();
-        let row = item.try_next().await.unwrap().unwrap();
-        assert_eq!(row.get::<&str>(0), "charlie");
-        assert_eq!(row.get::<i32>(1), 40);
-    }
-
-    assert!(res.try_next().await.unwrap().is_none());
-
-    let e = res.try_next().await.err().unwrap();
-
-    assert!(e.downcast_ref::<Completed>().is_some());
 }

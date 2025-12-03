@@ -17,10 +17,10 @@ use crate::{
 
 use super::DriverTx;
 
-pub(super) fn request_pair(msg_count: usize) -> (ResponseSender, Response) {
+pub(super) fn request_pair() -> (ResponseSender, Response) {
     let (tx, rx) = unbounded_channel();
     (
-        ResponseSender { tx, msg_count },
+        ResponseSender { tx },
         Response {
             rx,
             buf: BytesMut::new(),
@@ -141,7 +141,6 @@ pub(crate) fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Resu
 #[derive(Debug)]
 pub(crate) struct ResponseSender {
     tx: UnboundedSender<BytesMessage>,
-    msg_count: usize,
 }
 
 pub(super) enum SenderState {
@@ -151,15 +150,11 @@ pub(super) enum SenderState {
 
 impl ResponseSender {
     pub(super) fn send(&mut self, msg: BytesMessage) -> SenderState {
-        debug_assert!(self.msg_count > 0);
-
-        if msg.complete {
-            self.msg_count -= 1;
-        }
+        let complete = msg.complete;
 
         let _ = self.tx.send(msg);
 
-        if self.msg_count == 0 {
+        if complete {
             SenderState::Finish
         } else {
             SenderState::Continue

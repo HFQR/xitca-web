@@ -3,6 +3,9 @@
 - export `transaction::builder::IsolationLevel` for building transaction with specific level of isolation
 
 ## Remove 
+- remove `pipeline` module
+- remove `dev::Encode::size_hint` method
+- remove `bool` const generic type from `dev::Encode::encode` method
 - remove `ExecuteMut` trait. It's role is replaced by `impl Execute<&mut C>`
 - remove `transaction::Transaction::builder` API. `transaction::TransactionBuilder::new` is a replacement with less type infer required
 - remove `error::AuthenticationError` type. It's error condition is covered by `error::ConfigError`

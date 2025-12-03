@@ -52,12 +52,12 @@ impl DriverTx {
         Ok(())
     }
 
-    pub(crate) fn send<F, O>(&self, func: F, msg_count: usize) -> Result<(O, Response), Error>
+    pub(crate) fn send<F, O>(&self, func: F) -> Result<(O, Response), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<O, Error>,
     {
         self._send(func, |inner| {
-            let (tx, rx) = super::codec::request_pair(msg_count);
+            let (tx, rx) = super::codec::request_pair();
             inner.res.push_back(tx);
             rx
         })
