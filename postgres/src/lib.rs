@@ -15,7 +15,6 @@ mod session;
 pub mod copy;
 pub mod error;
 pub mod iter;
-pub mod pipeline;
 pub mod pool;
 pub mod row;
 pub mod statement;

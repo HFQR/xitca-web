@@ -4,7 +4,6 @@ use postgres_protocol::message::backend;
 use crate::{
     column::Column,
     error::Error,
-    pipeline::PipelineStream,
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
     statement::Statement,
@@ -39,17 +38,6 @@ impl IntoResponse for Vec<Column> {
     #[inline]
     fn into_response(self, res: Response) -> Self::Response {
         RowSimpleStream::new(res, self)
-    }
-}
-
-impl sealed::Sealed for Vec<&[Column]> {}
-
-impl<'c> IntoResponse for Vec<&'c [Column]> {
-    type Response = PipelineStream<'c>;
-
-    #[inline]
-    fn into_response(self, res: Response) -> Self::Response {
-        PipelineStream::new(res, self)
     }
 }
 
