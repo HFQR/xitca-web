@@ -1,7 +1,7 @@
 use core::{
     future::{poll_fn, Future},
     pin::Pin,
-    task::Poll,
+    task::{Poll, Waker},
 };
 
 use std::{
@@ -10,7 +10,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use futures_core::task::__internal::AtomicWaker;
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::{
     bytes::{Buf, BufRead, BytesMut},
@@ -30,12 +29,10 @@ pub(crate) struct DriverTx(Arc<SharedState>);
 
 impl Drop for DriverTx {
     fn drop(&mut self) {
-        {
-            let mut state = self.0.guarded.lock().unwrap();
-            frontend::terminate(&mut state.buf);
-            state.closed = true;
-        }
-        self.0.waker.wake();
+        let mut state = self.0.guarded.lock().unwrap();
+        frontend::terminate(&mut state.buf);
+        state.closed = true;
+        state.wake();
     }
 }
 
@@ -79,8 +76,7 @@ impl DriverTx {
         let o = func(&mut inner.buf).inspect_err(|_| inner.buf.truncate(len))?;
         let t = on_send(&mut inner);
 
-        drop(inner);
-        self.0.waker.wake();
+        inner.wake();
 
         Ok((o, t))
     }
@@ -88,20 +84,18 @@ impl DriverTx {
 
 pub(crate) struct SharedState {
     guarded: Mutex<State>,
-    waker: AtomicWaker,
 }
 
 impl SharedState {
-    fn wait(&self) -> impl Future<Output = WaitState> + '_ {
+    fn wait(&self) -> impl Future<Output = WaitState> + use<'_> {
         poll_fn(|cx| {
-            let inner = self.guarded.lock().unwrap();
+            let mut inner = self.guarded.lock().unwrap();
             if !inner.buf.is_empty() {
                 Poll::Ready(WaitState::WantWrite)
             } else if inner.closed {
                 Poll::Ready(WaitState::WantClose)
             } else {
-                drop(inner);
-                self.waker.register(cx.waker());
+                inner.register(cx.waker());
                 Poll::Pending
             }
         })
@@ -117,6 +111,19 @@ struct State {
     closed: bool,
     buf: BytesMut,
     res: VecDeque<ResponseSender>,
+    waker: Option<Waker>,
+}
+
+impl State {
+    fn register(&mut self, waker: &Waker) {
+        self.waker = Some(waker.clone());
+    }
+
+    fn wake(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
 }
 
 pub struct GenericDriver<Io> {
@@ -156,8 +163,8 @@ where
                 closed: false,
                 buf: BytesMut::new(),
                 res: VecDeque::new(),
+                waker: None,
             }),
-            waker: AtomicWaker::new(),
         });
 
         (
