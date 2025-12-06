@@ -58,46 +58,52 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
 
 #[derive(Default)]
 struct BufOwned {
-    buf: Option<BytesMut>,
+    buf: BytesMut,
 }
 
 impl Deref for BufOwned {
     type Target = BytesMut;
 
     fn deref(&self) -> &Self::Target {
-        self.buf.as_ref().unwrap()
+        &self.buf
     }
 }
 
 impl DerefMut for BufOwned {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.buf.as_mut().unwrap()
+        &mut self.buf
     }
 }
 
 impl BufOwned {
     fn new() -> Self {
-        Self {
-            buf: Some(BytesMut::new()),
-        }
+        Self { buf: BytesMut::new() }
+    }
+
+    fn take(&mut self) -> BytesMut {
+        mem::replace(&mut self.buf, BytesMut::new())
+    }
+
+    fn set(&mut self, buf: BytesMut) {
+        self.buf = buf;
     }
 
     async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
-        let mut buf = self.buf.take().unwrap();
+        let mut buf = self.take();
 
         let len = buf.len();
         buf.reserve(4096);
 
         let (res, buf) = io.read(buf.slice(len..)).await;
-        self.buf = Some(buf.into_inner());
+        self.set(buf.into_inner());
         res
     }
 
     async fn write_io(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
-        let buf = self.buf.take().unwrap();
+        let buf = self.take();
         let (res, mut buf) = write_all(io, buf).await;
         buf.clear();
-        self.buf = Some(buf);
+        self.set(buf);
         res
     }
 }
@@ -137,7 +143,7 @@ where
                 Ok(_) => {}
                 Err(Error::KeepAliveExpire) => {
                     trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-                    return Ok(());
+                    self.ctx.set_close();
                 }
                 Err(Error::RequestTimeout) => self.request_error(|| status_only(StatusCode::REQUEST_TIMEOUT)),
                 Err(Error::Proto(ProtoError::HeaderTooLarge)) => {
@@ -350,22 +356,19 @@ struct BodyInner<Io> {
     decoder: Decoder,
 }
 
-async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<BodyInner<Io>>
+async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<(usize, BodyInner<Io>)>
 where
     Io: AsyncBufRead,
 {
     let read = body.decoder.read_buf.read_io(&*body.io).await?;
-    if read == 0 {
-        return Err(io::ErrorKind::UnexpectedEof.into());
-    }
-    Ok(body)
+    Ok((read, body))
 }
 
 impl<Io, F, FutC, FutE> Stream for BodyReader<Io, F, FutC, FutE>
 where
     Io: AsyncBufRead,
     F: Fn(BodyInner<Io>) -> FutC,
-    FutC: Future<Output = io::Result<BodyInner<Io>>>,
+    FutC: Future<Output = io::Result<(usize, BodyInner<Io>)>>,
     FutE: Future<Output = io::Result<BodyInner<Io>>>,
 {
     type Item = io::Result<Bytes>;
@@ -400,7 +403,11 @@ where
                     });
                 }
                 StateProj::ChunkRead { fut } => {
-                    let body = ready!(fut.poll(cx))?;
+                    let (read, body) = ready!(fut.poll(cx))?;
+                    if read == 0 {
+                        this.state.as_mut().project_replace(State::None);
+                        return Poll::Ready(None);
+                    }
                     this.state.as_mut().project_replace(State::Body { body });
                 }
                 StateProj::ExpectWrite { fut } => {
