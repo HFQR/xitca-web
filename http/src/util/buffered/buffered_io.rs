@@ -10,22 +10,22 @@ use xitca_io::io::{AsyncIo, Interest};
 use super::buffer::{BufRead, BufWrite, ReadBuf};
 
 /// Io type with internal buffering.
-pub struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize> {
+pub struct BufferedIo<St, W, const READ_BUF_LIMIT: usize> {
     /// mut reference of Io type that impl [AsyncIo] trait.
-    pub io: &'a mut St,
+    pub io: St,
     /// read buffer with const generic usize as capacity limit.
     pub read_buf: ReadBuf<READ_BUF_LIMIT>,
     /// generic type impl [BufWrite] trait as write buffer.
     pub write_buf: W,
 }
 
-impl<'a, St, W, const READ_BUF_LIMIT: usize> BufferedIo<'a, St, W, READ_BUF_LIMIT>
+impl<St, W, const READ_BUF_LIMIT: usize> BufferedIo<St, W, READ_BUF_LIMIT>
 where
     St: AsyncIo,
     W: BufWrite,
 {
     /// construct a new buffered io with given Io and buf writer.
-    pub fn new(io: &'a mut St, write_buf: W) -> Self {
+    pub fn new(io: St, write_buf: W) -> Self {
         Self {
             io,
             read_buf: ReadBuf::new(),
@@ -36,13 +36,13 @@ where
     /// read until io blocked or read buffer is full and advance the length of it(read buffer).
     #[inline]
     pub fn try_read(&mut self) -> io::Result<()> {
-        BufRead::do_io(&mut self.read_buf, self.io)
+        BufRead::do_io(&mut self.read_buf, &mut self.io)
     }
 
     /// write until write buffer is emptied or io blocked.
     #[inline]
     pub fn try_write(&mut self) -> io::Result<()> {
-        BufWrite::do_io(&mut self.write_buf, self.io)
+        BufWrite::do_io(&mut self.write_buf, &mut self.io)
     }
 
     /// check for io read readiness in async and do [Self::try_read].
@@ -62,6 +62,6 @@ where
 
     /// shutdown Io gracefully.
     pub fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
-        poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
+        poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))
     }
 }

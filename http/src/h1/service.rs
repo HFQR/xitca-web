@@ -23,7 +23,8 @@ where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     A: Service<St>,
     St: AsyncIo,
-    A::Response: AsyncIo,
+    A::Response: AsyncIo + 'static,
+    for<'i> &'i A::Response: AsyncIo,
     B: Stream<Item = Result<Bytes, BE>>,
     HttpServiceError<S::Error, BE>: From<A::Error>,
 {
@@ -34,14 +35,14 @@ where
         // at this stage keep-alive timer is used to tracks tls accept timeout.
         let mut timer = pin!(self.keep_alive());
 
-        let mut io = self
+        let io = self
             .tls_acceptor
             .call(io)
             .timeout(timer.as_mut())
             .await
             .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-        super::dispatcher::run(&mut io, addr, timer, self.config, &self.service, self.date.get())
+        super::dispatcher::run(io, addr, timer, self.config, &self.service, self.date.get())
             .await
             .map_err(Into::into)
     }

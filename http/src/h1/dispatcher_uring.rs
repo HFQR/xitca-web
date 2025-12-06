@@ -1,13 +1,10 @@
 use core::{
-    cell::RefCell,
-    fmt,
     future::poll_fn,
     marker::PhantomData,
     mem,
     net::SocketAddr,
-    ops::{Deref, DerefMut},
     pin::{Pin, pin},
-    task::{self, Poll, Waker, ready},
+    task::{self, Poll, ready},
 };
 
 use std::{io, net::Shutdown, rc::Rc};
@@ -15,10 +12,7 @@ use std::{io, net::Shutdown, rc::Rc};
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 use tracing::trace;
-use xitca_io::{
-    bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
-};
+use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all};
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
 
@@ -33,7 +27,8 @@ use crate::{
 };
 
 use super::{
-    dispatcher::{Timer, status_only},
+    body::Body,
+    dispatcher::{BufOwned, Decoder, Notifier, Notify, Timer, status_only},
     proto::{
         codec::{ChunkResult, TransferCoding},
         context::Context,
@@ -56,32 +51,7 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     _phantom: PhantomData<ReqB>,
 }
 
-#[derive(Default)]
-struct BufOwned {
-    buf: Option<BytesMut>,
-}
-
-impl Deref for BufOwned {
-    type Target = BytesMut;
-
-    fn deref(&self) -> &Self::Target {
-        self.buf.as_ref().unwrap()
-    }
-}
-
-impl DerefMut for BufOwned {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.buf.as_mut().unwrap()
-    }
-}
-
 impl BufOwned {
-    fn new() -> Self {
-        Self {
-            buf: Some(BytesMut::new()),
-        }
-    }
-
     async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
         let mut buf = self.buf.take().unwrap();
 
@@ -176,7 +146,7 @@ where
             let (waiter, body) = if decoder.is_eof() {
                 (None, RequestBody::default())
             } else {
-                let body = Body::new(
+                let body = Body::new_io_uring(
                     self.io.clone(),
                     self.ctx.is_expect_header(),
                     R_LIMIT,
@@ -185,7 +155,7 @@ where
                     self.notify.notifier(),
                 );
 
-                (Some(&mut self.notify), RequestBody::io_uring(body))
+                (Some(&mut self.notify), RequestBody::new(body))
             };
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
@@ -258,10 +228,8 @@ where
     }
 }
 
-pub(super) struct Body(Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>);
-
 impl Body {
-    fn new<Io>(
+    fn new_io_uring<Io>(
         io: Rc<Io>,
         is_expect: bool,
         limit: usize,
@@ -293,28 +261,7 @@ impl Body {
             State::Body { body }
         };
 
-        Self(Box::pin(BodyReader { chunk_read, state }))
-    }
-}
-
-impl fmt::Debug for Body {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Body")
-    }
-}
-
-impl Clone for Body {
-    fn clone(&self) -> Self {
-        unimplemented!("rework body module so it does not force Clone on Body type.")
-    }
-}
-
-impl Stream for Body {
-    type Item = io::Result<Bytes>;
-
-    #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.get_mut().0).poll_next(cx)
+        Self::_new(BodyReader { chunk_read, state })
     }
 }
 
@@ -379,17 +326,17 @@ where
                     match body.decoder.decoder.decode(&mut body.decoder.read_buf) {
                         ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
                         ChunkResult::Err(e) => return Poll::Ready(Some(Err(e))),
-                        ChunkResult::InsufficientData => {}
+                        ChunkResult::InsufficientData => {
+                            if body.decoder.read_buf.len() >= body.decoder.limit {
+                                let msg = format!(
+                                    "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
+                                    body.decoder.limit,
+                                    body.decoder.read_buf.len()
+                                );
+                                return Poll::Ready(Some(Err(io::Error::other(msg))));
+                            }
+                        }
                         _ => return Poll::Ready(None),
-                    }
-
-                    if body.decoder.read_buf.len() >= body.decoder.limit {
-                        let msg = format!(
-                            "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
-                            body.decoder.limit,
-                            body.decoder.read_buf.len()
-                        );
-                        return Poll::Ready(Some(Err(io::Error::other(msg))));
                     }
 
                     let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else {
@@ -415,66 +362,4 @@ where
             }
         }
     }
-}
-
-struct Decoder {
-    decoder: TransferCoding,
-    limit: usize,
-    read_buf: BufOwned,
-    notify: Notifier<BufOwned>,
-}
-
-impl Drop for Decoder {
-    fn drop(&mut self) {
-        if self.decoder.is_eof() {
-            let buf = mem::take(&mut self.read_buf);
-            self.notify.notify(buf);
-        }
-    }
-}
-
-struct Notify<T>(Rc<RefCell<Inner<T>>>);
-
-impl<T> Notify<T> {
-    fn new() -> Self {
-        Self(Rc::new(RefCell::new(Inner { waker: None, val: None })))
-    }
-
-    fn notifier(&mut self) -> Notifier<T> {
-        Notifier(self.0.clone())
-    }
-
-    fn wait(&mut self) -> impl Future<Output = Option<T>> + '_ {
-        poll_fn(|cx| {
-            let mut inner = self.0.borrow_mut();
-            if let Some(val) = inner.val.take() {
-                return Poll::Ready(Some(val));
-            } else if Rc::strong_count(&self.0) == 1 {
-                return Poll::Ready(None);
-            }
-            inner.waker = Some(cx.waker().clone());
-            Poll::Pending
-        })
-    }
-}
-
-struct Notifier<T>(Rc<RefCell<Inner<T>>>);
-
-impl<T> Drop for Notifier<T> {
-    fn drop(&mut self) {
-        if let Some(waker) = self.0.borrow_mut().waker.take() {
-            waker.wake();
-        }
-    }
-}
-
-impl<T> Notifier<T> {
-    fn notify(&mut self, val: T) {
-        self.0.borrow_mut().val = Some(val);
-    }
-}
-
-struct Inner<V> {
-    waker: Option<Waker>,
-    val: Option<V>,
 }

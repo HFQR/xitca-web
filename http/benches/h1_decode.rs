@@ -1,6 +1,6 @@
-use std::time::SystemTime;
+use std::{hint::black_box, time::SystemTime};
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use httpdate::HttpDate;
 use tokio::time::Instant;
 use xitca_http::{

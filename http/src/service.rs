@@ -74,7 +74,8 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     A: Service<TcpStream>,
-    A::Response: AsyncIo + AsVersion,
+    A::Response: AsyncIo + AsVersion + 'static,
+    for<'i> &'i A::Response: AsyncIo,
     HttpServiceError<S::Error, BE>: From<A::Error>,
     S::Error: fmt::Debug,
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -114,7 +115,7 @@ where
                 match version {
                     #[cfg(feature = "http1")]
                     super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::dispatcher::run(
-                        &mut _tls_stream,
+                        _tls_stream,
                         _addr,
                         timer.as_mut(),
                         self.config,
@@ -159,10 +160,10 @@ where
 
                 #[cfg(feature = "http1")]
                 {
-                    let mut io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
-
-                    super::h1::dispatcher::run(
-                        &mut io,
+                    let io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
+                    // TODO: this is a rust compiler regression where the function fail to infer the stream type. remove type annotation when it's fixed
+                    super::h1::dispatcher::run::<xitca_io::net::UnixStream, _, _, _, _, _, _, _, _>(
+                        io,
                         crate::unspecified_socket_addr(),
                         timer.as_mut(),
                         self.config,
