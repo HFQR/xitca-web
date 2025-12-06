@@ -117,15 +117,15 @@ where
     ResB: Stream<Item = Result<Bytes, BE>>,
     D: DateTime,
 {
-    pub(super) fn new(
+    pub(super) async fn run(
         io: Io,
         addr: SocketAddr,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
-    ) -> Self {
-        Self {
+    ) -> Result<(), Error<S::Error, BE>> {
+        let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io: Rc::new(io),
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
             ctx: Context::<_, H_LIMIT>::with_addr(addr, date),
@@ -134,29 +134,33 @@ where
             write_buf: BufOwned::new(),
             notify: Notify::new(),
             _phantom: PhantomData,
-        }
-    }
+        };
 
-    pub(super) async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
-            match self._run().await {
+            match dispatcher._run().await {
                 Ok(_) => {}
                 Err(Error::KeepAliveExpire) => {
                     trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-                    self.ctx.set_close();
+                    dispatcher.ctx.set_close();
                 }
-                Err(Error::RequestTimeout) => self.request_error(|| status_only(StatusCode::REQUEST_TIMEOUT)),
-                Err(Error::Proto(ProtoError::HeaderTooLarge)) => {
-                    self.request_error(|| status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE))
+                Err(e) => {
+                    let status = match e {
+                        Error::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
+                        Error::Proto(ProtoError::HeaderTooLarge) => StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+                        Error::Proto(_) => StatusCode::BAD_REQUEST,
+                        e => return Err(e),
+                    };
+                    dispatcher.request_error(|| status_only(status))
                 }
-                Err(Error::Proto(_)) => self.request_error(|| status_only(StatusCode::BAD_REQUEST)),
-                Err(e) => return Err(e),
             }
 
-            self.write_buf.write_io(&*self.io).await?;
+            dispatcher.write_buf.write_io(&*dispatcher.io).await?;
 
-            if self.ctx.is_connection_closed() {
-                return self.io.shutdown(Shutdown::Both).map_err(Into::into);
+            if dispatcher.ctx.is_connection_closed() {
+                let io = Rc::try_unwrap(dispatcher.io)
+                    .ok()
+                    .expect("Dispatcher must have exclusive ownership to Io when closing connection");
+                return io.shutdown(Shutdown::Both).map_err(Into::into);
             }
         }
     }
