@@ -1,45 +1,46 @@
 use core::{
-    convert::Infallible,
-    future::{pending, poll_fn},
+    cell::RefCell,
+    future::poll_fn,
     marker::PhantomData,
+    mem,
     net::SocketAddr,
+    ops::{Deref, DerefMut},
     pin::{Pin, pin},
+    task::{self, Poll, Waker, ready},
     time::Duration,
 };
 
-use std::io;
+use std::{io, rc::Rc};
 
 use futures_core::stream::Stream;
+use pin_project_lite::pin_project;
 use tracing::trace;
-use xitca_io::io::{AsyncIo, Interest, Ready};
+use xitca_io::bytes::BytesMut;
+use xitca_io::{
+    bytes::Buf,
+    io::{AsyncIo, Interest},
+};
 use xitca_service::Service;
-use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
+use xitca_unsafe_collection::futures::SelectOutput;
 
 use crate::{
     body::NoneBody,
-    bytes::{Bytes, EitherBuf},
+    bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
-    h1::{
-        body::{RequestBody, RequestBodySender},
-        error::Error,
-    },
-    http::{
-        StatusCode,
-        response::{Parts, Response},
-    },
-    util::{
-        buffered::{BufferedIo, ListWriteBuf, ReadBuf, WriteBuf},
-        timer::{KeepAlive, Timeout},
-    },
+    h1::{body::RequestBody, error::Error},
+    http::{StatusCode, response::Response},
+    util::timer::{KeepAlive, Timeout},
 };
 
-use super::proto::{
-    buf_write::H1BufWrite,
-    codec::{ChunkResult, TransferCoding},
-    context::Context,
-    encode::CONTINUE,
-    error::ProtoError,
+use super::{
+    body::Body,
+    proto::{
+        codec::{ChunkResult, TransferCoding},
+        context::Context,
+        encode::CONTINUE_BYTES,
+        error::ProtoError,
+    },
 };
 
 type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
@@ -53,42 +54,68 @@ pub(crate) async fn run<
     ResB,
     BE,
     D,
-    const HEADER_LIMIT: usize,
-    const READ_BUF_LIMIT: usize,
-    const WRITE_BUF_LIMIT: usize,
+    const H_LIMIT: usize,
+    const R_LIMIT: usize,
+    const W_LIMIT: usize,
 >(
-    io: &'a mut St,
+    io: St,
     addr: SocketAddr,
     timer: Pin<&'a mut KeepAlive>,
-    config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+    config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
     service: &'a S,
     date: &'a D,
 ) -> Result<(), Error<S::Error, BE>>
 where
+    St: AsyncIo + 'static,
+    for<'i> &'i St: AsyncIo,
     S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
-    St: AsyncIo,
     D: DateTime,
 {
-    let write_buf = if config.vectored_write && io.is_vectored_write() {
-        EitherBuf::Left(ListWriteBuf::<_, WRITE_BUF_LIMIT>::default())
-    } else {
-        EitherBuf::Right(WriteBuf::<WRITE_BUF_LIMIT>::default())
+    // TODO: re-enable vectored write
+    // let write_buf = if config.vectored_write && (&io).is_vectored_write() {
+    //     EitherBuf::Left(ListWriteBuf::<_, WRITE_BUF_LIMIT>::default())
+    // } else {
+    //     EitherBuf::Right(WriteBuf::<WRITE_BUF_LIMIT>::default())
+    // };
+
+    let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
+        io: Rc::new(io),
+        timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
+        ctx: Context::with_addr(addr, date),
+        service,
+        read_buf: BufOwned::new(),
+        write_buf: BytesMut::new(),
+        notify: Notify::new(),
+        _phantom: PhantomData,
     };
 
-    Dispatcher::new(io, addr, timer, config, service, date, write_buf)
-        .run()
-        .await
-}
+    loop {
+        match dispatcher._run().await {
+            Ok(_) => {}
+            Err(Error::KeepAliveExpire) => {
+                trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
+                dispatcher.ctx.set_close();
+            }
+            Err(Error::RequestTimeout) => dispatcher.request_error(|| status_only(StatusCode::REQUEST_TIMEOUT)),
+            Err(Error::Proto(ProtoError::HeaderTooLarge)) => {
+                dispatcher.request_error(|| status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE))
+            }
+            Err(Error::Proto(_)) => dispatcher.request_error(|| status_only(StatusCode::BAD_REQUEST)),
+            Err(e) => return Err(e),
+        }
 
-/// Http/1 dispatcher
-struct Dispatcher<'a, St, S, ReqB, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize> {
-    io: BufferedIo<'a, St, W, READ_BUF_LIMIT>,
-    timer: Timer<'a>,
-    ctx: Context<'a, D, HEADER_LIMIT>,
-    service: &'a S,
-    _phantom: PhantomData<ReqB>,
+        write(&*dispatcher.io, &mut dispatcher.write_buf).await?;
+
+        if dispatcher.ctx.is_connection_closed() {
+            let io = Rc::try_unwrap(dispatcher.io)
+                .ok()
+                .expect("Dispatcher must have exclusive ownership to Io when closing connection");
+            let mut io = pin!(io);
+            return poll_fn(|cx| io.as_mut().poll_shutdown(cx)).await.map_err(Into::into);
+        }
+    }
 }
 
 // timer state is transformed in following order:
@@ -156,172 +183,120 @@ impl<'a> Timer<'a> {
     }
 }
 
-impl<'a, St, S, ReqB, ResB, BE, W, D, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize>
-    Dispatcher<'a, St, S, ReqB, W, D, HEADER_LIMIT, READ_BUF_LIMIT>
+#[cold]
+#[inline(never)]
+pub(super) fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
+    Response::builder().status(status).body(NoneBody::default()).unwrap()
+}
+
+pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize> {
+    io: Rc<Io>,
+    timer: Timer<'a>,
+    ctx: Context<'a, D, H_LIMIT>,
+    service: &'a S,
+    read_buf: BufOwned,
+    write_buf: BytesMut,
+    notify: Notify<BufOwned>,
+    _phantom: PhantomData<ReqB>,
+}
+
+impl<'a, Io, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
+    Dispatcher<'a, Io, S, ReqB, D, H_LIMIT, R_LIMIT, W_LIMIT>
 where
+    Io: 'static,
+    for<'i> &'i Io: AsyncIo,
     S: Service<ExtRequest<ReqB>, Response = Response<ResB>>,
     ReqB: From<RequestBody>,
     ResB: Stream<Item = Result<Bytes, BE>>,
-    St: AsyncIo,
-    W: H1BufWrite,
     D: DateTime,
 {
-    fn new<const WRITE_BUF_LIMIT: usize>(
-        io: &'a mut St,
-        addr: SocketAddr,
-        timer: Pin<&'a mut KeepAlive>,
-        config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-        service: &'a S,
-        date: &'a D,
-        write_buf: W,
-    ) -> Self {
-        Self {
-            io: BufferedIo::new(io, write_buf),
-            timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
-            ctx: Context::with_addr(addr, date),
-            service,
-            _phantom: PhantomData,
-        }
-    }
-
-    async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
-        loop {
-            match self._run().await {
-                Ok(_) => {}
-                Err(Error::KeepAliveExpire) => {
-                    trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-                    return Ok(());
-                }
-                Err(Error::RequestTimeout) => self.request_error(|| status_only(StatusCode::REQUEST_TIMEOUT)),
-                Err(Error::Proto(ProtoError::HeaderTooLarge)) => {
-                    self.request_error(|| status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE))
-                }
-                Err(Error::Proto(_)) => self.request_error(|| status_only(StatusCode::BAD_REQUEST)),
-                Err(e) => return Err(e),
-            }
-
-            // TODO: add timeout for drain write?
-            self.io.drain_write().await?;
-
-            if self.ctx.is_connection_closed() {
-                return self.io.shutdown().await.map_err(Into::into);
-            }
-        }
-    }
-
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
         self.timer.update(self.ctx.date().now());
-        self.io
-            .read()
+
+        let n = read(&*self.io, &mut *self.read_buf)
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
 
-        while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)? {
+        if n == 0 {
+            self.ctx.set_close();
+            return Ok(());
+        }
+
+        while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf)? {
             self.timer.reset_state();
 
-            let (mut body_reader, body) = BodyReader::from_coding(decoder);
-            let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
+            let (waiter, body) = if decoder.is_eof() {
+                (None, RequestBody::default())
+            } else {
+                let body = Body::new::<_, R_LIMIT>(
+                    self.io.clone(),
+                    self.ctx.is_expect_header(),
+                    decoder,
+                    std::mem::take(&mut self.read_buf),
+                    self.notify.notifier(),
+                );
 
-            let (parts, body) = match self
-                .service
-                .call(req)
-                .select(self.request_body_handler(&mut body_reader))
-                .await
-            {
-                SelectOutput::A(Ok(res)) => res.into_parts(),
-                SelectOutput::A(Err(e)) => return Err(Error::Service(e)),
-                SelectOutput::B(Err(e)) => return Err(e),
-                SelectOutput::B(Ok(i)) => match i {},
+                (Some(&mut self.notify), RequestBody::new(body))
             };
 
-            let encoder = &mut self.encode_head(parts, &body)?;
-            let mut body = pin!(body);
+            let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
-            loop {
-                match self
-                    .try_poll_body(body.as_mut())
-                    .select(self.io_ready(&mut body_reader))
-                    .await
-                {
-                    SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
-                    SelectOutput::B(Ok(ready)) => {
-                        if ready.is_readable() {
-                            if let Err(e) = self.io.try_read() {
-                                body_reader.feed_error(e);
+            let (parts, body) = self.service.call(req).await.map_err(Error::Service)?.into_parts();
+
+            let mut encoder = self.ctx.encode_head(parts, &body, &mut self.write_buf)?;
+
+            // this block is necessary. ResB has to be dropped asap as it may hold ownership of
+            // Body type which if not dropped before Notifier::notify is called would prevent
+            // Notifier from waking up Notify.
+            {
+                let mut body = pin!(body);
+
+                loop {
+                    let buf = &mut self.write_buf;
+
+                    let res = poll_fn(|cx| match body.as_mut().poll_next(cx) {
+                        Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
+                        Poll::Pending if buf.is_empty() => Poll::Pending,
+                        Poll::Pending => Poll::Ready(SelectOutput::B(())),
+                    })
+                    .await;
+
+                    match res {
+                        SelectOutput::A(Some(Ok(bytes))) => {
+                            encoder.encode(bytes, buf);
+                            if buf.len() < W_LIMIT {
+                                continue;
                             }
                         }
-                        if ready.is_writable() {
-                            self.io.try_write()?;
-                        }
+                        SelectOutput::A(Some(Err(e))) => return self.on_body_error(e).await,
+                        SelectOutput::A(None) => break encoder.encode_eof(buf),
+                        SelectOutput::B(_) => {}
                     }
-                    SelectOutput::A(None) => {
-                        encoder.encode_eof(&mut self.io.write_buf);
-                        break;
-                    }
-                    SelectOutput::B(Err(e)) => return Err(e.into()),
-                    SelectOutput::A(Some(Err(e))) => return Err(Error::Body(e)),
+
+                    write(&*self.io, buf).await?;
                 }
             }
 
-            if !body_reader.decoder.is_eof() {
-                self.ctx.set_close();
-                break;
+            if let Some(waiter) = waiter {
+                match waiter.wait().await {
+                    Some(read_buf) => self.read_buf = read_buf,
+                    None => {
+                        self.ctx.set_close();
+                        break;
+                    }
+                }
             }
         }
 
         Ok(())
     }
 
-    fn encode_head(&mut self, parts: Parts, body: &impl Stream) -> Result<TransferCoding, ProtoError> {
-        self.ctx.encode_head(parts, body, &mut self.io.write_buf)
-    }
-
-    // an associated future of self.service that runs until service is resolved or error produced.
-    async fn request_body_handler(&mut self, body_reader: &mut BodyReader) -> Result<Infallible, Error<S::Error, BE>> {
-        if self.ctx.is_expect_header() {
-            // wait for service future to start polling RequestBody.
-            if body_reader.wait_for_poll().await.is_ok() {
-                // encode continue as service future want a body.
-                self.io.write_buf.write_buf_static(CONTINUE);
-                // use drain write to make sure continue is sent to client.
-                self.io.drain_write().await?;
-            }
-        }
-
-        loop {
-            body_reader.ready(&mut self.io.read_buf).await;
-            self.io.read().await?;
-        }
-    }
-
-    fn try_poll_body<'b>(&self, mut body: Pin<&'b mut ResB>) -> impl Future<Output = Option<Result<Bytes, BE>>> + 'b {
-        let want_buf = self.io.write_buf.want_write_buf();
-        async move {
-            if want_buf {
-                poll_fn(|cx| body.as_mut().poll_next(cx)).await
-            } else {
-                pending().await
-            }
-        }
-    }
-
-    // Check readable and writable state of BufferedIo and ready state of request body reader.
-    // return error when runtime is shutdown.(See AsyncIo::ready for reason).
-    async fn io_ready(&mut self, body_reader: &mut BodyReader) -> io::Result<Ready> {
-        if !self.io.write_buf.want_write_io() {
-            body_reader.ready(&mut self.io.read_buf).await;
-            self.io.io.ready(Interest::READABLE).await
-        } else {
-            match body_reader
-                .ready(&mut self.io.read_buf)
-                .select(self.io.io.ready(Interest::WRITABLE))
-                .await
-            {
-                SelectOutput::A(_) => self.io.io.ready(Interest::READABLE | Interest::WRITABLE).await,
-                SelectOutput::B(res) => res,
-            }
-        }
+    #[cold]
+    #[inline(never)]
+    async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
+        write(&*self.io, &mut self.write_buf).await?;
+        Err(Error::Body(e))
     }
 
     #[cold]
@@ -329,60 +304,240 @@ where
     fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
         self.ctx.set_close();
         let (parts, body) = func().into_parts();
-        self.encode_head(parts, &body).expect("request_error must be correct");
+        self.ctx
+            .encode_head(parts, &body, &mut self.write_buf)
+            .expect("request_error must be correct");
     }
 }
 
-pub(super) struct BodyReader {
-    pub(super) decoder: TransferCoding,
-    tx: RequestBodySender,
+async fn read(mut io: impl AsyncIo, buf: &mut BytesMut) -> io::Result<usize> {
+    loop {
+        io.ready(Interest::READABLE).await?;
+
+        match xitca_unsafe_collection::bytes::read_buf(&mut io, buf) {
+            Ok(n) => return Ok(n),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(e) => return Err(e),
+        }
+    }
 }
 
-impl BodyReader {
-    pub(super) fn from_coding(decoder: TransferCoding) -> (Self, RequestBody) {
-        let (tx, body) = RequestBody::channel(decoder.is_eof());
-        let body_reader = BodyReader { decoder, tx };
-        (body_reader, body)
-    }
+async fn write(mut io: impl AsyncIo, mut buf: impl Buf) -> io::Result<()> {
+    while !buf.chunk().is_empty() {
+        io.ready(Interest::WRITABLE).await?;
 
-    // dispatcher MUST call this method before do any io reading.
-    // a none ready state means the body consumer either is in backpressure or don't expect body.
-    pub(super) async fn ready<const READ_BUF_LIMIT: usize>(&mut self, read_buf: &mut ReadBuf<READ_BUF_LIMIT>) {
-        loop {
-            match self.decoder.decode(&mut *read_buf) {
-                ChunkResult::Ok(bytes) => self.tx.feed_data(bytes),
-                ChunkResult::InsufficientData => match self.tx.ready().await {
-                    Ok(_) => return,
-                    // service future drop RequestBody so marker decoder to corrupted.
-                    Err(_) => self.decoder.set_corrupted(),
-                },
-                ChunkResult::OnEof => self.tx.feed_eof(),
-                ChunkResult::AlreadyEof | ChunkResult::Corrupted => pending().await,
-                ChunkResult::Err(e) => self.feed_error(e),
-            }
+        match std::io::Write::write(&mut io, buf.chunk()) {
+            Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+            Ok(n) => buf.advance(n),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(e) => return Err(e),
         }
     }
 
-    // feed error to body sender and prepare for close connection.
-    #[cold]
-    #[inline(never)]
-    pub(super) fn feed_error(&mut self, e: io::Error) {
-        self.tx.feed_error(e);
-        self.decoder.set_corrupted();
+    while let Err(e) = std::io::Write::flush(&mut io) {
+        match e.kind() {
+            io::ErrorKind::WouldBlock => {
+                io.ready(Interest::WRITABLE).await?;
+            }
+            _ => return Err(e),
+        }
     }
 
-    // wait for service start to consume RequestBody.
-    pub(super) async fn wait_for_poll(&mut self) -> io::Result<()> {
-        // IMPORTANT: service future drop RequestBody so marker decoder to corrupted.
-        self.tx
-            .wait_for_poll()
-            .await
-            .inspect_err(|_| self.decoder.set_corrupted())
+    Ok(())
+}
+
+#[derive(Default)]
+pub(super) struct BufOwned {
+    pub(super) buf: Option<BytesMut>,
+}
+
+impl Deref for BufOwned {
+    type Target = BytesMut;
+
+    fn deref(&self) -> &Self::Target {
+        self.buf.as_ref().unwrap()
     }
 }
 
-#[cold]
-#[inline(never)]
-pub(super) fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
-    Response::builder().status(status).body(NoneBody::default()).unwrap()
+impl DerefMut for BufOwned {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.buf.as_mut().unwrap()
+    }
+}
+
+impl BufOwned {
+    pub(super) fn new() -> Self {
+        Self {
+            buf: Some(BytesMut::new()),
+        }
+    }
+}
+
+impl Body {
+    fn new<Io, const LIMIT: usize>(
+        io: Rc<Io>,
+        is_expect: bool,
+        decoder: TransferCoding,
+        read_buf: BufOwned,
+        notify: Notifier<BufOwned>,
+    ) -> Self
+    where
+        Io: 'static,
+        for<'i> &'i Io: AsyncIo,
+    {
+        let body = BodyInner {
+            io,
+            decoder: Decoder {
+                decoder,
+                limit: LIMIT,
+                read_buf,
+                notify,
+            },
+        };
+
+        let state = if is_expect {
+            State::ExpectWrite {
+                fut: async { write(&*body.io, CONTINUE_BYTES).await.map(|_| body) },
+            }
+        } else {
+            State::Body { body }
+        };
+
+        Self::_new(BodyReader { state })
+    }
+}
+
+pin_project! {
+    #[project = StateProj]
+    #[project_replace = StateProjReplace]
+    enum State<Io, FutE> {
+        Body {
+            body: BodyInner<Io>
+        },
+        ExpectWrite {
+            #[pin]
+            fut: FutE,
+        },
+    }
+}
+
+pin_project! {
+    struct BodyReader<Io, FutE> {
+        #[pin]
+        state: State<Io, FutE>
+    }
+}
+
+struct BodyInner<Io> {
+    io: Rc<Io>,
+    decoder: Decoder,
+}
+
+impl<Io, FutE> Stream for BodyReader<Io, FutE>
+where
+    for<'i> &'i Io: AsyncIo,
+    FutE: Future<Output = io::Result<BodyInner<Io>>>,
+{
+    type Item = io::Result<Bytes>;
+
+    #[inline]
+    fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        loop {
+            match this.state.as_mut().project() {
+                StateProj::Body { body } => {
+                    match body.decoder.decoder.decode(&mut body.decoder.read_buf) {
+                        ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
+                        ChunkResult::Err(e) => return Poll::Ready(Some(Err(e))),
+                        ChunkResult::InsufficientData => {
+                            if body.decoder.read_buf.len() > body.decoder.limit {
+                                let msg = format!(
+                                    "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
+                                    body.decoder.limit,
+                                    body.decoder.read_buf.len()
+                                );
+                                return Poll::Ready(Some(Err(io::Error::other(msg))));
+                            }
+                        }
+                        _ => return Poll::Ready(None),
+                    };
+
+                    ready!((&*body.io).poll_ready(Interest::READABLE, cx))?;
+
+                    match xitca_unsafe_collection::bytes::read_buf(&mut &*body.io, &mut *body.decoder.read_buf) {
+                        Ok(0) => return Poll::Ready(None),
+                        Ok(_) => {}
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(e) => return Poll::Ready(Some(Err(e))),
+                    }
+                }
+                StateProj::ExpectWrite { fut } => {
+                    let body = ready!(fut.poll(cx))?;
+                    this.state.as_mut().project_replace(State::Body { body });
+                }
+            }
+        }
+    }
+}
+
+pub(super) struct Decoder {
+    pub(super) decoder: TransferCoding,
+    pub(super) limit: usize,
+    pub(super) read_buf: BufOwned,
+    pub(super) notify: Notifier<BufOwned>,
+}
+
+impl Drop for Decoder {
+    fn drop(&mut self) {
+        if self.decoder.is_eof() {
+            let buf = mem::take(&mut self.read_buf);
+            self.notify.notify(buf);
+        }
+    }
+}
+
+pub(super) struct Notify<T>(Rc<RefCell<Inner<T>>>);
+
+impl<T> Notify<T> {
+    pub(super) fn new() -> Self {
+        Self(Rc::new(RefCell::new(Inner { waker: None, val: None })))
+    }
+
+    pub(super) fn notifier(&mut self) -> Notifier<T> {
+        Notifier(self.0.clone())
+    }
+
+    pub(super) fn wait(&mut self) -> impl Future<Output = Option<T>> + '_ {
+        poll_fn(|cx| {
+            let mut inner = self.0.borrow_mut();
+            if let Some(val) = inner.val.take() {
+                return Poll::Ready(Some(val));
+            } else if Rc::strong_count(&self.0) == 1 {
+                return Poll::Ready(None);
+            }
+            inner.waker = Some(cx.waker().clone());
+            Poll::Pending
+        })
+    }
+}
+
+pub(super) struct Notifier<T>(Rc<RefCell<Inner<T>>>);
+
+impl<T> Drop for Notifier<T> {
+    fn drop(&mut self) {
+        if let Some(waker) = self.0.borrow_mut().waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+impl<T> Notifier<T> {
+    pub(super) fn notify(&mut self, val: T) {
+        self.0.borrow_mut().val = Some(val);
+    }
+}
+
+struct Inner<V> {
+    waker: Option<Waker>,
+    val: Option<V>,
 }

@@ -75,6 +75,36 @@ macro_rules! default_aio_impl {
             }
         }
 
+        impl crate::io::AsyncIo for &$ty {
+            #[inline]
+            async fn ready(&mut self, interest: crate::io::Interest) -> ::std::io::Result<crate::io::Ready> {
+                self.0.ready(interest).await
+            }
+
+            fn poll_ready(
+                &mut self,
+                interest: crate::io::Interest,
+                cx: &mut ::core::task::Context<'_>,
+            ) -> ::core::task::Poll<::std::io::Result<crate::io::Ready>> {
+                match interest {
+                    crate::io::Interest::READABLE => self.0.poll_read_ready(cx).map_ok(|_| crate::io::Ready::READABLE),
+                    crate::io::Interest::WRITABLE => self.0.poll_write_ready(cx).map_ok(|_| crate::io::Ready::WRITABLE),
+                    _ => unimplemented!("tokio does not support poll_ready for BOTH read and write ready"),
+                }
+            }
+
+            fn is_vectored_write(&self) -> bool {
+                crate::io::AsyncWrite::is_write_vectored(&self.0)
+            }
+
+            fn poll_shutdown(
+                self: ::core::pin::Pin<&mut Self>,
+                _: &mut ::core::task::Context<'_>,
+            ) -> ::core::task::Poll<::std::io::Result<()>> {
+                unimplemented!("poll_shutdown can not be performed from non exclusive reference of IO type");
+            }
+        }
+
         // specialized read implement based on tokio 1.0 spec.
         impl ::std::io::Read for &$ty {
             #[inline]

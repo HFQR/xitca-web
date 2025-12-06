@@ -1,5 +1,6 @@
 # unreleased 0.7.1
 ## Change
+- http/1 disaptcher refactor
 - update `socket2` to `0.6.0`
 - update `tokio` to `1.47.1`
 - update `h3` to `0.0.7`

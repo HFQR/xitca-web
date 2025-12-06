@@ -1,4 +1,7 @@
 # unreleased 0.4.2
+## Add
+- add `AsyncIo` impl for `&TcpStream` and `&UnixStream`
+
 ## Fix
 - relax trait bound of `io_uring::write_all`
 
