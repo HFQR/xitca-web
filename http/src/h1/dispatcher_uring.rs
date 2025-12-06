@@ -14,7 +14,6 @@ use std::{io, net::Shutdown, rc::Rc};
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use tracing::trace;
 use xitca_io::{
     bytes::BytesMut,
     io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
@@ -23,22 +22,20 @@ use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
 
 use crate::{
-    body::NoneBody,
     bytes::Bytes,
     config::HttpServiceConfig,
     date::DateTime,
     h1::{body::RequestBody, error::Error},
-    http::{StatusCode, response::Response},
+    http::response::Response,
     util::timer::{KeepAlive, Timeout},
 };
 
 use super::{
-    dispatcher::{Timer, status_only},
+    dispatcher::{Timer, handle_error},
     proto::{
         codec::{ChunkResult, TransferCoding},
         context::Context,
         encode::CONTINUE_BYTES,
-        error::ProtoError,
     },
 };
 
@@ -137,8 +134,8 @@ where
         };
 
         loop {
-            if let Err(e) = dispatcher._run().await {
-                dispatcher.handle_error(e)?;
+            if let Err(err) = dispatcher._run().await {
+                handle_error(&mut dispatcher.ctx, &mut *dispatcher.write_buf, err)?;
             }
 
             dispatcher.write_buf.write(&*dispatcher.io).await?;
@@ -246,37 +243,9 @@ where
 
     #[cold]
     #[inline(never)]
-    fn handle_error(&mut self, err: Error<S::Error, BE>) -> Result<(), Error<S::Error, BE>> {
-        self.ctx.set_close();
-        match err {
-            Error::KeepAliveExpire => {
-                trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down")
-            }
-            e => {
-                let status = match e {
-                    Error::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
-                    Error::Proto(ProtoError::HeaderTooLarge) => StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
-                    Error::Proto(_) => StatusCode::BAD_REQUEST,
-                    e => return Err(e),
-                };
-                self.request_error(|| status_only(status))
-            }
-        }
-        Ok(())
-    }
-
-    #[cold]
-    #[inline(never)]
     async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
         self.write_buf.write(&*self.io).await?;
         Err(Error::Body(e))
-    }
-
-    fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
-        let (parts, body) = func().into_parts();
-        self.ctx
-            .encode_head(parts, &body, &mut *self.write_buf)
-            .expect("request_error must be correct");
     }
 }
 

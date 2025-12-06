@@ -186,18 +186,8 @@ where
 
     async fn run(mut self) -> Result<(), Error<S::Error, BE>> {
         loop {
-            match self._run().await {
-                Ok(_) => {}
-                Err(Error::KeepAliveExpire) => {
-                    trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-                    return Ok(());
-                }
-                Err(Error::RequestTimeout) => self.request_error(|| status_only(StatusCode::REQUEST_TIMEOUT)),
-                Err(Error::Proto(ProtoError::HeaderTooLarge)) => {
-                    self.request_error(|| status_only(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE))
-                }
-                Err(Error::Proto(_)) => self.request_error(|| status_only(StatusCode::BAD_REQUEST)),
-                Err(e) => return Err(e),
+            if let Err(err) = self._run().await {
+                handle_error(&mut self.ctx, &mut self.io.write_buf, err)?;
             }
 
             // TODO: add timeout for drain write?
@@ -323,14 +313,41 @@ where
             }
         }
     }
+}
 
-    #[cold]
-    #[inline(never)]
-    fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
-        self.ctx.set_close();
-        let (parts, body) = func().into_parts();
-        self.encode_head(parts, &body).expect("request_error must be correct");
+#[cold]
+#[inline(never)]
+pub(super) fn handle_error<D, W, S, B, const H_LIMIT: usize>(
+    ctx: &mut Context<'_, D, H_LIMIT>,
+    buf: &mut W,
+    err: Error<S, B>,
+) -> Result<(), Error<S, B>>
+where
+    D: DateTime,
+    W: H1BufWrite,
+{
+    ctx.set_close();
+    match err {
+        Error::KeepAliveExpire => {
+            trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down")
+        }
+        e => {
+            let status = match e {
+                Error::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
+                Error::Proto(ProtoError::HeaderTooLarge) => StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+                Error::Proto(_) => StatusCode::BAD_REQUEST,
+                e => return Err(e),
+            };
+            let (parts, body) = Response::builder()
+                .status(status)
+                .body(NoneBody::<Bytes>::default())
+                .unwrap()
+                .into_parts();
+            ctx.encode_head(parts, &body, buf)
+                .expect("request_error must be correct");
+        }
     }
+    Ok(())
 }
 
 pub(super) struct BodyReader {
@@ -379,10 +396,4 @@ impl BodyReader {
             .await
             .inspect_err(|_| self.decoder.set_corrupted())
     }
-}
-
-#[cold]
-#[inline(never)]
-pub(super) fn status_only(status: StatusCode) -> Response<NoneBody<Bytes>> {
-    Response::builder().status(status).body(NoneBody::default()).unwrap()
 }
