@@ -113,8 +113,7 @@ where
             .await
             .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-        super::dispatcher_uring::Dispatcher::new(io, addr, timer, self.config, &self.service, self.date.get())
-            .run()
+        super::dispatcher_uring::Dispatcher::run(io, addr, timer, self.config, &self.service, self.date.get())
             .await
             .map_err(Into::into)
     }
