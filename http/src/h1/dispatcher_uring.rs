@@ -88,7 +88,7 @@ impl BufOwned {
         self.buf = buf;
     }
 
-    async fn read_io(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
+    async fn read(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
         let mut buf = self.take();
 
         let len = buf.len();
@@ -99,7 +99,7 @@ impl BufOwned {
         res
     }
 
-    async fn write_io(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
+    async fn write(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
         let buf = self.take();
         let (res, mut buf) = write_all(io, buf).await;
         buf.clear();
@@ -128,7 +128,7 @@ where
         let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io: Rc::new(io),
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
-            ctx: Context::<_, H_LIMIT>::with_addr(addr, date),
+            ctx: Context::with_addr(addr, date),
             service,
             read_buf: BufOwned::new(),
             write_buf: BufOwned::new(),
@@ -137,30 +137,14 @@ where
         };
 
         loop {
-            match dispatcher._run().await {
-                Ok(_) => {}
-                Err(Error::KeepAliveExpire) => {
-                    trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down");
-                    dispatcher.ctx.set_close();
-                }
-                Err(e) => {
-                    let status = match e {
-                        Error::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
-                        Error::Proto(ProtoError::HeaderTooLarge) => StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
-                        Error::Proto(_) => StatusCode::BAD_REQUEST,
-                        e => return Err(e),
-                    };
-                    dispatcher.request_error(|| status_only(status))
-                }
+            if let Err(e) = dispatcher._run().await {
+                dispatcher.handle_error(e)?;
             }
 
-            dispatcher.write_buf.write_io(&*dispatcher.io).await?;
+            dispatcher.write_buf.write(&*dispatcher.io).await?;
 
             if dispatcher.ctx.is_connection_closed() {
-                let io = Rc::try_unwrap(dispatcher.io)
-                    .ok()
-                    .expect("Dispatcher must have exclusive ownership to Io when closing connection");
-                return io.shutdown(Shutdown::Both).map_err(Into::into);
+                return dispatcher.shutdown();
             }
         }
     }
@@ -170,7 +154,7 @@ where
 
         let read = self
             .read_buf
-            .read_io(&*self.io)
+            .read(&*self.io)
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
@@ -232,7 +216,7 @@ where
                         SelectOutput::B(_) => {}
                     }
 
-                    self.write_buf.write_io(&*self.io).await?;
+                    self.write_buf.write(&*self.io).await?;
                 }
             }
 
@@ -252,15 +236,43 @@ where
 
     #[cold]
     #[inline(never)]
-    async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
-        self.write_buf.write_io(&*self.io).await?;
-        Err(Error::Body(e))
+    fn shutdown(self) -> Result<(), Error<S::Error, BE>> {
+        Rc::try_unwrap(self.io)
+            .ok()
+            .expect("Dispatcher must have exclusive ownership to Io when closing connection")
+            .shutdown(Shutdown::Both)
+            .map_err(Into::into)
     }
 
     #[cold]
     #[inline(never)]
-    fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
+    fn handle_error(&mut self, err: Error<S::Error, BE>) -> Result<(), Error<S::Error, BE>> {
         self.ctx.set_close();
+        match err {
+            Error::KeepAliveExpire => {
+                trace!(target: "h1_dispatcher", "Connection keep-alive expired. Shutting down")
+            }
+            e => {
+                let status = match e {
+                    Error::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
+                    Error::Proto(ProtoError::HeaderTooLarge) => StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+                    Error::Proto(_) => StatusCode::BAD_REQUEST,
+                    e => return Err(e),
+                };
+                self.request_error(|| status_only(status))
+            }
+        }
+        Ok(())
+    }
+
+    #[cold]
+    #[inline(never)]
+    async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
+        self.write_buf.write(&*self.io).await?;
+        Err(Error::Body(e))
+    }
+
+    fn request_error(&mut self, func: impl FnOnce() -> Response<NoneBody<Bytes>>) {
         let (parts, body) = func().into_parts();
         self.ctx
             .encode_head(parts, &body, &mut *self.write_buf)
@@ -364,7 +376,7 @@ async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<(usize, BodyInner
 where
     Io: AsyncBufRead,
 {
-    let read = body.decoder.read_buf.read_io(&*body.io).await?;
+    let read = body.decoder.read_buf.read(&*body.io).await?;
     Ok((read, body))
 }
 
@@ -420,9 +432,7 @@ where
                         fut: (this.chunk_read)(body),
                     });
                 }
-                StateProj::None => unreachable!(
-                    "None variant is only used internally and must not be observable from stream consumer."
-                ),
+                StateProj::None => return Poll::Ready(None),
             }
         }
     }
