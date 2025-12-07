@@ -37,14 +37,14 @@ io-uring = ["xitca-io/runtime-uring", "tokio-uring"]
 router = ["xitca-router"]
 
 [dependencies]
-xitca-io = "0.4.0"
+xitca-io = "0.4.2"
 xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
 futures-core = "0.3.17"
 http = "1"
 httpdate = "1.0"
-pin-project-lite = "0.2.10"
+pin-project-lite = "0.2.16"
 tracing = { version = "0.1.40", default-features = false }
 
 # native tls support
@@ -80,7 +80,7 @@ tokio-uring = { version = "0.5.0", features = ["bytes"], optional = true }
 socket2 = { version = "0.6.0", features = ["all"] }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8.0"
 xitca-server = "0.5"
 
 [[bench]]
