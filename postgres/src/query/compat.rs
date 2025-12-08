@@ -1,6 +1,6 @@
 use core::{
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use futures_core::Stream;
@@ -18,7 +18,7 @@ impl Stream for RowStreamOwned {
         loop {
             match ready!(this.res.poll_recv(cx))? {
                 backend::Message::DataRow(body) => {
-                    return Poll::Ready(Some(RowOwned::try_new(this.col.clone(), body, Vec::new())))
+                    return Poll::Ready(Some(RowOwned::try_new(this.col.clone(), body, Vec::new())));
                 }
                 backend::Message::BindComplete
                 | backend::Message::EmptyQueryResponse

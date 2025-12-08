@@ -2,7 +2,7 @@
 
 use std::future::IntoFuture;
 
-use xitca_postgres::{iter::AsyncLendingIterator, Execute, Postgres};
+use xitca_postgres::{Execute, Postgres, iter::AsyncLendingIterator};
 // an example proc macro
 use xitca_postgres_codegen::sql;
 

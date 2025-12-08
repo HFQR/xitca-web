@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::{
     column::Column,
-    driver::codec::{encode::StatementCancel, AsParams},
+    driver::codec::{AsParams, encode::StatementCancel},
     query::Query,
     types::{ToSql, Type},
 };
@@ -383,11 +383,11 @@ mod test {
     use core::future::IntoFuture;
 
     use crate::{
+        Postgres,
         error::{DbError, SqlState},
         execute::Execute,
         iter::AsyncLendingIterator,
         statement::Statement,
-        Postgres,
     };
 
     #[tokio::test]

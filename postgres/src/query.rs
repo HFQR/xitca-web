@@ -6,7 +6,7 @@ pub(crate) mod compat;
 pub use stream::{RowAffected, RowSimpleStream, RowSimpleStreamOwned, RowStream, RowStreamGuarded, RowStreamOwned};
 
 use super::{
-    driver::codec::{encode::Encode, response::IntoResponse, Response},
+    driver::codec::{Response, encode::Encode, response::IntoResponse},
     error::Error,
 };
 

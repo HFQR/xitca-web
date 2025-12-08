@@ -3,7 +3,7 @@ use core::{
     marker::PhantomData,
     ops::Range,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use crate::{
     error::Error,
     iter::AsyncLendingIterator,
     prepare::Prepare,
-    row::{marker, Row, RowOwned, RowSimple, RowSimpleOwned},
+    row::{Row, RowOwned, RowSimple, RowSimpleOwned, marker},
     types::Type,
 };
 
@@ -42,6 +42,86 @@ impl<C, M> GenericRowStream<C, M> {
 
 /// A stream of table rows.
 pub type RowStream<'a> = GenericRowStream<&'a [Column], marker::Typed>;
+
+#[doc(hidden)]
+impl RowStream<'_> {
+    #[inline]
+    pub async fn collect<T>(self) -> Result<T, Error>
+    where
+        T: Default + ExtendExt,
+        T::Item: for<'r> From<Row<'r>>,
+    {
+        let mut collection = T::default();
+        self.collect_into(&mut collection).await.map(|_| collection)
+    }
+
+    pub async fn collect_into<T>(mut self, collection: &mut T) -> Result<(), Error>
+    where
+        T: ExtendExt,
+        T::Item: for<'r> From<Row<'r>>,
+    {
+        while let Some(row) = AsyncLendingIterator::try_next(&mut self).await? {
+            let item = T::Item::from(row);
+            collection.extend_ext(item);
+
+            if !collection.can_extend() {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[doc(hidden)]
+pub trait ExtendExt {
+    type Item;
+
+    fn extend_ext(&mut self, item: Self::Item);
+
+    #[inline(always)]
+    fn can_extend(&mut self) -> bool {
+        true
+    }
+}
+
+impl<T> ExtendExt for Vec<T> {
+    type Item = T;
+
+    fn extend_ext(&mut self, item: Self::Item) {
+        self.push(item)
+    }
+}
+
+impl<T> ExtendExt for Option<T> {
+    type Item = T;
+
+    fn extend_ext(&mut self, item: Self::Item) {
+        self.replace(item);
+    }
+
+    #[inline(always)]
+    fn can_extend(&mut self) -> bool {
+        !self.is_some()
+    }
+}
+
+async fn _collect(stream1: crate::RowStream<'_>, stream2: crate::RowStream<'_>) -> Result<(), Error> {
+    struct User {
+        _name: String,
+    }
+
+    impl<'r> From<Row<'r>> for User {
+        fn from(value: Row<'r>) -> Self {
+            let _name = value.get(0);
+            User { _name }
+        }
+    }
+
+    let mut users = Vec::<User>::with_capacity(1);
+    stream1.collect_into(&mut users).await?;
+
+    stream2.collect::<Option<User>>().await.map(|_| ())
+}
 
 impl AsyncLendingIterator for RowStream<'_> {
     type Ok<'i>
@@ -149,7 +229,7 @@ impl Iterator for RowStreamOwned {
             match self.res.blocking_recv() {
                 Ok(msg) => match msg {
                     backend::Message::DataRow(body) => {
-                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()))
+                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()));
                     }
                     backend::Message::BindComplete
                     | backend::Message::EmptyQueryResponse
@@ -357,7 +437,7 @@ where
                         }
                     }
                     backend::Message::DataRow(body) => {
-                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()))
+                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()));
                     }
                     backend::Message::ParseComplete
                     | backend::Message::BindComplete

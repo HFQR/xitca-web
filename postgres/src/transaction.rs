@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 use super::{
     client::ClientBorrowMut,
-    driver::codec::{encode::Encode, AsParams, Response},
+    driver::codec::{AsParams, Response, encode::Encode},
     error::Error,
     execute::Execute,
     prepare::Prepare,

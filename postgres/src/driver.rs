@@ -31,7 +31,7 @@ use xitca_io::{
 use super::{
     client::Client,
     config::{Config, SslMode, SslNegotiation},
-    error::{unexpected_eof_err, ConfigError, Error},
+    error::{ConfigError, Error, unexpected_eof_err},
     iter::AsyncLendingIterator,
     session::{ConnectInfo, Session},
 };
@@ -211,16 +211,16 @@ impl Driver {
     #[inline]
     pub(crate) async fn send(&mut self, buf: BytesMut) -> Result<(), Error> {
         match self {
-            Self::Tcp(ref mut drv) => drv.send(buf).await,
-            Self::Dynamic(ref mut drv) => drv.send(buf).await,
+            Self::Tcp(drv) => drv.send(buf).await,
+            Self::Dynamic(drv) => drv.send(buf).await,
             #[cfg(feature = "tls")]
-            Self::Tls(ref mut drv) => drv.send(buf).await,
+            Self::Tls(drv) => drv.send(buf).await,
             #[cfg(unix)]
-            Self::Unix(ref mut drv) => drv.send(buf).await,
+            Self::Unix(drv) => drv.send(buf).await,
             #[cfg(all(unix, feature = "tls"))]
-            Self::UnixTls(ref mut drv) => drv.send(buf).await,
+            Self::UnixTls(drv) => drv.send(buf).await,
             #[cfg(feature = "quic")]
-            Self::Quic(ref mut drv) => drv.send(buf).await,
+            Self::Quic(drv) => drv.send(buf).await,
         }
     }
 }
@@ -235,16 +235,16 @@ impl AsyncLendingIterator for Driver {
     #[inline]
     async fn try_next(&mut self) -> Result<Option<Self::Ok<'_>>, Self::Err> {
         match self {
-            Self::Tcp(ref mut drv) => drv.try_next().await,
-            Self::Dynamic(ref mut drv) => drv.try_next().await,
+            Self::Tcp(drv) => drv.try_next().await,
+            Self::Dynamic(drv) => drv.try_next().await,
             #[cfg(feature = "tls")]
-            Self::Tls(ref mut drv) => drv.try_next().await,
+            Self::Tls(drv) => drv.try_next().await,
             #[cfg(unix)]
-            Self::Unix(ref mut drv) => drv.try_next().await,
+            Self::Unix(drv) => drv.try_next().await,
             #[cfg(all(unix, feature = "tls"))]
-            Self::UnixTls(ref mut drv) => drv.try_next().await,
+            Self::UnixTls(drv) => drv.try_next().await,
             #[cfg(feature = "quic")]
-            Self::Quic(ref mut drv) => drv.try_next().await,
+            Self::Quic(drv) => drv.try_next().await,
         }
     }
 }

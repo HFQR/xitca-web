@@ -1,7 +1,7 @@
 //! example of running client in non async environment.
 
 use std::future::IntoFuture;
-use xitca_postgres::{types::Type, ExecuteBlocking, Postgres, Statement};
+use xitca_postgres::{ExecuteBlocking, Postgres, Statement, types::Type};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // prepare a tokio runtime for client's Driver.

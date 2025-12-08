@@ -2,15 +2,15 @@ use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
 use crate::{
+    BoxedFuture,
     column::Column,
     error::Error,
     prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded},
     statement::Statement,
-    BoxedFuture,
 };
 
-use super::{sealed, Response};
+use super::{Response, sealed};
 
 /// trait for generic over how to construct an async stream rows
 pub trait IntoResponse: sealed::Sealed + Sized {

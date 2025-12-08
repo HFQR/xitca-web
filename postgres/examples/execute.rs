@@ -6,7 +6,7 @@ use std::{
 };
 
 use xitca_postgres::{
-    iter::AsyncLendingIteratorExt, types::Type, Client, Error, Execute, Postgres, RowStreamOwned, Statement,
+    Client, Error, Execute, Postgres, RowStreamOwned, Statement, iter::AsyncLendingIteratorExt, types::Type,
 };
 
 #[tokio::main]

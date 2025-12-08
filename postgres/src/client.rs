@@ -11,11 +11,11 @@ use xitca_unsafe_collection::no_hash::NoHashBuilder;
 use super::{
     copy::{r#Copy, CopyIn, CopyOut},
     driver::{
-        codec::{
-            encode::{self, Encode},
-            Response,
-        },
         DriverTx,
+        codec::{
+            Response,
+            encode::{self, Encode},
+        },
     },
     error::Error,
     prepare::Prepare,

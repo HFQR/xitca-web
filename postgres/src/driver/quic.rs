@@ -6,12 +6,12 @@ use core::{
     mem,
     net::SocketAddr,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use std::{io, sync::Arc};
 
-use quinn::{crypto::rustls::QuicClientConfig, ClientConfig, Connection, Endpoint, RecvStream, SendStream};
+use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream, crypto::rustls::QuicClientConfig};
 use xitca_io::{
     bytes::{Buf, Bytes},
     io::{AsyncIo, Interest, Ready},
@@ -38,7 +38,7 @@ enum Writer {
 impl Writer {
     fn poll_ready(&mut self, interest: Interest, ready: &mut Ready, cx: &mut Context<'_>) {
         match self {
-            Self::InFlight(ref mut fut) => {
+            Self::InFlight(fut) => {
                 if let Poll::Ready(res) = fut.as_mut().poll(cx) {
                     if interest.is_writable() {
                         *ready |= Ready::WRITABLE;
@@ -112,7 +112,7 @@ impl Reader {
 
     fn poll_ready_once(&mut self, cx: &mut Context<'_>, ready: &mut Ready) {
         match self {
-            Self::Buffered((ref bytes, _)) => {
+            Self::Buffered((bytes, _)) => {
                 if !bytes.is_empty() {
                     *ready |= Ready::READABLE;
                     return;
@@ -126,7 +126,7 @@ impl Reader {
 
                 self.poll_ready_once(cx, ready);
             }
-            Self::InFlight(ref mut fut) => {
+            Self::InFlight(fut) => {
                 if let Poll::Ready(res) = fut.as_mut().poll(cx) {
                     *ready |= Ready::READABLE;
                     match res {

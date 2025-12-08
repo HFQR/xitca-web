@@ -1,12 +1,12 @@
 use core::future::IntoFuture;
 
 use xitca_postgres::{
+    Client, Execute, Postgres,
     error::{Completed, DbError, SqlState},
     iter::AsyncLendingIterator,
     statement::Statement,
     transaction::{IsolationLevel, TransactionBuilder},
     types::Type,
-    Client, Execute, Postgres,
 };
 
 async fn connect(s: &str) -> Client {

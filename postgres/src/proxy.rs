@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 
-use quinn::{crypto::rustls::QuicServerConfig, Endpoint, Incoming, ServerConfig};
+use quinn::{Endpoint, Incoming, ServerConfig, crypto::rustls::QuicServerConfig};
 use tracing::error;
 use xitca_io::{
     io::{AsyncIo, Interest},
