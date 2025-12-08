@@ -5,12 +5,12 @@ use std::future::IntoFuture;
 // use bb8 as connection pool
 use bb8::{ManageConnection, Pool};
 use xitca_postgres::{
+    Client, Config, Execute, Postgres,
     dev::{ClientBorrowMut, Encode, Prepare, Query, Response},
     error::{DriverDown, Error},
     iter::AsyncLendingIterator,
     transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
-    Client, Config, Execute, Postgres,
 };
 
 // a pool manager type containing necessary information for constructing a xitca-postgres connection

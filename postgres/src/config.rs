@@ -490,11 +490,7 @@ impl<'a> Parser<'a> {
             _ => true,
         });
 
-        if s.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
+        if s.is_empty() { None } else { Some(s) }
     }
 
     fn value(&mut self) -> Result<String, Error> {

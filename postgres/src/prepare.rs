@@ -3,6 +3,7 @@ use core::future::Future;
 use postgres_types::{Field, Kind, Oid};
 
 use super::{
+    BoxedFuture,
     client::Client,
     error::{DbError, Error, SqlState},
     execute::{Execute, ExecuteBlocking},
@@ -10,7 +11,6 @@ use super::{
     query::Query,
     statement::{Statement, StatementNamed},
     types::Type,
-    BoxedFuture,
 };
 
 /// trait generic over preparing statement and canceling of prepared statement
@@ -202,7 +202,7 @@ impl Client {
                     TYPEINFO_FALLBACK_QUERY.execute(self).await.map(|stmt| stmt.leak())
                 } else {
                     Err(e)
-                }
+                };
             }
         };
         self.set_typeinfo(&stmt);
@@ -223,7 +223,7 @@ impl Client {
                     TYPEINFO_ENUM_FALLBACK_QUERY.execute(self).await.map(|stmt| stmt.leak())
                 } else {
                     Err(e)
-                }
+                };
             }
         };
         self.set_typeinfo_enum(&stmt);
@@ -279,7 +279,7 @@ impl Client {
                     TYPEINFO_FALLBACK_QUERY.execute_blocking(self).map(|stmt| stmt.leak())
                 } else {
                     Err(e)
-                }
+                };
             }
         };
         self.set_typeinfo(&stmt);
@@ -302,7 +302,7 @@ impl Client {
                         .map(|stmt| stmt.leak())
                 } else {
                     Err(e)
-                }
+                };
             }
         };
         self.set_typeinfo_enum(&stmt);

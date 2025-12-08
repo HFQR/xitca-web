@@ -1,7 +1,7 @@
 //! Stream encoders.
 
 use futures_core::Stream;
-use http::{header, Response, StatusCode, Version};
+use http::{header, Response, StatusCode};
 
 use super::{
     coder::{Coder, FeaturedCode},
@@ -56,13 +56,13 @@ where
 }
 
 #[cfg(any(feature = "br", feature = "gz", feature = "de"))]
-fn update_header(headers: &mut header::HeaderMap, value: &'static str, version: Version) {
+fn update_header(headers: &mut header::HeaderMap, value: &'static str, version: http::Version) {
     headers.insert(header::CONTENT_ENCODING, header::HeaderValue::from_static(value));
     headers.remove(header::CONTENT_LENGTH);
 
     // Connection specific headers are not allowed in HTTP/2 and later versions.
     // see https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.2
-    if version < Version::HTTP_2 {
+    if version < http::Version::HTTP_2 {
         headers.insert(header::TRANSFER_ENCODING, header::HeaderValue::from_static("chunked"));
     }
 }

@@ -4,9 +4,9 @@ use postgres_protocol::message::backend;
 
 use crate::{
     driver::codec::{
+        AsParams,
         encode::{Encode, PortalCancel, PortalCreate, PortalQuery},
         response::IntoResponse,
-        AsParams,
     },
     error::Error,
     query::Query,

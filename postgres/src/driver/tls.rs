@@ -3,11 +3,10 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use xitca_io::io::AsyncIo;
 use xitca_tls::rustls::{
-    self,
+    self, ClientConfig, ClientConnection, DigitallySignedStruct, RootCertStore, TlsStream,
     client::danger::HandshakeSignatureValid,
     crypto::{verify_tls12_signature, verify_tls13_signature},
     pki_types::{CertificateDer, ServerName, UnixTime},
-    ClientConfig, ClientConnection, DigitallySignedStruct, RootCertStore, TlsStream,
 };
 
 use crate::{

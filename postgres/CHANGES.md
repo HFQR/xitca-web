@@ -11,6 +11,7 @@
 - remove `error::AuthenticationError` type. It's error condition is covered by `error::ConfigError`
 
 ## Change
+- update to Rust editon 2024
 - change `Prepare::_get_type` to accept plain async trait method 
 - change `pool::Pool`'s dead connection detection lifecycle
 

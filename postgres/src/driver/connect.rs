@@ -9,9 +9,9 @@ use crate::{
 };
 
 use super::{
-    dns_resolve,
+    Driver, dns_resolve,
     generic::{DriverTx, GenericDriver},
-    prepare_driver, should_connect_tls, Driver,
+    prepare_driver, should_connect_tls,
 };
 
 #[cold]

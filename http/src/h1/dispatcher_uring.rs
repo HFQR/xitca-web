@@ -5,7 +5,6 @@ use core::{
     marker::PhantomData,
     mem,
     net::SocketAddr,
-    ops::{Deref, DerefMut},
     pin::{Pin, pin},
     task::{self, Poll, Waker, ready},
 };
@@ -14,15 +13,12 @@ use std::{io, net::Shutdown, rc::Rc};
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use xitca_io::{
-    bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
-};
+use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all};
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
 
 use crate::{
-    bytes::Bytes,
+    bytes::{Bytes, BytesMut},
     config::HttpServiceConfig,
     date::DateTime,
     h1::{body::RequestBody, error::Error},
@@ -47,60 +43,35 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     timer: Timer<'a>,
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
-    read_buf: BufOwned,
-    write_buf: BufOwned,
-    notify: Notify<BufOwned>,
+    read_buf: BytesMut,
+    write_buf: BytesMut,
+    notify: Notify<BytesMut>,
     _phantom: PhantomData<ReqB>,
 }
 
-#[derive(Default)]
-struct BufOwned {
-    buf: BytesMut,
+trait BufIo {
+    async fn read(&mut self, io: &impl AsyncBufRead) -> io::Result<usize>;
+
+    async fn write(&mut self, io: &impl AsyncBufWrite) -> io::Result<()>;
 }
 
-impl Deref for BufOwned {
-    type Target = BytesMut;
-
-    fn deref(&self) -> &Self::Target {
-        &self.buf
-    }
-}
-
-impl DerefMut for BufOwned {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.buf
-    }
-}
-
-impl BufOwned {
-    fn new() -> Self {
-        Self { buf: BytesMut::new() }
-    }
-
-    fn take(&mut self) -> BytesMut {
-        mem::replace(&mut self.buf, BytesMut::new())
-    }
-
-    fn set(&mut self, buf: BytesMut) {
-        self.buf = buf;
-    }
-
+impl BufIo for BytesMut {
     async fn read(&mut self, io: &impl AsyncBufRead) -> io::Result<usize> {
-        let mut buf = self.take();
+        let mut buf = mem::take(self);
 
         let len = buf.len();
         buf.reserve(4096);
 
         let (res, buf) = io.read(buf.slice(len..)).await;
-        self.set(buf.into_inner());
+        *self = buf.into_inner();
         res
     }
 
     async fn write(&mut self, io: &impl AsyncBufWrite) -> io::Result<()> {
-        let buf = self.take();
+        let buf = mem::take(self);
         let (res, mut buf) = write_all(io, buf).await;
         buf.clear();
-        self.set(buf);
+        *self = buf;
         res
     }
 }
@@ -127,15 +98,15 @@ where
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
             ctx: Context::with_addr(addr, date),
             service,
-            read_buf: BufOwned::new(),
-            write_buf: BufOwned::new(),
+            read_buf: BytesMut::new(),
+            write_buf: BytesMut::new(),
             notify: Notify::new(),
             _phantom: PhantomData,
         };
 
         loop {
             if let Err(err) = dispatcher._run().await {
-                handle_error(&mut dispatcher.ctx, &mut *dispatcher.write_buf, err)?;
+                handle_error(&mut dispatcher.ctx, &mut dispatcher.write_buf, err)?;
             }
 
             dispatcher.write_buf.write(&*dispatcher.io).await?;
@@ -183,7 +154,7 @@ where
 
             let (parts, body) = self.service.call(req).await.map_err(Error::Service)?.into_parts();
 
-            let mut encoder = self.ctx.encode_head(parts, &body, &mut *self.write_buf)?;
+            let mut encoder = self.ctx.encode_head(parts, &body, &mut self.write_buf)?;
 
             // this block is necessary. ResB has to be dropped asap as it may hold ownership of
             // Body type which if not dropped before Notifier::notify is called would prevent
@@ -192,24 +163,22 @@ where
                 let mut body = pin!(body);
 
                 loop {
-                    let buf = &mut *self.write_buf;
-
                     let res = poll_fn(|cx| match body.as_mut().poll_next(cx) {
                         Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
-                        Poll::Pending if buf.is_empty() => Poll::Pending,
+                        Poll::Pending if self.write_buf.is_empty() => Poll::Pending,
                         Poll::Pending => Poll::Ready(SelectOutput::B(())),
                     })
                     .await;
 
                     match res {
                         SelectOutput::A(Some(Ok(bytes))) => {
-                            encoder.encode(bytes, buf);
-                            if buf.len() < W_LIMIT {
+                            encoder.encode(bytes, &mut self.write_buf);
+                            if self.write_buf.len() < W_LIMIT {
                                 continue;
                             }
                         }
                         SelectOutput::A(Some(Err(e))) => return self.on_body_error(e).await,
-                        SelectOutput::A(None) => break encoder.encode_eof(buf),
+                        SelectOutput::A(None) => break encoder.encode_eof(&mut self.write_buf),
                         SelectOutput::B(_) => {}
                     }
 
@@ -257,8 +226,8 @@ impl Body {
         is_expect: bool,
         limit: usize,
         decoder: TransferCoding,
-        read_buf: BufOwned,
-        notify: Notifier<BufOwned>,
+        read_buf: BytesMut,
+        notify: Notifier<BytesMut>,
     ) -> Self
     where
         Io: AsyncBufRead + AsyncBufWrite + 'static,
@@ -364,20 +333,11 @@ where
         loop {
             match this.state.as_mut().project() {
                 StateProj::Body { body } => {
-                    match body.decoder.decoder.decode(&mut body.decoder.read_buf) {
+                    match body.decoder.decode() {
                         ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
                         ChunkResult::Err(e) => return Poll::Ready(Some(Err(e))),
-                        ChunkResult::InsufficientData => {}
+                        ChunkResult::InsufficientData => body.decoder.limit_check()?,
                         _ => return Poll::Ready(None),
-                    }
-
-                    if body.decoder.read_buf.len() >= body.decoder.limit {
-                        let msg = format!(
-                            "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
-                            body.decoder.limit,
-                            body.decoder.read_buf.len()
-                        );
-                        return Poll::Ready(Some(Err(io::Error::other(msg))));
                     }
 
                     let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else {
@@ -410,8 +370,8 @@ where
 struct Decoder {
     decoder: TransferCoding,
     limit: usize,
-    read_buf: BufOwned,
-    notify: Notifier<BufOwned>,
+    read_buf: BytesMut,
+    notify: Notifier<BytesMut>,
 }
 
 impl Drop for Decoder {
@@ -420,6 +380,25 @@ impl Drop for Decoder {
             let buf = mem::take(&mut self.read_buf);
             self.notify.notify(buf);
         }
+    }
+}
+
+impl Decoder {
+    fn decode(&mut self) -> ChunkResult {
+        self.decoder.decode(&mut self.read_buf)
+    }
+
+    fn limit_check(&self) -> io::Result<()> {
+        if self.read_buf.len() < self.limit {
+            return Ok(());
+        }
+
+        let msg = format!(
+            "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
+            self.limit,
+            self.read_buf.len()
+        );
+        Err(io::Error::other(msg))
     }
 }
 

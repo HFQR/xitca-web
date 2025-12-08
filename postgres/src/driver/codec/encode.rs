@@ -10,10 +10,11 @@ use crate::{
 };
 
 use super::{
+    AsParams, DriverTx, Response,
     response::{
         IntoResponse, IntoRowStreamGuard, NoOpIntoRowStream, StatementCreateResponse, StatementCreateResponseBlocking,
     },
-    sealed, AsParams, DriverTx, Response,
+    sealed,
 };
 
 /// trait for generic over how to encode a query.

@@ -1,10 +1,11 @@
 use core::{
-    future::{ready, Future, Ready},
+    future::{Future, Ready, ready},
     pin::Pin,
     task::{Context, Poll},
 };
 
 use crate::{
+    BoxedFuture,
     driver::codec::AsParams,
     error::Error,
     prepare::Prepare,
@@ -13,7 +14,6 @@ use crate::{
         Statement, StatementCreate, StatementGuarded, StatementNamed, StatementQuery, StatementUnnamedBind,
         StatementUnnamedQuery,
     },
-    BoxedFuture,
 };
 
 use super::Execute;

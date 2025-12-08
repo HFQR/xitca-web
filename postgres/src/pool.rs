@@ -14,10 +14,11 @@ use tokio::sync::{Semaphore, SemaphorePermit};
 use xitca_io::bytes::BytesMut;
 
 use super::{
+    BoxedFuture, Postgres,
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{encode::Encode, Response},
+    driver::codec::{Response, encode::Encode},
     error::Error,
     execute::Execute,
     iter::AsyncLendingIterator,
@@ -27,7 +28,6 @@ use super::{
     statement::{Statement, StatementNamed},
     transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
-    BoxedFuture, Postgres,
 };
 
 /// builder type for connection pool

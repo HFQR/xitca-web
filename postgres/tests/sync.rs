@@ -1,10 +1,10 @@
 use core::future::IntoFuture;
 
 use xitca_postgres::{
+    Client, ExecuteBlocking, Postgres,
     error::{DbError, RuntimeError, SqlState},
     statement::Statement,
     types::Type,
-    Client, ExecuteBlocking, Postgres,
 };
 
 fn connect() -> Client {

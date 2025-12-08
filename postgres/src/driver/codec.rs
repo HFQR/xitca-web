@@ -2,12 +2,12 @@ pub(crate) mod encode;
 pub(crate) mod response;
 
 use core::{
-    future::{poll_fn, Future},
-    task::{ready, Context, Poll},
+    future::{Future, poll_fn},
+    task::{Context, Poll, ready},
 };
 
 use postgres_protocol::message::backend;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
@@ -118,7 +118,7 @@ impl Response {
                     Err(Completed.into())
                 } else {
                     Err(DriverDownReceiving.into())
-                }
+                };
             }
         }
     }
