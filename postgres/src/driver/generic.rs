@@ -12,7 +12,7 @@ use std::{
 
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::{
-    bytes::{Buf, BufRead, BytesMut},
+    bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest, Ready},
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
@@ -220,12 +220,7 @@ where
                         SelectOutput::B(ready) => InterestOrReady::Ready(ready?),
                     }
                 }
-                (ReadState::WantRead, WriteState::WantWrite) => InterestOrReady::Interest(INTEREST_READ_WRITE),
-                (ReadState::WantRead, WriteState::WantFlush) => {
-                    // before flush io do a quick buffer check and go into write io state if possible.
-                    if !self.shared_state.guarded.lock().unwrap().buf.is_empty() {
-                        self.write_state = WriteState::WantWrite;
-                    }
+                (ReadState::WantRead, WriteState::WantWrite | WriteState::WantFlush) => {
                     InterestOrReady::Interest(INTEREST_READ_WRITE)
                 }
                 (ReadState::WantRead, WriteState::Closed(_)) => InterestOrReady::Interest(Interest::READABLE),
@@ -257,9 +252,11 @@ where
             };
 
             if ready.is_readable() {
-                if let Err(e) = self.try_read() {
-                    self.on_read_err(e);
-                };
+                match self.try_read() {
+                    Ok(0) => self.on_read_close(None),
+                    Ok(_) => {}
+                    Err(e) => self.on_read_close(Some(e)),
+                }
             }
 
             if ready.is_writable() {
@@ -279,12 +276,28 @@ where
                 return o;
             }
             self.io.ready(Interest::READABLE).await?;
-            self.try_read()?;
+            if self.try_read()? == 0 {
+                return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
+            }
         }
     }
 
-    fn try_read(&mut self) -> io::Result<()> {
-        self.read_buf.do_io(&mut self.io)
+    fn try_read(&mut self) -> io::Result<usize> {
+        let mut read = 0;
+        loop {
+            match xitca_unsafe_collection::bytes::read_buf(&mut self.io, &mut self.read_buf) {
+                Ok(0) => break,
+                Ok(n) => read += n,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => {
+                    if read == 0 {
+                        return Err(e);
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(read)
     }
 
     fn try_write(&mut self) -> io::Result<()> {
@@ -329,12 +342,13 @@ where
     }
 
     #[cold]
-    fn on_read_err(&mut self, e: io::Error) {
-        let reason = (e.kind() != io::ErrorKind::UnexpectedEof).then_some(e);
+    #[inline(never)]
+    fn on_read_close(&mut self, reason: Option<io::Error>) {
         self.read_state = ReadState::Closed(reason);
     }
 
     #[cold]
+    #[inline(never)]
     fn on_write_err(&mut self, e: io::Error) {
         {
             // when write error occur the driver would go into half close state(read only).
