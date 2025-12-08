@@ -51,12 +51,13 @@ impl RowStream<'_> {
         T: Default + ExtendExt,
         T::Item: for<'r> From<Row<'r>>,
     {
-        self.collect_into(T::default()).await
+        let mut collection = T::default();
+        self.collect_into(&mut collection).await.map(|_| collection)
     }
 
-    pub async fn collect_into<T>(mut self, mut collection: T) -> Result<T, Error>
+    pub async fn collect_into<T>(mut self, collection: &mut T) -> Result<(), Error>
     where
-        T: Default + ExtendExt,
+        T: ExtendExt,
         T::Item: for<'r> From<Row<'r>>,
     {
         while let Some(row) = AsyncLendingIterator::try_next(&mut self).await? {
@@ -67,7 +68,7 @@ impl RowStream<'_> {
                 break;
             }
         }
-        Ok(collection)
+        Ok(())
     }
 }
 
@@ -116,7 +117,8 @@ async fn _collect(stream1: crate::RowStream<'_>, stream2: crate::RowStream<'_>) 
         }
     }
 
-    let _user = stream1.collect_into(Vec::<User>::with_capacity(1)).await?;
+    let mut users = Vec::<User>::with_capacity(1);
+    stream1.collect_into(&mut users).await?;
 
     stream2.collect::<Option<User>>().await.map(|_| ())
 }
