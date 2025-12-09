@@ -242,8 +242,11 @@ where
 }
 
 async fn read(mut io: impl AsyncIo, buf: &mut BytesMut) -> io::Result<usize> {
-    buf.reserve(4096);
     loop {
+        if buf.len() == buf.capacity() {
+            buf.reserve(4096);
+        }
+
         io.ready(Interest::READABLE).await?;
 
         match xitca_unsafe_collection::bytes::read_buf(&mut io, buf) {
