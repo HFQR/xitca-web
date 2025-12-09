@@ -201,11 +201,17 @@ where
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
         self.timer.update(self.ctx.date().now());
-        self.io
+        let read = self
+            .io
             .read()
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
+
+        if read == 0 {
+            self.ctx.set_close();
+            return Ok(());
+        }
 
         while let Some((req, decoder)) = self.ctx.decode_head::<READ_BUF_LIMIT>(&mut self.io.read_buf)? {
             self.timer.reset_state();
@@ -237,8 +243,10 @@ where
                     SelectOutput::A(Some(Ok(bytes))) => encoder.encode(bytes, &mut self.io.write_buf),
                     SelectOutput::B(Ok(ready)) => {
                         if ready.is_readable() {
-                            if let Err(e) = self.io.try_read() {
-                                body_reader.feed_error(e);
+                            match self.io.try_read() {
+                                Ok(Some(0)) => body_reader.feed_error(io::ErrorKind::UnexpectedEof.into()),
+                                Ok(_) => {}
+                                Err(e) => body_reader.feed_error(e),
                             }
                         }
                         if ready.is_writable() {
@@ -281,7 +289,9 @@ where
 
         loop {
             body_reader.ready(&mut self.io.read_buf).await;
-            self.io.read().await?;
+            if self.io.read().await? == 0 {
+                body_reader.feed_error(io::ErrorKind::UnexpectedEof.into());
+            }
         }
     }
 
