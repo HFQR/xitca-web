@@ -253,7 +253,7 @@ where
 
             if ready.is_readable() {
                 match self.try_read() {
-                    Ok(0) => self.on_read_close(None),
+                    Ok(Some(0)) => self.on_read_close(None),
                     Ok(_) => {}
                     Err(e) => self.on_read_close(Some(e)),
                 }
@@ -276,28 +276,24 @@ where
                 return o;
             }
             self.io.ready(Interest::READABLE).await?;
-            if self.try_read()? == 0 {
+            if let Some(0) = self.try_read()? {
                 return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
             }
         }
     }
 
-    fn try_read(&mut self) -> io::Result<usize> {
+    fn try_read(&mut self) -> io::Result<Option<usize>> {
         let mut read = 0;
         loop {
             match xitca_unsafe_collection::bytes::read_buf(&mut self.io, &mut self.read_buf) {
                 Ok(0) => break,
                 Ok(n) => read += n,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => {
-                    if read == 0 {
-                        return Err(e);
-                    }
-                    break;
-                }
+                Err(_) if read != 0 => break,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                Err(e) => return Err(e),
             }
         }
-        Ok(read)
+        Ok(Some(read))
     }
 
     fn try_write(&mut self) -> io::Result<()> {
