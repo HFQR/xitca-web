@@ -7,30 +7,30 @@ use core::{
 use std::io;
 
 use tracing::trace;
-use xitca_io::bytes::{Buf, BytesMut};
+use xitca_io::bytes::{Buf, BytesMut, PagedBytesMut};
 use xitca_unsafe_collection::bytes::{BufList, ChunkVectoredUninit, read_buf};
 
 pub use xitca_io::bytes::{BufInterest, BufRead, BufWrite};
 
 /// a writable buffer with const generic guarded max size limit.
 #[derive(Debug)]
-pub struct ReadBuf<const LIMIT: usize>(BytesMut);
+pub struct ReadBuf<const LIMIT: usize>(pub(super) PagedBytesMut<4096>);
 
 impl<const LIMIT: usize> ReadBuf<LIMIT> {
     #[inline(always)]
     pub fn new() -> Self {
-        Self(BytesMut::new())
+        Self(PagedBytesMut::new())
     }
 
     #[inline(always)]
     pub fn into_inner(self) -> BytesMut {
-        self.0
+        self.0.into_inner()
     }
 }
 
 impl<const LIMIT: usize> From<BytesMut> for ReadBuf<LIMIT> {
     fn from(bytes: BytesMut) -> Self {
-        Self(bytes)
+        Self(PagedBytesMut::from(bytes))
     }
 }
 
@@ -45,14 +45,14 @@ impl<const LIMIT: usize> Deref for ReadBuf<LIMIT> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0.get_ref()
     }
 }
 
 impl<const LIMIT: usize> DerefMut for ReadBuf<LIMIT> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        self.0.get_mut()
     }
 }
 
@@ -72,16 +72,17 @@ impl<const LIMIT: usize> BufRead for ReadBuf<LIMIT> {
     where
         Io: io::Read,
     {
-        let len = self.0.len();
+        let mut read = 0;
         loop {
             match read_buf(io, &mut self.0) {
                 Ok(0) => {
-                    if self.0.len() == len {
+                    if read == 0 {
                         return Err(io::ErrorKind::UnexpectedEof.into());
                     }
                     break;
                 }
-                Ok(_) => {
+                Ok(n) => {
+                    read += n;
                     if !self.want_write_buf() {
                         trace!(
                             "READ_BUF_LIMIT: {LIMIT} bytes reached. Entering backpressure(no log event for recovery)."
@@ -89,13 +90,9 @@ impl<const LIMIT: usize> BufRead for ReadBuf<LIMIT> {
                         break;
                     }
                 }
+                Err(_) if read != 0 => break,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => {
-                    if self.0.len() == len {
-                        return Err(e);
-                    }
-                    break;
-                }
+                Err(e) => return Err(e),
             }
         }
         Ok(())

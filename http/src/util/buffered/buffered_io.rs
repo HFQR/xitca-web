@@ -5,9 +5,12 @@ use core::{
 
 use std::io;
 
+use tracing::trace;
 use xitca_io::io::{AsyncIo, Interest};
 
-use super::buffer::{BufRead, BufWrite, ReadBuf};
+use crate::bytes::BufInterest;
+
+use super::buffer::{BufWrite, ReadBuf};
 
 /// Io type with internal buffering.
 pub struct BufferedIo<'a, St, W, const READ_BUF_LIMIT: usize> {
@@ -35,8 +38,28 @@ where
 
     /// read until io blocked or read buffer is full and advance the length of it(read buffer).
     #[inline]
-    pub fn try_read(&mut self) -> io::Result<()> {
-        BufRead::do_io(&mut self.read_buf, self.io)
+    pub fn try_read(&mut self) -> io::Result<Option<usize>> {
+        // TODO:
+        // BufRead::do_io should return io::Result<Option<usize>> and this function should forward reading logic to said method
+        let mut read = 0;
+        loop {
+            match xitca_unsafe_collection::bytes::read_buf(self.io, &mut self.read_buf.0) {
+                Ok(0) => break,
+                Ok(n) => {
+                    read += n;
+                    if !self.read_buf.want_write_buf() {
+                        trace!(
+                            "READ_BUF_LIMIT: {READ_BUF_LIMIT} bytes reached. Entering backpressure(no log event for recovery)."
+                        );
+                        break;
+                    }
+                }
+                Err(_) if read != 0 => break,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Some(read))
     }
 
     /// write until write buffer is emptied or io blocked.
@@ -46,9 +69,13 @@ where
     }
 
     /// check for io read readiness in async and do [Self::try_read].
-    pub async fn read(&mut self) -> io::Result<()> {
-        self.io.ready(Interest::READABLE).await?;
-        self.try_read()
+    pub async fn read(&mut self) -> io::Result<usize> {
+        loop {
+            self.io.ready(Interest::READABLE).await?;
+            if let Some(read) = self.try_read()? {
+                return Ok(read);
+            }
+        }
     }
 
     /// drain write buffer and flush the io.
@@ -61,7 +88,7 @@ where
     }
 
     /// shutdown Io gracefully.
-    pub fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
+    pub fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
         poll_fn(|cx| Pin::new(&mut *self.io).poll_shutdown(cx))
     }
 }
