@@ -1,6 +1,5 @@
 use core::{
     cell::RefCell,
-    fmt,
     future::poll_fn,
     marker::PhantomData,
     mem,
@@ -136,9 +135,9 @@ where
             self.timer.reset_state();
 
             let (waiter, body) = if decoder.is_eof() {
-                (None, RequestBody::default())
+                (None, RequestBody::none())
             } else {
-                let body = Body::new(
+                let body = body(
                     self.io.clone(),
                     self.ctx.is_expect_header(),
                     R_LIMIT,
@@ -147,7 +146,7 @@ where
                     self.notify.notifier(),
                 );
 
-                (Some(&mut self.notify), RequestBody::io_uring(body))
+                (Some(&mut self.notify), body)
             };
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
@@ -218,64 +217,39 @@ where
     }
 }
 
-pub(super) struct Body(Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>);
+fn body<Io>(
+    io: Rc<Io>,
+    is_expect: bool,
+    limit: usize,
+    decoder: TransferCoding,
+    read_buf: BytesMut,
+    notify: Notifier<BytesMut>,
+) -> RequestBody
+where
+    Io: AsyncBufRead + AsyncBufWrite + 'static,
+{
+    let body = BodyInner {
+        io,
+        decoder: Decoder {
+            decoder,
+            limit,
+            read_buf,
+            notify,
+        },
+    };
 
-impl Body {
-    fn new<Io>(
-        io: Rc<Io>,
-        is_expect: bool,
-        limit: usize,
-        decoder: TransferCoding,
-        read_buf: BytesMut,
-        notify: Notifier<BytesMut>,
-    ) -> Self
-    where
-        Io: AsyncBufRead + AsyncBufWrite + 'static,
-    {
-        let body = BodyInner {
-            io,
-            decoder: Decoder {
-                decoder,
-                limit,
-                read_buf,
-                notify,
+    let state = if is_expect {
+        State::ExpectWrite {
+            fut: async {
+                let (res, _) = write_all(&*body.io, CONTINUE_BYTES).await;
+                res.map(|_| body)
             },
-        };
+        }
+    } else {
+        State::Body { body }
+    };
 
-        let state = if is_expect {
-            State::ExpectWrite {
-                fut: async {
-                    let (res, _) = write_all(&*body.io, CONTINUE_BYTES).await;
-                    res.map(|_| body)
-                },
-            }
-        } else {
-            State::Body { body }
-        };
-
-        Self(Box::pin(BodyReader { chunk_read, state }))
-    }
-}
-
-impl fmt::Debug for Body {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Body")
-    }
-}
-
-impl Clone for Body {
-    fn clone(&self) -> Self {
-        unimplemented!("rework body module so it does not force Clone on Body type.")
-    }
-}
-
-impl Stream for Body {
-    type Item = io::Result<Bytes>;
-
-    #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.get_mut().0).poll_next(cx)
-    }
+    RequestBody::stream(BodyReader { chunk_read, state })
 }
 
 pin_project! {
