@@ -1,5 +1,6 @@
 use core::{
     cell::{RefCell, RefMut},
+    fmt,
     future::poll_fn,
     ops::DerefMut,
     pin::Pin,
@@ -15,45 +16,45 @@ use crate::bytes::Bytes;
 /// max buffer size 32k
 pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
 
-#[derive(Clone, Debug)]
-enum RequestBodyInner {
-    Some(Rc<RefCell<Inner>>),
-    #[cfg(feature = "io-uring")]
-    Completion(super::dispatcher_uring::Body),
-    None,
-}
-
-impl RequestBodyInner {
-    fn new(eof: bool) -> Self {
-        match eof {
-            true => Self::None,
-            false => Self::Some(Default::default()),
-        }
-    }
-}
-
 /// Buffered stream of request body chunk.
 ///
 /// impl [Stream] trait to produce chunk as [Bytes] type in async manner.
-#[derive(Debug)]
-pub struct RequestBody(RequestBodyInner);
+pub struct RequestBody(Option<Body>);
+
+impl fmt::Debug for RequestBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RequestBody")
+    }
+}
+
+type Body = Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>;
 
 impl Default for RequestBody {
     fn default() -> Self {
-        Self(RequestBodyInner::new(true))
+        Self::none()
     }
 }
 
 impl RequestBody {
-    // an async spsc channel where RequestBodySender used to push data and popped from RequestBody.
-    pub(super) fn channel(eof: bool) -> (RequestBodySender, Self) {
-        let inner = RequestBodyInner::new(eof);
-        (RequestBodySender(inner.clone()), RequestBody(inner))
+    // an async spsc channel where sender is used to push data and popped from RequestBody.
+    pub(super) fn channel(eof: bool) -> (BodySender, Self) {
+        if eof {
+            (ChannelBody::none(), RequestBody::none())
+        } else {
+            let body = ChannelBody::stream();
+            (body.clone(), RequestBody::stream(body))
+        }
     }
 
-    #[cfg(feature = "io-uring")]
-    pub(super) fn io_uring(body: super::dispatcher_uring::Body) -> Self {
-        RequestBody(RequestBodyInner::Completion(body))
+    pub(super) fn stream<S>(stream: S) -> Self
+    where
+        S: Stream<Item = io::Result<Bytes>> + 'static,
+    {
+        RequestBody(Some(Box::pin(stream)))
+    }
+
+    pub(super) fn none() -> Self {
+        Self(None)
     }
 }
 
@@ -62,10 +63,8 @@ impl Stream for RequestBody {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         match self.get_mut().0 {
-            RequestBodyInner::Some(ref mut inner) => inner.borrow_mut().poll_next_unpin(cx),
-            RequestBodyInner::None => Poll::Ready(None),
-            #[cfg(feature = "io-uring")]
-            RequestBodyInner::Completion(ref mut body) => Pin::new(body).poll_next(cx),
+            Some(ref mut body) => body.as_mut().poll_next(cx),
+            None => Poll::Ready(None),
         }
     }
 }
@@ -77,10 +76,24 @@ impl From<RequestBody> for crate::body::RequestBody {
 }
 
 /// Sender part of the payload stream
-pub struct RequestBodySender(RequestBodyInner);
+pub(super) type BodySender = ChannelBody;
+
+#[derive(Clone)]
+pub(super) struct ChannelBody(Option<Rc<RefCell<Inner>>>);
+
+impl Stream for ChannelBody {
+    type Item = io::Result<Bytes>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
+        match self.get_mut().0 {
+            Some(ref body) => body.borrow_mut().poll_next_unpin(cx),
+            None => Poll::Ready(None),
+        }
+    }
+}
 
 // TODO: rework early eof error handling.
-impl Drop for RequestBodySender {
+impl Drop for ChannelBody {
     fn drop(&mut self) {
         if let Some(mut inner) = self.try_inner() {
             if !inner.eof {
@@ -90,7 +103,15 @@ impl Drop for RequestBodySender {
     }
 }
 
-impl RequestBodySender {
+impl ChannelBody {
+    fn stream() -> Self {
+        Self(Some(Default::default()))
+    }
+
+    fn none() -> Self {
+        Self(None)
+    }
+
     // try to get a mutable reference of inner and ignore RequestBody::None variant.
     fn try_inner(&mut self) -> Option<RefMut<'_, Inner>> {
         self.try_inner_on_none_with(|| {})
@@ -108,13 +129,13 @@ impl RequestBodySender {
         F: FnOnce(),
     {
         match self.0 {
-            RequestBodyInner::Some(ref inner) => {
+            Some(ref inner) => {
                 // request body is a shared pointer between only two owners and no weak reference.
                 debug_assert!(Rc::strong_count(inner) <= 2);
                 debug_assert_eq!(Rc::weak_count(inner), 0);
                 (Rc::strong_count(inner) != 1).then_some(inner.borrow_mut())
             }
-            _ => {
+            None => {
                 func();
                 None
             }

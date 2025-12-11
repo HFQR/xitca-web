@@ -11,10 +11,6 @@
     - expose lifetime in public type params.(hard to return from function or contained in new types)
 
 ## Features
-- Pipelining:
-    - offer both "implicit" and explicit API. 
-    - support for more relaxed pipeline.
-
 - SSL/TLS support:
 
     - powered by `rustls`

@@ -21,7 +21,7 @@ use crate::{
     config::HttpServiceConfig,
     date::DateTime,
     h1::{
-        body::{RequestBody, RequestBodySender},
+        body::{BodySender, RequestBody},
         error::Error,
     },
     http::{
@@ -362,7 +362,7 @@ where
 
 pub(super) struct BodyReader {
     pub(super) decoder: TransferCoding,
-    tx: RequestBodySender,
+    tx: BodySender,
 }
 
 impl BodyReader {
