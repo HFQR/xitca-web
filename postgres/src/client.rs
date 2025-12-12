@@ -35,7 +35,9 @@ use super::{
 /// ```rust
 /// use std::sync::Arc;
 ///
-/// use xitca_postgres::{dev::ClientBorrowMut, Client};
+/// use xitca_postgres::{dev::ClientBorrowMut, transaction::TransactionBuilder, Client, Error};
+/// # use xitca_postgres::dev::{Encode, Prepare, Query, Response};
+/// # use xitca_postgres::types::{Oid, Type};
 ///
 /// // a client wrapper use reference counted smart pointer.
 /// // it's easy to create multiple instance of &mut SharedClient with help of cloning of smart pointer
@@ -43,21 +45,44 @@ use super::{
 /// #[derive(Clone)]
 /// struct SharedClient(Arc<Client>);
 ///
+/// # impl Query for SharedClient {
+/// #     fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+/// #     where
+/// #         S: Encode,
+/// #     {
+/// #         self.0._send_encode_query(stmt)
+/// #     }
+/// # }
+/// # impl Prepare for SharedClient {
+/// #     async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+/// #         self.0._get_type(oid).await
+/// #     }
+/// #     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+/// #         self.0._get_type_blocking(oid)
+/// #     }
+/// # }
+///
 /// // client new type has to impl this trait to mark they can truly offer a mutable reference to Client
+/// //
 /// impl ClientBorrowMut for SharedClient {
 ///     fn _borrow_mut(&mut self) -> &mut Client {
-///         panic!("you can't safely implement this trait with SharedClient. and Transaction::new will cause a panic with it")
+///         Arc::get_mut(&mut self.0).expect("you can't safely implement this trait with SharedClient.")
 ///     }
 /// }
 ///
-/// // another client wrapper without indirect
-/// struct ExclusiveClient(Client);
+/// async fn borrow_mut(cli: Client) -> Result<(), Error> {
+///     let mut cli = SharedClient(Arc::new(cli));
 ///
-/// // trait can be implemented correctly. marking this new type can be accept by Transaction and CopyIn
-/// impl ClientBorrowMut for ExclusiveClient {
-///     fn _borrow_mut(&mut self) -> &mut Client {
-///         &mut self.0
-///     }
+///     // this line works fine as shared client is exclusivly borrowed by transaction
+///     let _ = TransactionBuilder::new().begin(&mut cli).await?;    
+///
+///     // clone shared client before starting a transaction.
+///     let _cli2 = cli.clone();
+///
+///     // this line will panic as shared client has another copy being held by cli2 varaiable
+///     let _ = TransactionBuilder::new().begin(&mut cli).await?;
+///
+///     Ok(())
 /// }
 /// ```
 ///

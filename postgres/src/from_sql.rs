@@ -5,7 +5,7 @@ use xitca_unsafe_collection::bytes::BytesStr;
 
 use super::types::{FromSql, Type};
 
-pub type FromSqlError = Box<dyn std::error::Error + Sync + Send>;
+pub type FromSqlError = Box<dyn core::error::Error + Sync + Send>;
 
 /// extension trait for [FromSql]
 ///
