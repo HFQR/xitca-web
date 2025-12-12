@@ -5,7 +5,7 @@ use std::{io, rc::Rc};
 use http::StatusCode;
 use httparse::{Header, Status};
 use xitca_io::{
-    bytes::{Buf, BytesMut},
+    bytes::{Buf, BytesMut, PagedBytesMut},
     io::{AsyncIo, Interest},
     net::TcpStream,
 };
@@ -113,7 +113,7 @@ where
     type Error = Error;
 
     async fn call(&self, mut stream: TcpStream) -> Result<Self::Response, Self::Error> {
-        let mut r_buf = BytesMut::with_capacity(4096);
+        let mut r_buf = PagedBytesMut::<4096>::new();
         let mut w_buf = BytesMut::with_capacity(4096);
 
         let mut read_closed = false;
