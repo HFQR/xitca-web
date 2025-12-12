@@ -38,13 +38,12 @@ type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 
 /// Http/1 dispatcher
 pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize> {
-    io: Rc<Io>,
+    io: SharedIo<Io>,
     timer: Timer<'a>,
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
     read_buf: BytesMut,
     write_buf: BytesMut,
-    notify: Notify<BytesMut>,
     _phantom: PhantomData<ReqB>,
 }
 
@@ -93,13 +92,12 @@ where
         date: &'a D,
     ) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
-            io: Rc::new(io),
+            io: SharedIo::new(io),
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
             ctx: Context::with_addr(addr, date),
             service,
             read_buf: BytesMut::new(),
             write_buf: BytesMut::new(),
-            notify: Notify::new(),
             _phantom: PhantomData,
         };
 
@@ -108,7 +106,7 @@ where
                 handle_error(&mut dispatcher.ctx, &mut dispatcher.write_buf, err)?;
             }
 
-            dispatcher.write_buf.write(&*dispatcher.io).await?;
+            dispatcher.write_buf.write(dispatcher.io.io()).await?;
 
             if dispatcher.ctx.is_connection_closed() {
                 return dispatcher.shutdown();
@@ -121,7 +119,7 @@ where
 
         let read = self
             .read_buf
-            .read(&*self.io)
+            .read(self.io.io())
             .timeout(self.timer.get())
             .await
             .map_err(|_| self.timer.map_to_err())??;
@@ -134,19 +132,18 @@ where
         while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf)? {
             self.timer.reset_state();
 
-            let (waiter, body) = if decoder.is_eof() {
-                (None, RequestBody::none())
+            let (wait_for_notify, body) = if decoder.is_eof() {
+                (false, RequestBody::none())
             } else {
                 let body = body(
-                    self.io.clone(),
+                    self.io.notifier(),
                     self.ctx.is_expect_header(),
                     R_LIMIT,
                     decoder,
                     mem::take(&mut self.read_buf),
-                    self.notify.notifier(),
                 );
 
-                (Some(&mut self.notify), body)
+                (true, body)
             };
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
@@ -181,12 +178,12 @@ where
                         SelectOutput::B(_) => {}
                     }
 
-                    self.write_buf.write(&*self.io).await?;
+                    self.write_buf.write(self.io.io()).await?;
                 }
             }
 
-            if let Some(waiter) = waiter {
-                match waiter.wait().await {
+            if wait_for_notify {
+                match self.io.wait().await {
                     Some(read_buf) => self.read_buf = read_buf,
                     None => {
                         self.ctx.set_close();
@@ -202,28 +199,23 @@ where
     #[cold]
     #[inline(never)]
     fn shutdown(self) -> Result<(), Error<S::Error, BE>> {
-        Rc::try_unwrap(self.io)
-            .ok()
-            .expect("Dispatcher must have exclusive ownership to Io when closing connection")
-            .shutdown(Shutdown::Both)
-            .map_err(Into::into)
+        self.io.take().shutdown(Shutdown::Both).map_err(Into::into)
     }
 
     #[cold]
     #[inline(never)]
     async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
-        self.write_buf.write(&*self.io).await?;
+        self.write_buf.write(self.io.io()).await?;
         Err(Error::Body(e))
     }
 }
 
 fn body<Io>(
-    io: Rc<Io>,
+    io: NotifierIo<Io>,
     is_expect: bool,
     limit: usize,
     decoder: TransferCoding,
     read_buf: BytesMut,
-    notify: Notifier<BytesMut>,
 ) -> RequestBody
 where
     Io: AsyncBufRead + AsyncBufWrite + 'static,
@@ -234,14 +226,13 @@ where
             decoder,
             limit,
             read_buf,
-            notify,
         },
     };
 
     let state = if is_expect {
         State::ExpectWrite {
             fut: async {
-                let (res, _) = write_all(&*body.io, CONTINUE_BYTES).await;
+                let (res, _) = write_all(body.io.io(), CONTINUE_BYTES).await;
                 res.map(|_| body)
             },
         }
@@ -280,7 +271,7 @@ pin_project! {
 }
 
 struct BodyInner<Io> {
-    io: Rc<Io>,
+    io: NotifierIo<Io>,
     decoder: Decoder,
 }
 
@@ -288,7 +279,7 @@ async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<(usize, BodyInner
 where
     Io: AsyncBufRead,
 {
-    let read = body.decoder.read_buf.read(&*body.io).await?;
+    let read = body.decoder.read_buf.read(body.io.io()).await?;
     Ok((read, body))
 }
 
@@ -341,20 +332,19 @@ where
     }
 }
 
+impl<Io> Drop for BodyInner<Io> {
+    fn drop(&mut self) {
+        if self.decoder.decoder.is_eof() {
+            let buf = mem::take(&mut self.decoder.read_buf);
+            self.io.notify(buf);
+        }
+    }
+}
+
 struct Decoder {
     decoder: TransferCoding,
     limit: usize,
     read_buf: BytesMut,
-    notify: Notifier<BytesMut>,
-}
-
-impl Drop for Decoder {
-    fn drop(&mut self) {
-        if self.decoder.is_eof() {
-            let buf = mem::take(&mut self.read_buf);
-            self.notify.notify(buf);
-        }
-    }
 }
 
 impl Decoder {
@@ -376,23 +366,48 @@ impl Decoder {
     }
 }
 
-struct Notify<T>(Rc<RefCell<Inner<T>>>);
+struct SharedIo<Io> {
+    inner: Rc<_SharedIo<Io>>,
+}
 
-impl<T> Notify<T> {
-    fn new() -> Self {
-        Self(Rc::new(RefCell::new(Inner { waker: None, val: None })))
+struct _SharedIo<Io> {
+    io: Io,
+    notify: RefCell<Inner<BytesMut>>,
+}
+
+impl<Io> SharedIo<Io> {
+    fn new(io: Io) -> Self {
+        Self {
+            inner: Rc::new(_SharedIo {
+                io,
+                notify: RefCell::new(Inner { waker: None, val: None }),
+            }),
+        }
     }
 
-    fn notifier(&mut self) -> Notifier<T> {
-        Notifier(self.0.clone())
+    fn take(self) -> Io {
+        Rc::try_unwrap(self.inner)
+            .ok()
+            .expect("SharedIo must have exclusive ownership to Io when closing connection")
+            .io
     }
 
-    fn wait(&mut self) -> impl Future<Output = Option<T>> + '_ {
+    fn io(&self) -> &Io {
+        &self.inner.io
+    }
+
+    fn notifier(&mut self) -> NotifierIo<Io> {
+        NotifierIo {
+            inner: self.inner.clone(),
+        }
+    }
+
+    fn wait(&mut self) -> impl Future<Output = Option<BytesMut>> {
         poll_fn(|cx| {
-            let mut inner = self.0.borrow_mut();
+            let mut inner = self.inner.notify.borrow_mut();
             if let Some(val) = inner.val.take() {
                 return Poll::Ready(Some(val));
-            } else if Rc::strong_count(&self.0) == 1 {
+            } else if Rc::strong_count(&self.inner) == 1 {
                 return Poll::Ready(None);
             }
             inner.waker = Some(cx.waker().clone());
@@ -401,19 +416,25 @@ impl<T> Notify<T> {
     }
 }
 
-struct Notifier<T>(Rc<RefCell<Inner<T>>>);
+struct NotifierIo<Io> {
+    inner: Rc<_SharedIo<Io>>,
+}
 
-impl<T> Drop for Notifier<T> {
+impl<Io> Drop for NotifierIo<Io> {
     fn drop(&mut self) {
-        if let Some(waker) = self.0.borrow_mut().waker.take() {
+        if let Some(waker) = self.inner.notify.borrow_mut().waker.take() {
             waker.wake();
         }
     }
 }
 
-impl<T> Notifier<T> {
-    fn notify(&mut self, val: T) {
-        self.0.borrow_mut().val = Some(val);
+impl<Io> NotifierIo<Io> {
+    fn io(&self) -> &Io {
+        &self.inner.io
+    }
+
+    fn notify(&mut self, val: BytesMut) {
+        self.inner.notify.borrow_mut().val = Some(val);
     }
 }
 
