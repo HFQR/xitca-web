@@ -114,3 +114,70 @@ impl TransactionBuilder {
         query.as_str().execute(cli).await.map(|_| Transaction::new(cli))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use crate::{
+        Client, Error, Postgres,
+        dev::{ClientBorrowMut, Encode, Prepare, Query, Response},
+        types::{Oid, Type},
+    };
+
+    use super::TransactionBuilder;
+
+    #[tokio::test]
+    async fn client_borrow_mut() {
+        #[derive(Clone)]
+        struct PanicCli(Arc<Client>);
+
+        impl PanicCli {
+            fn new(cli: Client) -> Self {
+                Self(Arc::new(cli))
+            }
+        }
+
+        impl Query for PanicCli {
+            fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), crate::Error>
+            where
+                S: Encode,
+            {
+                self.0._send_encode_query(stmt)
+            }
+        }
+
+        impl Prepare for PanicCli {
+            async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+                self.0._get_type(oid).await
+            }
+            fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+                self.0._get_type_blocking(oid)
+            }
+        }
+
+        impl ClientBorrowMut for PanicCli {
+            fn _borrow_mut(&mut self) -> &mut Client {
+                Arc::get_mut(&mut self.0).unwrap()
+            }
+        }
+
+        let (cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+            .connect()
+            .await
+            .unwrap();
+
+        tokio::spawn(drv.into_future());
+
+        let res = tokio::spawn(async move {
+            let mut cli = PanicCli::new(cli);
+            let _cli2 = cli.clone();
+            let _tx = TransactionBuilder::new().begin(&mut cli).await.unwrap();
+        })
+        .await
+        .err()
+        .unwrap();
+
+        assert!(res.is_panic());
+    }
+}
