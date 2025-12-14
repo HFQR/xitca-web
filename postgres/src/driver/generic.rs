@@ -238,7 +238,7 @@ where
                     }
                 },
                 (ReadState::Closed(None), WriteState::Closed(None)) => {
-                    Box::pin(poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx))).await?;
+                    poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
                     return Ok(None);
                 }
                 (ReadState::Closed(read_err), WriteState::Closed(write_err)) => {
@@ -309,21 +309,26 @@ where
 
             loop {
                 match io::Write::write(&mut self.io, &inner.buf[written..]) {
-                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                    Ok(0) => {
+                        inner.buf.advance(written);
+                        return Err(io::ErrorKind::WriteZero.into());
+                    }
                     Ok(n) => {
                         written += n;
-
                         if written == inner.buf.len() {
                             inner.buf.clear();
                             self.write_state = WriteState::WantFlush;
                             break;
                         }
                     }
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    Err(e) => {
                         inner.buf.advance(written);
-                        return Ok(());
+                        return if matches!(e.kind(), io::ErrorKind::WouldBlock) {
+                            Ok(())
+                        } else {
+                            Err(e)
+                        };
                     }
-                    Err(e) => return Err(e),
                 }
             }
         }

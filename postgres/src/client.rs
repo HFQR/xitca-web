@@ -179,8 +179,7 @@ impl Client {
         Session::clone(&self.cache.session)
     }
 
-    /// a lossy hint of running state of io driver. an io driver shutdown can happen
-    /// at the same time this api is called.
+    /// a lossy hint of running state of io driver. an io driver shutdown can happen at the same time this api is called.
     pub fn closed(&self) -> bool {
         self.tx.is_closed()
     }
