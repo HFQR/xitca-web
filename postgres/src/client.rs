@@ -1,25 +1,13 @@
 use core::future::Future;
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Mutex};
 
-use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
-    copy::{r#Copy, CopyIn, CopyOut},
-    driver::{
-        DriverTx,
-        codec::{
-            Response,
-            encode::{self, Encode},
-        },
-    },
+    copy::{CopyIn, CopyOut},
+    driver::DriverTx,
     error::Error,
-    prepare::Prepare,
-    query::Query,
     session::Session,
     statement::Statement,
     transaction::{Transaction, TransactionBuilder},
@@ -263,48 +251,6 @@ impl ClientBorrowMut for Client {
     #[inline]
     fn _borrow_mut(&mut self) -> &mut Client {
         self
-    }
-}
-
-impl Prepare for Arc<Client> {
-    #[inline]
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        Client::_get_type(self, oid).await
-    }
-
-    #[inline]
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        Client::_get_type_blocking(self, oid)
-    }
-}
-
-impl Query for Arc<Client> {
-    #[inline]
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        Client::_send_encode_query(self, stmt)
-    }
-}
-
-impl Query for Client {
-    #[inline]
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        encode::send_encode_query(&self.tx, stmt)
-    }
-}
-
-impl r#Copy for Client {
-    #[inline]
-    fn send_one_way<F>(&self, func: F) -> Result<(), Error>
-    where
-        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
-    {
-        self.tx.send_one_way(func)
     }
 }
 

@@ -1,5 +1,7 @@
 use core::future::Future;
 
+use std::sync::Arc;
+
 use postgres_types::{Field, Kind, Oid};
 
 use super::{
@@ -115,6 +117,30 @@ impl Prepare for Client {
         self.set_type(oid, &type_);
 
         Ok(type_)
+    }
+}
+
+impl Prepare for &Client {
+    #[inline]
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        Client::_get_type(*self, oid).await
+    }
+
+    #[inline]
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        Client::_get_type_blocking(*self, oid)
+    }
+}
+
+impl Prepare for Arc<Client> {
+    #[inline]
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        Client::_get_type(&**self, oid).await
+    }
+
+    #[inline]
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        Client::_get_type_blocking(&**self, oid)
     }
 }
 
