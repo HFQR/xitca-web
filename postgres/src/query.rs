@@ -5,7 +5,11 @@ pub(crate) mod compat;
 
 pub use stream::{RowAffected, RowSimpleStream, RowSimpleStreamOwned, RowStream, RowStreamGuarded, RowStreamOwned};
 
+use std::sync::Arc;
+
 use super::{
+    client::Client,
+    driver::codec::encode,
     driver::codec::{Response, encode::Encode, response::IntoResponse},
     error::Error,
 };
@@ -34,4 +38,34 @@ pub trait Query {
     fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
     where
         S: Encode;
+}
+
+impl Query for Client {
+    #[inline]
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        encode::send_encode_query(&self.tx, stmt)
+    }
+}
+
+impl Query for &Client {
+    #[inline]
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        Client::_send_encode_query(*self, stmt)
+    }
+}
+
+impl Query for Arc<Client> {
+    #[inline]
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        Client::_send_encode_query(&**self, stmt)
+    }
 }

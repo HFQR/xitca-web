@@ -4,7 +4,11 @@ use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
-    client::ClientBorrowMut, driver::codec::Response, error::Error, iter::AsyncLendingIterator, query::Query,
+    client::{Client, ClientBorrowMut},
+    driver::codec::Response,
+    error::Error,
+    iter::AsyncLendingIterator,
+    query::Query,
     statement::Statement,
 };
 
@@ -12,6 +16,16 @@ pub trait r#Copy: Query + ClientBorrowMut {
     fn send_one_way<F>(&self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>;
+}
+
+impl r#Copy for Client {
+    #[inline]
+    fn send_one_way<F>(&self, func: F) -> Result<(), Error>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<(), Error>,
+    {
+        self.tx.send_one_way(func)
+    }
 }
 
 pub struct CopyIn<'a, C>
