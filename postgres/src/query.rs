@@ -40,6 +40,32 @@ pub trait Query {
         S: Encode;
 }
 
+impl<T> Query for &T
+where
+    T: Query,
+{
+    #[inline]
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        T::_send_encode_query(*self, stmt)
+    }
+}
+
+impl<T> Query for &mut T
+where
+    T: Query,
+{
+    #[inline]
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        T::_send_encode_query(&**self, stmt)
+    }
+}
+
 impl Query for Client {
     #[inline]
     fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
@@ -47,16 +73,6 @@ impl Query for Client {
         S: Encode,
     {
         encode::send_encode_query(&self.tx, stmt)
-    }
-}
-
-impl Query for &Client {
-    #[inline]
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        Client::_send_encode_query(*self, stmt)
     }
 }
 

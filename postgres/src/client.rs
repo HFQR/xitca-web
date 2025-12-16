@@ -80,6 +80,16 @@ pub trait ClientBorrowMut {
     fn _borrow_mut(&mut self) -> &mut Client;
 }
 
+impl<T> ClientBorrowMut for &mut T
+where
+    T: ClientBorrowMut,
+{
+    #[inline]
+    fn _borrow_mut(&mut self) -> &mut Client {
+        T::_borrow_mut(*self)
+    }
+}
+
 /// Client is a handler type for [`Driver`]. it interacts with latter using channel and message for IO operation
 /// and de/encoding of postgres protocol in byte format.
 ///
@@ -140,7 +150,13 @@ struct CachedTypeInfo {
 impl Client {
     /// start a transaction
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<&mut Self>, Error>> + Send {
+        TransactionBuilder::new().begin(self)
+    }
+
+    /// owned version of [`Client::transaction`]
+    #[inline]
+    pub fn transaction_owned(self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
         TransactionBuilder::new().begin(self)
     }
 

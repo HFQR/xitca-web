@@ -78,7 +78,7 @@ impl TransactionBuilder {
     /// Begins the transaction.
     ///
     /// The transaction will roll back by default - use the `commit` method to commit it.
-    pub async fn begin<C>(self, cli: &mut C) -> Result<Transaction<'_, C>, Error>
+    pub async fn begin<C>(self, mut cli: C) -> Result<Transaction<C>, Error>
     where
         C: Prepare + Query + ClientBorrowMut,
     {
@@ -111,7 +111,7 @@ impl TransactionBuilder {
             query.pop();
         }
 
-        query.as_str().execute(cli).await.map(|_| Transaction::new(cli))
+        query.as_str().execute(&cli).await.map(|_| Transaction::new(cli))
     }
 }
 
@@ -169,10 +169,15 @@ mod test {
 
         tokio::spawn(drv.into_future());
 
-        let res = tokio::spawn(async move {
-            let mut cli = PanicCli::new(cli);
-            let _cli2 = cli.clone();
+        let mut cli = PanicCli::new(cli);
+
+        {
             let _tx = TransactionBuilder::new().begin(&mut cli).await.unwrap();
+        }
+
+        let res = tokio::spawn(async move {
+            let _cli2 = cli.clone();
+            let _tx = TransactionBuilder::new().begin(cli).await.unwrap();
         })
         .await
         .err()
