@@ -13,6 +13,9 @@ mod tls;
 #[cfg(feature = "quic")]
 pub(crate) mod quic;
 
+#[cfg(feature = "io-uring")]
+mod io_uring;
+
 use core::{
     future::{Future, IntoFuture},
     net::SocketAddr,
@@ -222,6 +225,18 @@ impl Driver {
             #[cfg(feature = "quic")]
             Self::Quic(drv) => drv.send(buf).await,
         }
+    }
+
+    pub fn try_into_tcp(self) -> Option<GenericDriver<TcpStream>> {
+        match self {
+            Self::Tcp(drv) => Some(drv),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "io-uring")]
+    pub fn try_into_uring(self) -> Option<io_uring::UringDriver> {
+        self.try_into_tcp().map(io_uring::UringDriver::from_tcp)
     }
 }
 

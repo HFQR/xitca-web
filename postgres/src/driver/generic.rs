@@ -1,5 +1,6 @@
 use core::{
     future::{Future, poll_fn},
+    ops::Deref,
     pin::Pin,
     task::{Poll, Waker},
 };
@@ -82,12 +83,29 @@ impl DriverTx {
     }
 }
 
-pub(crate) struct SharedState {
-    guarded: Mutex<State>,
+pub(super) struct DriverRx(Arc<SharedState>);
+
+impl Deref for DriverRx {
+    type Target = SharedState;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+// in case driver is dropped without closing the shared state
+impl Drop for DriverRx {
+    fn drop(&mut self) {
+        self.guarded.lock().unwrap().closed = true;
+    }
+}
+
+pub(super) struct SharedState {
+    pub(super) guarded: Mutex<State>,
 }
 
 impl SharedState {
-    fn wait(&self) -> impl Future<Output = WaitState> + use<'_> {
+    pub(super) fn wait(&self) -> impl Future<Output = WaitState> + use<'_> {
         poll_fn(|cx| {
             let mut inner = self.guarded.lock().unwrap();
             if !inner.buf.is_empty() {
@@ -102,16 +120,16 @@ impl SharedState {
     }
 }
 
-enum WaitState {
+pub(super) enum WaitState {
     WantWrite,
     WantClose,
 }
 
-struct State {
-    closed: bool,
-    buf: BytesMut,
-    res: VecDeque<ResponseSender>,
-    waker: Option<Waker>,
+pub(super) struct State {
+    pub(super) closed: bool,
+    pub(super) buf: BytesMut,
+    pub(super) res: VecDeque<ResponseSender>,
+    pub(super) waker: Option<Waker>,
 }
 
 impl State {
@@ -127,18 +145,11 @@ impl State {
 }
 
 pub struct GenericDriver<Io> {
-    io: Io,
-    read_buf: PagedBytesMut,
-    shared_state: Arc<SharedState>,
+    pub(super) io: Io,
+    pub(super) read_buf: PagedBytesMut,
+    pub(super) rx: DriverRx,
     read_state: ReadState,
     write_state: WriteState,
-}
-
-// in case driver is dropped without closing the shared state
-impl<Io> Drop for GenericDriver<Io> {
-    fn drop(&mut self) {
-        self.shared_state.guarded.lock().unwrap().closed = true;
-    }
 }
 
 enum WriteState {
@@ -171,7 +182,7 @@ where
             Self {
                 io,
                 read_buf: PagedBytesMut::new(),
-                shared_state: state.clone(),
+                rx: DriverRx(state.clone()),
                 read_state: ReadState::WantRead,
                 write_state: WriteState::Waiting,
             },
@@ -180,7 +191,7 @@ where
     }
 
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
-        self.shared_state.guarded.lock().unwrap().buf.extend_from_slice(&msg);
+        self.rx.guarded.lock().unwrap().buf.extend_from_slice(&msg);
         self.write_state = WriteState::WantWrite;
         loop {
             self.try_write()?;
@@ -195,7 +206,7 @@ where
         self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose())
     }
 
-    pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+    pub async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
                 return Ok(Some(msg));
@@ -208,7 +219,7 @@ where
 
             let state = match (&mut self.read_state, &mut self.write_state) {
                 (ReadState::WantRead, WriteState::Waiting) => {
-                    match self.shared_state.wait().select(self.io.ready(Interest::READABLE)).await {
+                    match self.rx.wait().select(self.io.ready(Interest::READABLE)).await {
                         SelectOutput::A(WaitState::WantWrite) => {
                             self.write_state = WriteState::WantWrite;
                             InterestOrReady::Interest(INTEREST_READ_WRITE)
@@ -227,7 +238,7 @@ where
                 (ReadState::Closed(_), WriteState::WantFlush | WriteState::WantWrite) => {
                     InterestOrReady::Interest(Interest::WRITABLE)
                 }
-                (ReadState::Closed(_), WriteState::Waiting) => match self.shared_state.wait().await {
+                (ReadState::Closed(_), WriteState::Waiting) => match self.rx.wait().await {
                     WaitState::WantWrite => {
                         self.write_state = WriteState::WantWrite;
                         InterestOrReady::Interest(Interest::WRITABLE)
@@ -303,7 +314,7 @@ where
         );
 
         if matches!(self.write_state, WriteState::WantWrite) {
-            let mut inner = self.shared_state.guarded.lock().unwrap();
+            let mut inner = self.rx.guarded.lock().unwrap();
 
             let mut written = 0;
 
@@ -355,7 +366,7 @@ where
             // when write error occur the driver would go into half close state(read only).
             // clearing write_buf would drop all pending requests in it and hint the driver
             // no future Interest::WRITABLE should be passed to AsyncIo::ready method.
-            let mut inner = self.shared_state.guarded.lock().unwrap();
+            let mut inner = self.rx.guarded.lock().unwrap();
             inner.buf.clear();
             // close shared state early so driver tx can observe the shutdown in first hand
             inner.closed = true;
@@ -364,7 +375,7 @@ where
     }
 
     fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
-        let mut inner = self.shared_state.guarded.lock().unwrap();
+        let mut inner = self.rx.guarded.lock().unwrap();
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal(mut msg) => {

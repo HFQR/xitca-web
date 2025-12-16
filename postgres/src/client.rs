@@ -1,13 +1,23 @@
 use core::future::Future;
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
     copy::{CopyIn, CopyOut},
-    driver::DriverTx,
+    driver::{
+        DriverTx,
+        codec::{
+            Response,
+            encode::{self, Encode},
+        },
+    },
     error::Error,
+    query::Query,
     session::Session,
     statement::Statement,
     transaction::{Transaction, TransactionBuilder},
@@ -267,6 +277,26 @@ impl ClientBorrowMut for Client {
     #[inline]
     fn _borrow_mut(&mut self) -> &mut Client {
         self
+    }
+}
+
+impl Query for Client {
+    #[inline]
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        encode::send_encode_query(&self.tx, stmt)
+    }
+}
+
+impl Query for Arc<Client> {
+    #[inline]
+    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        Client::_send_encode_query(&**self, stmt)
     }
 }
 

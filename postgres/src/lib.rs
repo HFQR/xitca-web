@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
+#![cfg_attr(feature = "io-uring", feature(async_iterator, gen_blocks))]
 
 mod cancel;
 mod client;
