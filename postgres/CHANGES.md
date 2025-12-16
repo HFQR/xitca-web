@@ -1,6 +1,8 @@
 # unreleased 0.3.0
 ## Add
 - export `transaction::builder::IsolationLevel` for building transaction with specific level of isolation
+- add default `Prepare`, `Query` impl for `&T` and `&mut T`
+- add default `ClientBorrowMut` impl for `&mut T`
 
 ## Remove 
 - remove `pipeline` module
@@ -11,6 +13,7 @@
 - remove `error::AuthenticationError` type. It's error condition is covered by `error::ConfigError`
 
 ## Change
+- `TransactionBuilder::begin` accepts wider range of types where `T: Prepare + ClientBorrowMut`. `Transaction`'s type param must be changed accordingly. e.g: `Transaction<&mut Client>`
 - update to Rust editon 2024
 - change `Prepare::_get_type` to accept plain async trait method 
 - change `pool::Pool`'s dead connection detection lifecycle

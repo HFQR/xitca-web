@@ -28,6 +28,36 @@ pub trait Prepare: Query + Sync {
     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error>;
 }
 
+impl<T> Prepare for &T
+where
+    T: Prepare,
+{
+    #[inline]
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        T::_get_type(*self, oid).await
+    }
+
+    #[inline]
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        T::_get_type_blocking(*self, oid)
+    }
+}
+
+impl<T> Prepare for &mut T
+where
+    T: Prepare,
+{
+    #[inline]
+    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+        T::_get_type(&**self, oid).await
+    }
+
+    #[inline]
+    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+        T::_get_type_blocking(&**self, oid)
+    }
+}
+
 impl Prepare for Client {
     async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
         if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
@@ -117,18 +147,6 @@ impl Prepare for Client {
         self.set_type(oid, &type_);
 
         Ok(type_)
-    }
-}
-
-impl Prepare for &Client {
-    #[inline]
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        Client::_get_type(*self, oid).await
-    }
-
-    #[inline]
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        Client::_get_type_blocking(*self, oid)
     }
 }
 

@@ -147,7 +147,13 @@ pub struct PoolConnection<'a> {
 impl PoolConnection<'_> {
     /// function the same as [`Client::transaction`]
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<&mut Self>, Error>> + Send {
+        TransactionBuilder::new().begin(self)
+    }
+
+    /// owned version of [`PoolConnection::transaction`]
+    #[inline]
+    pub fn transaction_owned(self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
         TransactionBuilder::new().begin(self)
     }
 

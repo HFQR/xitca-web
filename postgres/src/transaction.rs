@@ -17,11 +17,11 @@ use super::{
 pub use builder::{IsolationLevel, TransactionBuilder};
 pub use portal::Portal;
 
-pub struct Transaction<'a, C>
+pub struct Transaction<C>
 where
     C: Prepare + ClientBorrowMut,
 {
-    client: &'a mut C,
+    client: C,
     save_point: SavePoint,
     state: State,
 }
@@ -76,7 +76,7 @@ enum State {
     Finish,
 }
 
-impl<C> Drop for Transaction<'_, C>
+impl<C> Drop for Transaction<C>
 where
     C: Prepare + ClientBorrowMut,
 {
@@ -88,7 +88,7 @@ where
     }
 }
 
-impl<C> Transaction<'_, C>
+impl<C> Transaction<C>
 where
     C: Prepare + ClientBorrowMut,
 {
@@ -109,20 +109,20 @@ where
     where
         I: AsParams,
     {
-        Portal::new(self.client, statement, params).await
+        Portal::new(&self.client, statement, params).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint.
     ///     
     /// [`Client::transaction`]: crate::client::Client::transaction
-    pub async fn transaction(&mut self) -> Result<Transaction<'_, C>, Error> {
+    pub async fn transaction(&mut self) -> Result<Transaction<&mut C>, Error> {
         self._save_point(None).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint with the specified name.
     ///
     /// [`Client::transaction`]: crate::client::Client::transaction
-    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<'_, C>, Error>
+    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<&mut C>, Error>
     where
         I: Into<String>,
     {
@@ -145,7 +145,7 @@ where
         Ok(())
     }
 
-    fn new(client: &mut C) -> Transaction<'_, C> {
+    fn new(client: C) -> Transaction<C> {
         Transaction {
             client,
             save_point: SavePoint::None,
@@ -153,12 +153,12 @@ where
         }
     }
 
-    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<'_, C>, Error> {
+    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<&mut C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
         save_point.save_point_query().execute(self).await?;
 
         Ok(Transaction {
-            client: self.client,
+            client: &mut self.client,
             save_point,
             state: State::WantRollback,
         })
@@ -169,7 +169,7 @@ where
     }
 }
 
-impl<C> Prepare for Transaction<'_, C>
+impl<C> Prepare for Transaction<C>
 where
     C: Prepare + ClientBorrowMut,
 {
@@ -184,7 +184,7 @@ where
     }
 }
 
-impl<C> Query for Transaction<'_, C>
+impl<C> Query for Transaction<C>
 where
     C: Prepare + ClientBorrowMut,
 {
