@@ -334,47 +334,79 @@ where
     's: 'c,
 {
     // TODO: unbox returned futures when type alias is allowed in associated type.
+    #[cfg(not(feature = "nightly"))]
     type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
+    #[cfg(not(feature = "nightly"))]
     type QueryOutput = BoxedFuture<'c, Result<RowStreamOwned, Error>>;
+    #[cfg(feature = "nightly")]
+    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    #[cfg(feature = "nightly")]
+    type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
 
-    fn execute(self, cli: &'c Pool) -> Self::ExecuteOutput {
-        Box::pin(async move {
-            {
-                let Self { stmt, types, params } = self;
-                let mut conn = cli.get().await?;
+    #[cfg(not(feature = "nightly"))]
+    #[inline]
+    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
+        Box::pin(execute_with_pool(self, pool))
+    }
 
-                let stmt = match conn.conn().statements.get(stmt) {
-                    Some(stmt) => stmt,
-                    None => {
-                        let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-                        conn.insert_cache(stmt, prepared_stmt);
-                        conn.conn().statements.get(stmt).unwrap()
-                    }
-                };
+    #[cfg(not(feature = "nightly"))]
+    #[inline]
+    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
+        Box::pin(query_with_pool(self, pool))
+    }
 
-                stmt.bind(params).execute(&conn)
+    #[cfg(feature = "nightly")]
+    #[inline]
+    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
+        execute_with_pool(self, pool)
+    }
+
+    #[cfg(feature = "nightly")]
+    #[inline]
+    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
+        query_with_pool(self, pool)
+    }
+}
+
+async fn execute_with_pool<P>(stmt: StatementNamedBind<'_, P>, pool: &Pool) -> Result<u64, Error>
+where
+    P: AsParams + Send,
+{
+    {
+        let StatementNamedBind { stmt, types, params } = stmt;
+        let mut conn = pool.get().await?;
+
+        let stmt = match conn.conn().statements.get(stmt) {
+            Some(stmt) => stmt,
+            None => {
+                let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+                conn.insert_cache(stmt, prepared_stmt);
+                conn.conn().statements.get(stmt).unwrap()
             }
-            .await
-        })
+        };
+
+        stmt.bind(params).execute(&conn)
     }
+    .await
+}
 
-    fn query(self, cli: &'c Pool) -> Self::QueryOutput {
-        Box::pin(async move {
-            let Self { stmt, types, params } = self;
-            let mut conn = cli.get().await?;
+async fn query_with_pool<P>(stmt: StatementNamedBind<'_, P>, pool: &Pool) -> Result<RowStreamOwned, Error>
+where
+    P: AsParams + Send,
+{
+    let StatementNamedBind { stmt, types, params } = stmt;
+    let mut conn = pool.get().await?;
 
-            let stmt = match conn.conn().statements.get(stmt) {
-                Some(stmt) => stmt,
-                None => {
-                    let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-                    conn.insert_cache(stmt, prepared_stmt);
-                    conn.conn().statements.get(stmt).unwrap()
-                }
-            };
+    let stmt = match conn.conn().statements.get(stmt) {
+        Some(stmt) => stmt,
+        None => {
+            let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+            conn.insert_cache(stmt, prepared_stmt);
+            conn.conn().statements.get(stmt).unwrap()
+        }
+    };
 
-            stmt.bind(params).query(&conn).await.map(RowStreamOwned::from)
-        })
-    }
+    stmt.bind(params).query(&conn).await.map(RowStreamOwned::from)
 }
 
 pub enum StatementCacheFuture<'c> {
