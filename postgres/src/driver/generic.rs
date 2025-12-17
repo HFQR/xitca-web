@@ -19,7 +19,7 @@ use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
 use crate::error::{DriverDown, Error};
 
-use super::codec::{Response, ResponseMessage, ResponseSender, SenderState};
+use super::codec::{Response, ResponseMessage, ResponseSender};
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
@@ -368,12 +368,10 @@ where
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal(mut msg) => {
-                    let front = inner.res.front_mut().ok_or_else(|| msg.parse_error())?;
-                    match front.send(msg) {
-                        SenderState::Finish => {
-                            inner.res.pop_front();
-                        }
-                        SenderState::Continue => {}
+                    let complete = msg.complete();
+                    let _ = inner.res.front_mut().ok_or_else(|| msg.parse_error())?.send(msg);
+                    if complete {
+                        inner.res.pop_front();
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
