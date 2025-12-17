@@ -1,5 +1,6 @@
 # unreleased 0.3.0
 ## Add
+- add `StatementNamedBind` which can be execute by `Pool`
 - export `transaction::builder::IsolationLevel` for building transaction with specific level of isolation
 - add default `Prepare`, `Query` impl for `&T` and `&mut T`
 - add default `ClientBorrowMut` impl for `&mut T`

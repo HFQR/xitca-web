@@ -118,7 +118,8 @@ impl Statement {
     }
 
     /// construct a new unnamed statement.
-    /// unnamed statement can bind to it's parameter values without being prepared by database.
+    ///
+    /// See [`StatementUnnamed`] for further explaination
     #[inline]
     pub const fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
         StatementUnnamed { stmt, types }
@@ -185,16 +186,36 @@ impl Statement {
     }
 }
 
+/// a named statement that can be prepared separately
 #[derive(Clone, Copy)]
 pub struct StatementNamed<'a> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
 }
 
-impl StatementNamed<'_> {
+impl<'a> StatementNamed<'a> {
     fn name() -> String {
         let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
         format!("s{id}")
+    }
+
+    /// function the same as [`Statement::bind`]
+    #[inline]
+    pub fn bind<P>(self, params: P) -> StatementNamedBind<'a, P> {
+        StatementNamedBind {
+            stmt: self.stmt,
+            types: self.types,
+            params,
+        }
+    }
+
+    /// function the same as [`Statement::bind_dyn`]
+    #[inline]
+    pub fn bind_dyn<'p, 't>(
+        self,
+        params: &'p [&'t (dyn ToSql + Sync)],
+    ) -> StatementNamedBind<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
+        self.bind(params.iter().cloned())
     }
 }
 
@@ -235,7 +256,7 @@ impl<'a, 'c, C> From<(StatementNamed<'a>, &'c C)> for StatementCreateBlocking<'a
 }
 
 /// an unnamed statement that don't need to be prepared separately
-/// it's bundled together with database query it associated that can be processed
+/// it's bundled together with database query it associated with which can be processed
 /// with at least one-round-trip to database
 pub struct StatementUnnamed<'a> {
     pub(crate) stmt: &'a str,
@@ -266,6 +287,27 @@ impl<'a> StatementUnnamed<'a> {
 /// a named statement with it's query params
 pub struct StatementQuery<'a, P> {
     pub(crate) stmt: &'a Statement,
+    pub(crate) params: P,
+}
+
+/// a named statement with it's query param binding
+///
+/// Certain executor can make use of a named binding and offer addtional functionality
+/// # Examples
+/// ```rust
+/// # use xitca_postgres::{pool::Pool, types::Type, Execute, Statement};
+/// async fn execute_with_pool(pool: &Pool) {
+///     // connection pool can execute named statement binding directly where prepared statement
+///     // execution and caching happens internally
+///     let rows = Statement::named("SELECT * FROM user WHERE id = $1", &[Type::INT4])
+///         .bind([9527])
+///         .query(pool)
+///         .await;
+/// }
+/// ```
+pub struct StatementNamedBind<'a, P> {
+    pub(crate) stmt: &'a str,
+    pub(crate) types: &'a [Type],
     pub(crate) params: P,
 }
 

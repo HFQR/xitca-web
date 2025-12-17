@@ -18,14 +18,14 @@ use super::{
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{Response, encode::Encode},
+    driver::codec::{AsParams, Response, encode::Encode},
     error::Error,
     execute::Execute,
     iter::AsyncLendingIterator,
     prepare::Prepare,
-    query::Query,
+    query::{Query, RowStreamOwned},
     session::Session,
-    statement::{Statement, StatementNamed},
+    statement::{Statement, StatementNamed, StatementNamedBind},
     transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
 };
@@ -328,6 +328,55 @@ where
     }
 }
 
+impl<'c, 's, P> Execute<&'c Pool> for StatementNamedBind<'s, P>
+where
+    P: AsParams + Send + 'c,
+    's: 'c,
+{
+    // TODO: unbox returned futures when type alias is allowed in associated type.
+    type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
+    type QueryOutput = BoxedFuture<'c, Result<RowStreamOwned, Error>>;
+
+    fn execute(self, cli: &'c Pool) -> Self::ExecuteOutput {
+        Box::pin(async move {
+            {
+                let Self { stmt, types, params } = self;
+                let mut conn = cli.get().await?;
+
+                let stmt = match conn.conn().statements.get(stmt) {
+                    Some(stmt) => stmt,
+                    None => {
+                        let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+                        conn.insert_cache(stmt, prepared_stmt);
+                        conn.conn().statements.get(stmt).unwrap()
+                    }
+                };
+
+                stmt.bind(params).execute(&conn)
+            }
+            .await
+        })
+    }
+
+    fn query(self, cli: &'c Pool) -> Self::QueryOutput {
+        Box::pin(async move {
+            let Self { stmt, types, params } = self;
+            let mut conn = cli.get().await?;
+
+            let stmt = match conn.conn().statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+                    conn.insert_cache(stmt, prepared_stmt);
+                    conn.conn().statements.get(stmt).unwrap()
+                }
+            };
+
+            stmt.bind(params).query(&conn).await.map(RowStreamOwned::from)
+        })
+    }
+}
+
 pub enum StatementCacheFuture<'c> {
     Cached(Statement),
     Prepared(BoxedFuture<'c, Result<Statement, Error>>),
@@ -367,5 +416,18 @@ mod test {
 
         let stmt = Statement::named("SELECT 1", &[]).execute(&mut conn).await.unwrap();
         stmt.execute(&conn.consume()).await.unwrap();
+
+        let num = Statement::named("SELECT 1", &[])
+            .bind::<[i32; 0]>([])
+            .query(&pool)
+            .await
+            .unwrap()
+            .try_next()
+            .await
+            .unwrap()
+            .unwrap()
+            .get::<i32>(0);
+
+        assert_eq!(num, 1);
     }
 }
