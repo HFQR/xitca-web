@@ -24,6 +24,9 @@ quic = ["dep:quinn", "dep:rustls-pemfile", "tls"]
 # compatibility feature to enable implements with `futures` crate
 compat = []
 
+# nightly compiler specific feature. can only be enabled with nightly Rust
+nightly = []
+
 [dependencies]
 xitca-io = { version = "0.4.1", features = ["runtime"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
