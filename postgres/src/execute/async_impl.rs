@@ -9,10 +9,10 @@ use crate::{
     driver::codec::AsParams,
     error::Error,
     prepare::Prepare,
-    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
+    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned},
     statement::{
-        Statement, StatementCreate, StatementGuarded, StatementNamed, StatementQuery, StatementUnnamedBind,
-        StatementUnnamedQuery,
+        Statement, StatementCreate, StatementGuarded, StatementNamed, StatementPreparedQuery,
+        StatementPreparedQueryOwned, StatementQuery,
     },
 };
 
@@ -96,7 +96,7 @@ where
     }
 }
 
-impl<'s, C, P> Execute<&C> for StatementQuery<'s, P>
+impl<'s, C, P> Execute<&C> for StatementPreparedQuery<'s, P>
 where
     C: Query,
     P: AsParams,
@@ -115,7 +115,26 @@ where
     }
 }
 
-impl<'c, C, P> Execute<&'c C> for StatementUnnamedBind<'_, P>
+impl<'s, C, P> Execute<&C> for StatementPreparedQueryOwned<'s, P>
+where
+    C: Query,
+    P: AsParams,
+{
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Ready<Result<RowStreamOwned, Error>>;
+
+    #[inline]
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
+        cli._query(self).map(RowAffected::from).into()
+    }
+
+    #[inline]
+    fn query(self, cli: &C) -> Self::QueryOutput {
+        ready(cli._query(self))
+    }
+}
+
+impl<'c, C, P> Execute<&'c C> for StatementQuery<'_, P>
 where
     C: Prepare,
     P: AsParams,
@@ -125,14 +144,12 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        cli._query(StatementUnnamedQuery::from((self, cli)))
-            .map(RowAffected::from)
-            .into()
+        cli._query(self.into_no_prepared(cli)).map(RowAffected::from).into()
     }
 
     #[inline]
     fn query(self, cli: &'c C) -> Self::QueryOutput {
-        ready(cli._query(StatementUnnamedQuery::from((self, cli))))
+        ready(cli._query(self.into_no_prepared(cli)))
     }
 }
 

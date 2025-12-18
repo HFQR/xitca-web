@@ -25,7 +25,7 @@ use super::{
     prepare::Prepare,
     query::{Query, RowStreamOwned},
     session::Session,
-    statement::{Statement, StatementNamed, StatementNamedBind},
+    statement::{Statement, StatementNamed, StatementQuery},
     transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
 };
@@ -316,8 +316,9 @@ where
         match cli.conn().statements.get(self.stmt) {
             Some(stmt) => StatementCacheFuture::Cached(stmt.duplicate()),
             None => StatementCacheFuture::Prepared(Box::pin(async move {
+                let name = self.stmt;
                 let stmt = self.execute(&*cli).await?.leak();
-                Ok(cli.insert_cache(self.stmt, stmt))
+                Ok(cli.insert_cache(name, stmt))
             })),
         }
     }
@@ -328,7 +329,7 @@ where
     }
 }
 
-impl<'c, 's, P> Execute<&'c Pool> for StatementNamedBind<'s, P>
+impl<'c, 's, P> Execute<&'c Pool> for StatementQuery<'s, P>
 where
     P: AsParams + Send + 'c,
     's: 'c,
@@ -368,12 +369,12 @@ where
     }
 }
 
-async fn execute_with_pool<P>(stmt: StatementNamedBind<'_, P>, pool: &Pool) -> Result<u64, Error>
+async fn execute_with_pool<P>(stmt: StatementQuery<'_, P>, pool: &Pool) -> Result<u64, Error>
 where
     P: AsParams + Send,
 {
     {
-        let StatementNamedBind { stmt, types, params } = stmt;
+        let StatementQuery { stmt, types, params } = stmt;
         let mut conn = pool.get().await?;
 
         let stmt = match conn.conn().statements.get(stmt) {
@@ -390,11 +391,11 @@ where
     .await
 }
 
-async fn query_with_pool<P>(stmt: StatementNamedBind<'_, P>, pool: &Pool) -> Result<RowStreamOwned, Error>
+async fn query_with_pool<P>(stmt: StatementQuery<'_, P>, pool: &Pool) -> Result<RowStreamOwned, Error>
 where
     P: AsParams + Send,
 {
-    let StatementNamedBind { stmt, types, params } = stmt;
+    let StatementQuery { stmt, types, params } = stmt;
     let mut conn = pool.get().await?;
 
     let stmt = match conn.conn().statements.get(stmt) {
@@ -406,7 +407,7 @@ where
         }
     };
 
-    stmt.bind(params).query(&conn).await.map(RowStreamOwned::from)
+    stmt.bind(params).into_owned().query(&conn).await
 }
 
 pub enum StatementCacheFuture<'c> {

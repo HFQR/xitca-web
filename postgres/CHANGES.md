@@ -18,6 +18,7 @@
 - update to Rust editon 2024
 - change `Prepare::_get_type` to accept plain async trait method 
 - change `pool::Pool`'s dead connection detection lifecycle
+- change `AsyncLendingIterator::try_collect_into` to mirror the public API of nightly Rust's `iter_collect_into` feature
 
 # 0.2.1
 ## Fix

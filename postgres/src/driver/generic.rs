@@ -89,7 +89,7 @@ impl Deref for DriverRx {
     type Target = SharedState;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 
