@@ -101,8 +101,12 @@ async fn try_next<'r>(
 /// let stream = stmt.query(&cli).await?;
 /// // use extended api on top of AsyncIterator to collect user names to collection
 /// let strings_2: Vec<String> = RowStreamOwned::from(stream).map_ok(|row| row.get("name")).try_collect().await?;
-///
 /// assert_eq!(strings, strings_2);
+///
+/// // there is also an owned version of statement query that can produce owned row stream directly with zero copy.
+/// // it's slightly cheaper than the from conversion showed above.
+/// let strings_3: Vec<String> = stmt.bind::<[i8; 0]>([]).into_owned().query(&cli).await?.map_ok(|row| row.get("name")).try_collect().await?;
+/// assert_eq!(strings, strings_3);
 /// # Ok(())
 /// # }
 /// ```
