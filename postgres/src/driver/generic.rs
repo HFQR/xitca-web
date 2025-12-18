@@ -18,7 +18,10 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::error::{DriverDown, Error};
+use crate::{
+    error::{DriverDown, Error},
+    iter::AsyncLendingIterator,
+};
 
 use super::codec::{Response, ResponseMessage, ResponseSender};
 
@@ -206,7 +209,7 @@ where
         self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose())
     }
 
-    pub(crate) async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+    async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
                 return Ok(Some(msg));
@@ -389,5 +392,21 @@ where
             }
         }
         Ok(None)
+    }
+}
+
+impl<Io> AsyncLendingIterator for GenericDriver<Io>
+where
+    Io: AsyncIo + Send,
+{
+    type Ok<'i>
+        = backend::Message
+    where
+        Self: 'i;
+    type Err = Error;
+
+    #[inline]
+    fn try_next(&mut self) -> impl Future<Output = Result<Option<Self::Ok<'_>>, Self::Err>> + Send {
+        self._try_next()
     }
 }
