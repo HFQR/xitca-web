@@ -4,8 +4,7 @@ use crate::{
     prepare::Prepare,
     query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{
-        Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementQuery, StatementUnnamedBind,
-        StatementUnnamedQuery,
+        Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementPreparedQuery, StatementQuery,
     },
 };
 
@@ -68,7 +67,7 @@ where
     }
 }
 
-impl<'s, C, P> ExecuteBlocking<&C> for StatementQuery<'s, P>
+impl<'s, C, P> ExecuteBlocking<&C> for StatementPreparedQuery<'s, P>
 where
     C: Query,
     P: AsParams,
@@ -88,7 +87,7 @@ where
     }
 }
 
-impl<'c, C, P> ExecuteBlocking<&'c C> for StatementUnnamedBind<'_, P>
+impl<'c, C, P> ExecuteBlocking<&'c C> for StatementQuery<'_, P>
 where
     C: Prepare,
     P: AsParams,
@@ -104,7 +103,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
-        cli._query(StatementUnnamedQuery::from((self, cli)))
+        cli._query(self.into_no_prepared(cli))
     }
 }
 

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
@@ -6,7 +8,7 @@ use crate::{
     column::Column,
     error::Error,
     prepare::Prepare,
-    query::{RowSimpleStream, RowStream, RowStreamGuarded},
+    query::{RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned},
     statement::Statement,
 };
 
@@ -27,6 +29,17 @@ impl<'c> IntoResponse for &'c [Column] {
     #[inline]
     fn into_response(self, res: Response) -> Self::Response {
         RowStream::new(res, self)
+    }
+}
+
+impl sealed::Sealed for Arc<[Column]> {}
+
+impl IntoResponse for Arc<[Column]> {
+    type Response = RowStreamOwned;
+
+    #[inline]
+    fn into_response(self, res: Response) -> Self::Response {
+        RowStreamOwned::new(res, self)
     }
 }
 

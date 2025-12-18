@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
@@ -5,7 +7,10 @@ use crate::{
     column::Column,
     error::{Error, InvalidParamCount},
     prepare::Prepare,
-    statement::{Statement, StatementCreate, StatementCreateBlocking, StatementQuery, StatementUnnamedQuery},
+    statement::{
+        Statement, StatementCreate, StatementCreateBlocking, StatementNoPrepareQuery, StatementPreparedQuery,
+        StatementPreparedQueryOwned, StatementQuery,
+    },
     types::{BorrowToSql, IsNull, Type},
 };
 
@@ -113,9 +118,9 @@ impl Encode for StatementCancel<'_> {
     }
 }
 
-impl<P> sealed::Sealed for StatementQuery<'_, P> {}
+impl<P> sealed::Sealed for StatementPreparedQuery<'_, P> {}
 
-impl<'s, P> Encode for StatementQuery<'s, P>
+impl<'s, P> Encode for StatementPreparedQuery<'s, P>
 where
     P: AsParams,
 {
@@ -123,17 +128,39 @@ where
 
     #[inline]
     fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
-        let StatementQuery { stmt, params } = self;
-        encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
-        frontend::execute("", 0, buf)?;
-        frontend::sync(buf);
-        Ok(stmt.columns())
+        let Self { stmt, params } = self;
+        encode_stmt_query(stmt, params, buf).map(|_| stmt.columns())
     }
 }
 
-impl<C, P> sealed::Sealed for StatementUnnamedQuery<'_, '_, P, C> {}
+impl<P> sealed::Sealed for StatementPreparedQueryOwned<'_, P> {}
 
-impl<'c, C, P> Encode for StatementUnnamedQuery<'_, 'c, P, C>
+impl<'s, P> Encode for StatementPreparedQueryOwned<'s, P>
+where
+    P: AsParams,
+{
+    type Output = Arc<[Column]>;
+
+    #[inline]
+    fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
+        let Self { stmt, params } = self;
+        encode_stmt_query(stmt, params, buf).map(|_| stmt.columns_owned())
+    }
+}
+
+fn encode_stmt_query<P>(stmt: &Statement, params: P, buf: &mut BytesMut) -> Result<(), Error>
+where
+    P: AsParams,
+{
+    encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
+    frontend::execute("", 0, buf)?;
+    frontend::sync(buf);
+    Ok(())
+}
+
+impl<C, P> sealed::Sealed for StatementNoPrepareQuery<'_, '_, P, C> {}
+
+impl<'c, C, P> Encode for StatementNoPrepareQuery<'_, 'c, P, C>
 where
     C: Prepare,
     P: AsParams,
@@ -142,12 +169,8 @@ where
 
     #[inline]
     fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
-        let Self {
-            stmt,
-            types,
-            cli,
-            params,
-        } = self;
+        let Self { bind, cli } = self;
+        let StatementQuery { stmt, params, types } = bind;
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
         encode_bind("", types, params, "", buf)?;
         frontend::describe(b'S', "", buf)?;

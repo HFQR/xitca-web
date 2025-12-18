@@ -108,8 +108,12 @@ impl Statement {
         &self.name
     }
 
+    pub(crate) fn columns_owned(&self) -> Arc<[Column]> {
+        self.columns.clone()
+    }
+
     /// construct a new named statement.
-    /// must be called with [`Execute::execute`] method for making a prepared statement.
+    /// can be called with [`Execute::execute`] method for making a prepared statement.
     ///
     /// [`Execute::execute`]: crate::execute::Execute::execute
     #[inline]
@@ -117,12 +121,9 @@ impl Statement {
         StatementNamed { stmt, types }
     }
 
-    /// construct a new unnamed statement.
-    ///
-    /// See [`StatementUnnamed`] for further explaination
     #[inline]
-    pub const fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
-        StatementUnnamed { stmt, types }
+    pub const fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementNamed<'a> {
+        StatementNamed { stmt, types }
     }
 
     /// bind self to typed value parameters where they are encoded into a valid sql query in binary format
@@ -140,11 +141,11 @@ impl Statement {
     /// # }
     /// ```
     #[inline]
-    pub fn bind<P>(&self, params: P) -> StatementQuery<'_, P>
+    pub fn bind<P>(&self, params: P) -> StatementPreparedQuery<'_, P>
     where
         P: AsParams,
     {
-        StatementQuery { stmt: self, params }
+        StatementPreparedQuery { stmt: self, params }
     }
 
     /// [Statement::bind] for dynamic typed parameters
@@ -160,7 +161,7 @@ impl Statement {
     pub fn bind_dyn<'p, 't>(
         &self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> StatementQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
+    ) -> StatementPreparedQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
         self.bind(params.iter().cloned())
     }
 
@@ -187,7 +188,6 @@ impl Statement {
 }
 
 /// a named statement that can be prepared separately
-#[derive(Clone, Copy)]
 pub struct StatementNamed<'a> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
@@ -201,8 +201,8 @@ impl<'a> StatementNamed<'a> {
 
     /// function the same as [`Statement::bind`]
     #[inline]
-    pub fn bind<P>(self, params: P) -> StatementNamedBind<'a, P> {
-        StatementNamedBind {
+    pub fn bind<P>(self, params: P) -> StatementQuery<'a, P> {
+        StatementQuery {
             stmt: self.stmt,
             types: self.types,
             params,
@@ -214,7 +214,7 @@ impl<'a> StatementNamed<'a> {
     pub fn bind_dyn<'p, 't>(
         self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> StatementNamedBind<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
+    ) -> StatementQuery<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
         self.bind(params.iter().cloned())
     }
 }
@@ -255,49 +255,35 @@ impl<'a, 'c, C> From<(StatementNamed<'a>, &'c C)> for StatementCreateBlocking<'a
     }
 }
 
-/// an unnamed statement that don't need to be prepared separately
-/// it's bundled together with database query it associated with which can be processed
-/// with at least one-round-trip to database
-pub struct StatementUnnamed<'a> {
-    pub(crate) stmt: &'a str,
-    pub(crate) types: &'a [Type],
-}
-
-impl<'a> StatementUnnamed<'a> {
-    /// function the same as [`Statement::bind`]
-    #[inline]
-    pub fn bind<P>(self, params: P) -> StatementUnnamedBind<'a, P> {
-        StatementUnnamedBind {
-            stmt: self.stmt,
-            types: self.types,
-            params,
-        }
-    }
-
-    /// function the same as [`Statement::bind_dyn`]
-    #[inline]
-    pub fn bind_dyn<'p, 't>(
-        self,
-        params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> StatementUnnamedBind<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
-        self.bind(params.iter().cloned())
-    }
-}
-
-/// a named statement with it's query params
-pub struct StatementQuery<'a, P> {
+/// a named and already prepared statement with it's query params
+pub struct StatementPreparedQuery<'a, P> {
     pub(crate) stmt: &'a Statement,
     pub(crate) params: P,
 }
 
-/// a named statement with it's query param binding
+impl<'a, P> StatementPreparedQuery<'a, P> {
+    pub(crate) fn into_owned(self) -> StatementPreparedQueryOwned<'a, P> {
+        StatementPreparedQueryOwned {
+            stmt: self.stmt,
+            params: self.params,
+        }
+    }
+}
+
+// owned version of StatementPreparedQuery. It would generate RowStreamOwned as response intead of RowStream
+pub(crate) struct StatementPreparedQueryOwned<'a, P> {
+    pub(crate) stmt: &'a Statement,
+    pub(crate) params: P,
+}
+
+/// an unprepared statement with it's query params
 ///
-/// Certain executor can make use of a named binding and offer addtional functionality
+/// Certain executor can make use of unprepared statement and offer addtional functionality
 /// # Examples
 /// ```rust
 /// # use xitca_postgres::{pool::Pool, types::Type, Execute, Statement};
 /// async fn execute_with_pool(pool: &Pool) {
-///     // connection pool can execute named statement binding directly where prepared statement
+///     // connection pool can execute unprepared statement directly where statement preparing
 ///     // execution and caching happens internally
 ///     let rows = Statement::named("SELECT * FROM user WHERE id = $1", &[Type::INT4])
 ///         .bind([9527])
@@ -305,35 +291,27 @@ pub struct StatementQuery<'a, P> {
 ///         .await;
 /// }
 /// ```
-pub struct StatementNamedBind<'a, P> {
+pub struct StatementQuery<'a, P> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
     pub(crate) params: P,
 }
 
-/// an unnamed statement with it's query param binding
-pub struct StatementUnnamedBind<'a, P> {
-    stmt: &'a str,
-    types: &'a [Type],
-    params: P,
-}
-
-pub(crate) struct StatementUnnamedQuery<'a, 'c, P, C> {
-    pub(crate) stmt: &'a str,
-    pub(crate) types: &'a [Type],
-    pub(crate) params: P,
-    pub(crate) cli: &'c C,
-}
-
-impl<'a, 'c, P, C> From<(StatementUnnamedBind<'a, P>, &'c C)> for StatementUnnamedQuery<'a, 'c, P, C> {
-    fn from((bind, cli): (StatementUnnamedBind<'a, P>, &'c C)) -> Self {
-        Self {
-            stmt: bind.stmt,
-            types: bind.types,
-            params: bind.params,
-            cli,
-        }
+impl<'a, P> StatementQuery<'a, P> {
+    /// transform self to a single use of statement query with given executor
+    ///
+    /// See [`StatementNoPrepareQuery`] for explaination
+    pub fn into_no_prepared<'c, C>(self, cli: &'c C) -> StatementNoPrepareQuery<'a, 'c, P, C> {
+        StatementNoPrepareQuery { bind: self, cli }
     }
+}
+
+/// an unprepared statement with it's query params and reference of certain executor
+/// given executor is tasked with prepare and query with a single round-trip to database and cancel
+/// the prepared statement after query is finished
+pub struct StatementNoPrepareQuery<'a, 'c, P, C> {
+    pub(crate) bind: StatementQuery<'a, P>,
+    pub(crate) cli: &'c C,
 }
 
 #[cfg(feature = "compat")]
