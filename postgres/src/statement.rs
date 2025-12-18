@@ -256,13 +256,19 @@ impl<'a, 'c, C> From<(StatementNamed<'a>, &'c C)> for StatementCreateBlocking<'a
 }
 
 /// a named and already prepared statement with it's query params
+///
+/// after [`Execute::query`] by certain excutor it would produce [`RowStream`] as response
+///
+/// [`Execute::query`]: crate::execute::Execute::query
+/// [`RowStream`]: crate::query::RowStream
 pub struct StatementPreparedQuery<'a, P> {
     pub(crate) stmt: &'a Statement,
     pub(crate) params: P,
 }
 
 impl<'a, P> StatementPreparedQuery<'a, P> {
-    pub(crate) fn into_owned(self) -> StatementPreparedQueryOwned<'a, P> {
+    #[inline]
+    pub fn into_owned(self) -> StatementPreparedQueryOwned<'a, P> {
         StatementPreparedQueryOwned {
             stmt: self.stmt,
             params: self.params,
@@ -270,8 +276,13 @@ impl<'a, P> StatementPreparedQuery<'a, P> {
     }
 }
 
-// owned version of StatementPreparedQuery. It would generate RowStreamOwned as response intead of RowStream
-pub(crate) struct StatementPreparedQueryOwned<'a, P> {
+/// owned version of [`StatementPreparedQuery`]
+///
+/// after [`Execute::query`] by certain excutor it would produce [`RowStreamOwned`] as response
+///
+/// [`Execute::query`]: crate::execute::Execute::query
+/// [`RowStreamOwned`]: crate::query::RowStreamOwned
+pub struct StatementPreparedQueryOwned<'a, P> {
     pub(crate) stmt: &'a Statement,
     pub(crate) params: P,
 }
