@@ -25,7 +25,7 @@ use super::{
     prepare::Prepare,
     query::{Query, RowStreamOwned},
     session::Session,
-    statement::{Statement, StatementNamed, StatementQuery},
+    statement::{Statement, StatementNamed, StatementPreparedQuery, StatementQuery},
     transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
 };
@@ -369,12 +369,32 @@ where
     }
 }
 
-async fn execute_with_pool<P>(stmt: StatementQuery<'_, P>, pool: &Pool) -> Result<u64, Error>
+fn execute_with_pool<P>(stmt: StatementQuery<'_, P>, pool: &Pool) -> impl Future<Output = Result<u64, Error>> + Send
 where
     P: AsParams + Send,
 {
+    execute_with_cached(stmt, pool, |stmt, conn| stmt.execute(conn))
+}
+
+fn query_with_pool<P>(
+    stmt: StatementQuery<'_, P>,
+    pool: &Pool,
+) -> impl Future<Output = Result<RowStreamOwned, Error>> + Send
+where
+    P: AsParams + Send,
+{
+    execute_with_cached(stmt, pool, |stmt, conn| stmt.into_owned().query(conn))
+}
+
+async fn execute_with_cached<P, F, O, Fut>(stmt: StatementQuery<'_, P>, pool: &Pool, exec: F) -> Result<O, Error>
+where
+    P: AsParams + Send,
+    F: FnOnce(StatementPreparedQuery<'_, P>, &PoolConnection<'_>) -> Fut,
+    Fut: Future<Output = Result<O, Error>> + Send,
+{
     {
         let StatementQuery { stmt, types, params } = stmt;
+
         let mut conn = pool.get().await?;
 
         let stmt = match conn.conn().statements.get(stmt) {
@@ -386,28 +406,10 @@ where
             }
         };
 
-        stmt.bind(params).execute(&conn)
+        exec(stmt.bind(params), &conn)
     }
+    // return connection to pool before await on the execute future
     .await
-}
-
-async fn query_with_pool<P>(stmt: StatementQuery<'_, P>, pool: &Pool) -> Result<RowStreamOwned, Error>
-where
-    P: AsParams + Send,
-{
-    let StatementQuery { stmt, types, params } = stmt;
-    let mut conn = pool.get().await?;
-
-    let stmt = match conn.conn().statements.get(stmt) {
-        Some(stmt) => stmt,
-        None => {
-            let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-            conn.insert_cache(stmt, prepared_stmt);
-            conn.conn().statements.get(stmt).unwrap()
-        }
-    };
-
-    stmt.bind(params).into_owned().query(&conn).await
 }
 
 pub enum StatementCacheFuture<'c> {
