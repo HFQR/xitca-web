@@ -6,6 +6,7 @@ use crate::{
     statement::{
         Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementPreparedQuery, StatementQuery,
     },
+    zero_parms,
 };
 
 use super::ExecuteBlocking;
@@ -25,7 +26,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
+        self.bind(zero_parms()).query_blocking(cli)
     }
 }
 

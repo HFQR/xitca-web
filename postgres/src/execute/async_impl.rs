@@ -14,6 +14,7 @@ use crate::{
         Statement, StatementCreate, StatementGuarded, StatementNamed, StatementPreparedQuery,
         StatementPreparedQueryOwned, StatementQuery,
     },
+    zero_parms,
 };
 
 use super::Execute;
@@ -27,12 +28,12 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        cli._query(self).map(RowAffected::from).into()
+        self.bind(zero_parms()).execute(cli)
     }
 
     #[inline]
     fn query(self, cli: &C) -> Self::QueryOutput {
-        ready(cli._query(self))
+        self.bind(zero_parms()).query(cli)
     }
 }
 

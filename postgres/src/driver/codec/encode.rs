@@ -49,20 +49,6 @@ impl Encode for &str {
     }
 }
 
-impl sealed::Sealed for &Statement {}
-
-impl<'s> Encode for &'s Statement {
-    type Output = &'s [Column];
-
-    #[inline]
-    fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
-        encode_bind(self.name(), self.params(), [] as [i32; 0], "", buf)?;
-        frontend::execute("", 0, buf)?;
-        frontend::sync(buf);
-        Ok(self.columns())
-    }
-}
-
 impl<C> sealed::Sealed for StatementCreate<'_, '_, C> {}
 
 impl<'c, C> Encode for StatementCreate<'_, 'c, C>

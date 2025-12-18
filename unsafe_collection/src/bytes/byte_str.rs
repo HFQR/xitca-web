@@ -8,7 +8,7 @@ use core::{
 use bytes_crate::Bytes;
 
 /// reference counted String type. cheap to Clone and share between multiple threads.
-#[derive(Clone, Default, Debug, Hash)]
+#[derive(Clone, Default, Debug)]
 pub struct BytesStr(Bytes);
 
 impl fmt::Display for BytesStr {
@@ -48,7 +48,7 @@ impl BytesStr {
     }
 
     fn bytes(&self) -> &[u8] {
-        &*self.0
+        &self.0
     }
 }
 
@@ -132,7 +132,7 @@ impl Ord for BytesStr {
 impl PartialOrd for BytesStr {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.bytes().partial_cmp(other.bytes())
+        Some(self.cmp(other))
     }
 }
 
