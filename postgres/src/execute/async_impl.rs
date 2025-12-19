@@ -12,9 +12,9 @@ use crate::{
     query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned},
     statement::{
         Statement, StatementCreate, StatementGuarded, StatementNamed, StatementPreparedQuery,
-        StatementPreparedQueryOwned, StatementQuery,
+        StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQuery,
     },
-    zero_parms,
+    zero_params,
 };
 
 use super::Execute;
@@ -28,12 +28,12 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        self.bind(zero_parms()).execute(cli)
+        self.bind(zero_params()).execute(cli)
     }
 
     #[inline]
     fn query(self, cli: &C) -> Self::QueryOutput {
-        self.bind(zero_parms()).query(cli)
+        self.bind(zero_params()).query(cli)
     }
 }
 
@@ -145,12 +145,31 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        cli._query(self.into_no_prepared(cli)).map(RowAffected::from).into()
+        self.into_single_rtt().execute(cli)
     }
 
     #[inline]
     fn query(self, cli: &'c C) -> Self::QueryOutput {
-        ready(cli._query(self.into_no_prepared(cli)))
+        self.into_single_rtt().query(cli)
+    }
+}
+
+impl<'c, C, P> Execute<&'c C> for StatementSingleRTTQuery<'_, P>
+where
+    C: Prepare,
+    P: AsParams,
+{
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Ready<Result<RowStreamGuarded<'c, C>, Error>>;
+
+    #[inline]
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
+        cli._query(self.into_with_cli(cli)).map(RowAffected::from).into()
+    }
+
+    #[inline]
+    fn query(self, cli: &'c C) -> Self::QueryOutput {
+        ready(cli._query(self.into_with_cli(cli)))
     }
 }
 

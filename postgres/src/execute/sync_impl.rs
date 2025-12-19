@@ -5,8 +5,9 @@ use crate::{
     query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{
         Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementPreparedQuery, StatementQuery,
+        StatementSingleRTTQuery,
     },
-    zero_parms,
+    zero_params,
 };
 
 use super::ExecuteBlocking;
@@ -26,7 +27,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        self.bind(zero_parms()).query_blocking(cli)
+        self.bind(zero_params()).query_blocking(cli)
     }
 }
 
@@ -98,13 +99,32 @@ where
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
+        self.into_single_rtt().execute_blocking(cli)
+    }
+
+    #[inline]
+    fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
+        self.into_single_rtt().query_blocking(cli)
+    }
+}
+
+impl<'c, C, P> ExecuteBlocking<&'c C> for StatementSingleRTTQuery<'_, P>
+where
+    C: Prepare,
+    P: AsParams,
+{
+    type ExecuteOutput = Result<u64, Error>;
+    type QueryOutput = Result<RowStreamGuarded<'c, C>, Error>;
+
+    #[inline]
+    fn execute_blocking(self, cli: &C) -> Self::ExecuteOutput {
         let stream = self.query_blocking(cli)?;
         RowAffected::from(stream).wait()
     }
 
     #[inline]
     fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
-        cli._query(self.into_no_prepared(cli))
+        cli._query(self.into_with_cli(cli))
     }
 }
 

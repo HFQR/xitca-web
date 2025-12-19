@@ -311,19 +311,32 @@ pub struct StatementQuery<'a, P> {
 impl<'a, P> StatementQuery<'a, P> {
     /// transform self to a single use of statement query with given executor
     ///
-    /// See [`StatementNoPrepareQuery`] for explaination
-    pub fn into_no_prepared<'c, C>(self, cli: &'c C) -> StatementNoPrepareQuery<'a, 'c, P, C> {
-        StatementNoPrepareQuery { bind: self, cli }
+    /// See [`StatementSingleRTTQuery`] for explaination
+    pub fn into_single_rtt(self) -> StatementSingleRTTQuery<'a, P> {
+        StatementSingleRTTQuery { query: self }
     }
 }
 
 /// an unprepared statement with it's query params and reference of certain executor
-/// given executor is tasked with prepare and query with a single round-trip to database and cancel
-/// the prepared statement after query is finished
-pub struct StatementNoPrepareQuery<'a, 'c, P, C> {
-    pub(crate) bind: StatementQuery<'a, P>,
-    pub(crate) cli: &'c C,
+/// given executor is tasked with prepare and query with a single round-trip to database
+pub struct StatementSingleRTTQuery<'a, P> {
+    query: StatementQuery<'a, P>,
 }
+
+impl<'a, P> StatementSingleRTTQuery<'a, P> {
+    pub(crate) fn into_with_cli<'c, C>(self, cli: &'c C) -> StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
+        StatementSingleRTTQueryWithCli {
+            query: self.query,
+            cli
+        }
+    }
+}
+
+pub(crate) struct StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
+    pub(crate) query: StatementQuery<'a, P>,
+    pub(crate) cli: &'c C
+}
+
 
 #[cfg(feature = "compat")]
 pub(crate) mod compat {
