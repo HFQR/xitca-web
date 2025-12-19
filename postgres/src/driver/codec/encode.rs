@@ -8,8 +8,8 @@ use crate::{
     error::{Error, InvalidParamCount},
     prepare::Prepare,
     statement::{
-        Statement, StatementCreate, StatementCreateBlocking, StatementNoPrepareQuery, StatementPreparedQuery,
-        StatementPreparedQueryOwned, StatementQuery,
+        Statement, StatementCreate, StatementCreateBlocking, StatementPreparedQuery, StatementPreparedQueryOwned,
+        StatementQuery, StatementSingleRTTQueryWithCli,
     },
     types::{BorrowToSql, IsNull, Type},
 };
@@ -144,9 +144,9 @@ where
     Ok(())
 }
 
-impl<C, P> sealed::Sealed for StatementNoPrepareQuery<'_, '_, P, C> {}
+impl<C, P> sealed::Sealed for StatementSingleRTTQueryWithCli<'_, '_, P, C> {}
 
-impl<'c, C, P> Encode for StatementNoPrepareQuery<'_, 'c, P, C>
+impl<'c, C, P> Encode for StatementSingleRTTQueryWithCli<'_, 'c, P, C>
 where
     C: Prepare,
     P: AsParams,
@@ -155,8 +155,8 @@ where
 
     #[inline]
     fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
-        let Self { bind, cli } = self;
-        let StatementQuery { stmt, params, types } = bind;
+        let Self { query, cli } = self;
+        let StatementQuery { stmt, params, types } = query;
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
         encode_bind("", types, params, "", buf)?;
         frontend::describe(b'S', "", buf)?;
