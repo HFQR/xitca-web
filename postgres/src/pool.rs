@@ -11,14 +11,18 @@ use std::{
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
-use xitca_io::bytes::BytesMut;
+use xitca_io::{bytes::BytesMut, io::AsyncIo};
 
 use super::{
     BoxedFuture, Postgres,
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{AsParams, Response, encode::Encode},
+    driver::{
+        Driver,
+        codec::{AsParams, Response, encode::Encode},
+        generic::GenericDriver,
+    },
     error::Error,
     execute::Execute,
     iter::AsyncLendingIterator,
@@ -99,15 +103,31 @@ impl Pool {
     #[inline(never)]
     fn connect(&self) -> BoxedFuture<'_, Result<PoolClient, Error>> {
         Box::pin(async move {
-            let (client, mut driver) = Postgres::new(self.config.clone()).connect().await?;
-            tokio::task::spawn(async move {
-                while let Ok(Some(_)) = driver.try_next().await {
-                    // TODO: add notify listen callback to Pool
-                }
-            });
+            let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
+            match driver {
+                Driver::Tcp(drv) => drive(drv),
+                Driver::Dynamic(drv) => drive(drv),
+                #[cfg(feature = "tls")]
+                Driver::Tls(drv) => drive(drv),
+                #[cfg(unix)]
+                Driver::Unix(drv) => drive(drv),
+                #[cfg(all(unix, feature = "tls"))]
+                Driver::UnixTls(drv) => drive(drv),
+                #[cfg(feature = "quic")]
+                Driver::Quic(drv) => drive(drv),
+            };
             Ok(PoolClient::new(client))
         })
     }
+}
+
+fn drive(mut drv: GenericDriver<impl AsyncIo + Send + 'static>) {
+    tokio::task::spawn(async move {
+        while drv.try_next().await?.is_some() {
+            // TODO: add notify listen callback to Pool
+        }
+        Ok::<_, Error>(())
+    });
 }
 
 /// a RAII type for connection. it manages the lifetime of connection and it's [`Statement`] cache.
@@ -231,9 +251,8 @@ impl PoolConnection<'_> {
         self.conn().client.cancel_token()
     }
 
-    fn insert_cache(&mut self, named: &str, stmt: Statement) -> Statement {
-        self.conn_mut().statements.insert(Box::from(named), stmt.duplicate());
-        stmt
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> &Statement {
+        self.conn_mut().statements.entry(Box::from(named)).or_insert(stmt)
     }
 
     fn conn(&self) -> &PoolClient {
@@ -318,7 +337,7 @@ where
             None => StatementCacheFuture::Prepared(Box::pin(async move {
                 let name = self.stmt;
                 let stmt = self.execute(&*cli).await?.leak();
-                Ok(cli.insert_cache(name, stmt))
+                Ok(cli.insert_cache(name, stmt).duplicate())
             })),
         }
     }
