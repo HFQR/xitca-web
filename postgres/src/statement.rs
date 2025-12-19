@@ -165,6 +165,13 @@ impl Statement {
         self.bind(params.iter().cloned())
     }
 
+    /// specialized binding api for zero sized parameters.
+    /// function the same as `Statement::bind([])`
+    #[inline]
+    pub fn bind_none(&self) -> StatementPreparedQuery<'_, [bool; 0]> {
+        self.bind([])
+    }
+
     /// Returns the expected types of the statement's parameters.
     #[inline]
     pub fn params(&self) -> &[Type] {
@@ -216,6 +223,16 @@ impl<'a> StatementNamed<'a> {
         params: &'p [&'t (dyn ToSql + Sync)],
     ) -> StatementQuery<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
         self.bind(params.iter().cloned())
+    }
+
+    /// function the same as [`Statement::bind_none`]
+    #[inline]
+    pub fn bind_none(self) -> StatementQuery<'a, [bool; 0]> {
+        StatementQuery {
+            stmt: self.stmt,
+            types: self.types,
+            params: [],
+        }
     }
 }
 

@@ -348,87 +348,236 @@ where
     }
 }
 
+#[cfg(not(feature = "nightly"))]
+impl<'c, 's, P> Execute<&'c mut PoolConnection<'_>> for StatementQuery<'s, P>
+where
+    P: AsParams + Send + 'c,
+    's: 'c,
+{
+    type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
+    type QueryOutput = BoxedFuture<'c, Result<RowStreamOwned, Error>>;
+
+    fn execute(self, conn: &'c mut PoolConnection<'_>) -> Self::ExecuteOutput {
+        // TODO: this async block captures pool connection until row affected is generated. which is wasteful and unnecessary.
+        Box::pin(async {
+            execute_with_cached(self, conn, |stmt, conn| stmt.execute(conn))
+                .await?
+                .await
+        })
+    }
+
+    fn query(self, conn: &'c mut PoolConnection<'_>) -> Self::QueryOutput {
+        Box::pin(async {
+            execute_with_cached(self, conn, |stmt, conn| stmt.into_owned().query(conn))
+                .await?
+                .await
+        })
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<'c, 's, 'p, P> Execute<&'c mut PoolConnection<'p>> for StatementQuery<'s, P>
+where
+    P: AsParams + Send + 'c,
+    's: 'c,
+    'p: 'c,
+{
+    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
+
+    fn execute(self, conn: &'c mut PoolConnection<'p>) -> Self::ExecuteOutput {
+        // TODO: this async block captures pool connection until row affected is generated. which is wasteful and unnecessary.
+        async {
+            execute_with_cached(self, conn, |stmt, conn| stmt.execute(conn))
+                .await?
+                .await
+        }
+    }
+
+    fn query(self, conn: &'c mut PoolConnection<'p>) -> Self::QueryOutput {
+        async {
+            execute_with_cached(self, conn, |stmt, conn| stmt.into_owned().query(conn))
+                .await?
+                .await
+        }
+    }
+}
+
+// TODO: unbox returned futures when type alias is allowed in associated type.
+#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P> Execute<&'c Pool> for StatementQuery<'s, P>
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    // TODO: unbox returned futures when type alias is allowed in associated type.
-    #[cfg(not(feature = "nightly"))]
     type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
-    #[cfg(not(feature = "nightly"))]
     type QueryOutput = BoxedFuture<'c, Result<RowStreamOwned, Error>>;
-    #[cfg(feature = "nightly")]
+
+    #[inline]
+    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
+        Box::pin(async {
+            {
+                let mut conn = pool.get().await?;
+                execute_with_cached(self, &mut conn, |stmt, conn| stmt.execute(conn)).await?
+            }
+            // return connection to pool before await on execution future
+            .await
+        })
+    }
+
+    #[inline]
+    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
+        Box::pin(async {
+            let mut conn = pool.get().await?;
+            self.query(&mut conn).await
+        })
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<'c, 's, P> Execute<&'c Pool> for StatementQuery<'s, P>
+where
+    P: AsParams + Send + 'c,
+    's: 'c,
+{
     type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    #[cfg(feature = "nightly")]
     type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
 
-    #[cfg(not(feature = "nightly"))]
     #[inline]
     fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        Box::pin(execute_with_pool(self, pool))
+        async {
+            {
+                let mut conn = pool.get().await?;
+                execute_with_cached(self, &mut conn, |stmt, conn| stmt.execute(conn)).await?
+            }
+            // return connection to pool before await on execution future
+            .await
+        }
     }
 
-    #[cfg(not(feature = "nightly"))]
     #[inline]
     fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        Box::pin(query_with_pool(self, pool))
-    }
-
-    #[cfg(feature = "nightly")]
-    #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        execute_with_pool(self, pool)
-    }
-
-    #[cfg(feature = "nightly")]
-    #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        query_with_pool(self, pool)
+        async {
+            let mut conn = pool.get().await?;
+            self.query(&mut conn).await
+        }
     }
 }
 
-fn execute_with_pool<P>(stmt: StatementQuery<'_, P>, pool: &Pool) -> impl Future<Output = Result<u64, Error>> + Send
+// TODO: unbox returned futures when type alias is allowed in associated type.
+#[cfg(not(feature = "nightly"))]
+impl<'c, 's, I, P> Execute<&'c Pool> for I
 where
-    P: AsParams + Send,
+    I: IntoIterator,
+    I::IntoIter: Iterator<Item = StatementQuery<'s, P>> + Send + 'c,
+    P: AsParams + Send + 'c,
+    's: 'c,
 {
-    execute_with_cached(stmt, pool, |stmt, conn| stmt.execute(conn))
+    type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
+    type QueryOutput = BoxedFuture<'c, Result<Vec<RowStreamOwned>, Error>>;
+
+    #[inline]
+    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
+        Box::pin(execute_iter_with_pool(self.into_iter(), pool))
+    }
+
+    #[inline]
+    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
+        Box::pin(query_iter_with_pool(self.into_iter(), pool))
+    }
 }
 
-fn query_with_pool<P>(
-    stmt: StatementQuery<'_, P>,
+#[cfg(feature = "nightly")]
+impl<'c, 's, I, P> Execute<&'c Pool> for I
+where
+    I: IntoIterator,
+    I::IntoIter: Iterator<Item = StatementQuery<'s, P>> + Send + 'c,
+    P: AsParams + Send + 'c,
+    's: 'c,
+{
+    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    type QueryOutput = impl Future<Output = Result<Vec<RowStreamOwned>, Error>> + Send + 'c;
+
+    #[inline]
+    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
+        execute_iter_with_pool(self.into_iter(), pool)
+    }
+
+    #[inline]
+    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
+        query_iter_with_pool(self.into_iter(), pool)
+    }
+}
+
+async fn execute_iter_with_pool<P>(
+    iter: impl Iterator<Item = StatementQuery<'_, P>> + Send,
     pool: &Pool,
-) -> impl Future<Output = Result<RowStreamOwned, Error>> + Send
+) -> Result<u64, Error>
 where
     P: AsParams + Send,
 {
-    execute_with_cached(stmt, pool, |stmt, conn| stmt.into_owned().query(conn))
-}
+    let mut res = Vec::with_capacity(iter.size_hint().0);
 
-async fn execute_with_cached<P, F, O, Fut>(stmt: StatementQuery<'_, P>, pool: &Pool, exec: F) -> Result<O, Error>
-where
-    P: AsParams + Send,
-    F: FnOnce(StatementPreparedQuery<'_, P>, &PoolConnection<'_>) -> Fut,
-    Fut: Future<Output = Result<O, Error>> + Send,
-{
     {
-        let StatementQuery { stmt, types, params } = stmt;
-
         let mut conn = pool.get().await?;
 
-        let stmt = match conn.conn().statements.get(stmt) {
-            Some(stmt) => stmt,
-            None => {
-                let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-                conn.insert_cache(stmt, prepared_stmt);
-                conn.conn().statements.get(stmt).unwrap()
-            }
-        };
-
-        exec(stmt.bind(params), &conn)
+        for stmt in iter {
+            // do not use stmt.execute(&mut conn) here. it's implementation capture pool connction for the entire async task which is too long.
+            let fut = execute_with_cached(stmt, &mut conn, |stmt, conn| stmt.execute(conn)).await?;
+            res.push(fut);
+        }
     }
-    // return connection to pool before await on the execute future
-    .await
+
+    let mut num = 0;
+
+    for res in res {
+        num += res.await?;
+    }
+
+    Ok(num)
+}
+
+async fn query_iter_with_pool<P>(
+    iter: impl Iterator<Item = StatementQuery<'_, P>> + Send,
+    pool: &Pool,
+) -> Result<Vec<RowStreamOwned>, Error>
+where
+    P: AsParams + Send,
+{
+    let mut res = Vec::with_capacity(iter.size_hint().0);
+
+    let mut conn = pool.get().await?;
+
+    for stmt in iter {
+        let stream = stmt.query(&mut conn).await?;
+        res.push(stream);
+    }
+
+    Ok(res)
+}
+
+async fn execute_with_cached<P, F, O, Fut>(
+    stmt: StatementQuery<'_, P>,
+    conn: &mut PoolConnection<'_>,
+    mut exec: F,
+) -> Result<Fut, Error>
+where
+    P: AsParams + Send,
+    F: FnMut(StatementPreparedQuery<'_, P>, &PoolConnection<'_>) -> Fut,
+    Fut: Future<Output = Result<O, Error>> + Send,
+{
+    let StatementQuery { stmt, types, params } = stmt;
+
+    let stmt = match conn.conn().statements.get(stmt) {
+        Some(stmt) => stmt,
+        None => {
+            let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+            conn.insert_cache(stmt, prepared_stmt);
+            conn.conn().statements.get(stmt).unwrap()
+        }
+    };
+
+    Ok(exec(stmt.bind(params), conn))
 }
 
 pub enum StatementCacheFuture<'c> {
@@ -466,22 +615,45 @@ mod test {
             .build()
             .unwrap();
 
-        let mut conn = pool.get().await.unwrap();
+        {
+            let mut conn = pool.get().await.unwrap();
 
-        let stmt = Statement::named("SELECT 1", &[]).execute(&mut conn).await.unwrap();
-        stmt.execute(&conn.consume()).await.unwrap();
+            let stmt = Statement::named("SELECT 1", &[]).execute(&mut conn).await.unwrap();
+            stmt.execute(&conn.consume()).await.unwrap();
 
-        let num = Statement::named("SELECT 1", &[])
-            .bind::<[i32; 0]>([])
-            .query(&pool)
-            .await
-            .unwrap()
-            .try_next()
-            .await
-            .unwrap()
-            .unwrap()
-            .get::<i32>(0);
+            let num = Statement::named("SELECT 1", &[])
+                .bind_none()
+                .query(&pool)
+                .await
+                .unwrap()
+                .try_next()
+                .await
+                .unwrap()
+                .unwrap()
+                .get::<i32>(0);
 
-        assert_eq!(num, 1);
+            assert_eq!(num, 1);
+        }
+
+        let res = [
+            Statement::named("SELECT 1", &[]).bind_none(),
+            Statement::named("SELECT 1", &[]).bind_none(),
+        ]
+        .query(&pool)
+        .await
+        .unwrap();
+
+        for mut res in res {
+            let num = res.try_next().await.unwrap().unwrap().get::<i32>(0);
+            assert_eq!(num, 1);
+        }
+
+        let _ = vec![
+            Statement::named("SELECT 1", &[]).bind_dyn(&[&1]),
+            Statement::named("SELECT 1", &[]).bind_dyn(&[&"123"]),
+            Statement::named("SELECT 1", &[]).bind_dyn(&[&String::new()]),
+        ]
+        .query(&pool)
+        .await;
     }
 }

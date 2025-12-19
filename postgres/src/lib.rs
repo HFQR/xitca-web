@@ -173,11 +173,6 @@ impl Postgres {
 
 type BoxedFuture<'a, O> = Pin<Box<dyn Future<Output = O> + Send + 'a>>;
 
-#[inline(always)]
-const fn zero_params() -> [bool; 0] {
-    []
-}
-
 fn _assert_send<F: Send>(_: F) {}
 fn _assert_send2<F: Send>() {}
 
