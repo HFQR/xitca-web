@@ -49,7 +49,12 @@ where
     type Error = Error;
 
     async fn call(&self, req: ServiceRequest<'r, 'c>) -> Result<Self::Response, Self::Error> {
-        let ServiceRequest { req, client, timeout } = req;
+        let ServiceRequest {
+            req,
+            client,
+            request_timeout,
+            response_timeout,
+        } = req;
         let mut headers = req.headers().clone();
         let mut method = req.method().clone();
         let mut uri = req.uri().clone();
@@ -57,7 +62,15 @@ where
         let mut count = 0;
 
         loop {
-            let mut res = self.service.call(ServiceRequest { req, client, timeout }).await?;
+            let mut res = self
+                .service
+                .call(ServiceRequest {
+                    req,
+                    client,
+                    request_timeout,
+                    response_timeout,
+                })
+                .await?;
 
             if count == MAX {
                 return Ok(res);
