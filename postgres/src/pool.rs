@@ -348,40 +348,41 @@ where
     }
 }
 
+// TODO: unbox returned futures when type alias is allowed in associated type.
+#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P> Execute<&'c Pool> for StatementQuery<'s, P>
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    // TODO: unbox returned futures when type alias is allowed in associated type.
-    #[cfg(not(feature = "nightly"))]
     type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
-    #[cfg(not(feature = "nightly"))]
     type QueryOutput = BoxedFuture<'c, Result<RowStreamOwned, Error>>;
-    #[cfg(feature = "nightly")]
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    #[cfg(feature = "nightly")]
-    type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
 
-    #[cfg(not(feature = "nightly"))]
     #[inline]
     fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
         Box::pin(execute_with_pool(self, pool))
     }
 
-    #[cfg(not(feature = "nightly"))]
     #[inline]
     fn query(self, pool: &'c Pool) -> Self::QueryOutput {
         Box::pin(query_with_pool(self, pool))
     }
+}
 
-    #[cfg(feature = "nightly")]
+#[cfg(feature = "nightly")]
+impl<'c, 's, P> Execute<&'c Pool> for StatementQuery<'s, P>
+where
+    P: AsParams + Send + 'c,
+    's: 'c,
+{
+    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
+
     #[inline]
     fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
         execute_with_pool(self, pool)
     }
 
-    #[cfg(feature = "nightly")]
     #[inline]
     fn query(self, pool: &'c Pool) -> Self::QueryOutput {
         query_with_pool(self, pool)
@@ -440,9 +441,11 @@ where
         }
     };
 
-    Ok(exec(stmt.bind(params), &conn))
+    Ok(exec(stmt.bind(params), conn))
 }
 
+// TODO: unbox returned futures when type alias is allowed in associated type.
+#[cfg(not(feature = "nightly"))]
 impl<'c, 's, I, P> Execute<&'c Pool> for I
 where
     I: IntoIterator,
@@ -450,35 +453,36 @@ where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    // TODO: unbox returned futures when type alias is allowed in associated type.
-    #[cfg(not(feature = "nightly"))]
     type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
-    #[cfg(not(feature = "nightly"))]
     type QueryOutput = BoxedFuture<'c, Result<Vec<RowStreamOwned>, Error>>;
-    #[cfg(feature = "nightly")]
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    #[cfg(feature = "nightly")]
-    type QueryOutput = impl Future<Output = Result<Vec<RowStreamOwned>, Error>> + Send + 'c;
 
-    #[cfg(not(feature = "nightly"))]
     #[inline]
     fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
         Box::pin(execute_iter_with_pool(self.into_iter(), pool))
     }
 
-    #[cfg(not(feature = "nightly"))]
     #[inline]
     fn query(self, pool: &'c Pool) -> Self::QueryOutput {
         Box::pin(query_iter_with_pool(self.into_iter(), pool))
     }
+}
 
-    #[cfg(feature = "nightly")]
+#[cfg(feature = "nightly")]
+impl<'c, 's, I, P> Execute<&'c Pool> for I
+where
+    I: IntoIterator,
+    I::IntoIter: Iterator<Item = StatementQuery<'s, P>> + Send + 'c,
+    P: AsParams + Send + 'c,
+    's: 'c,
+{
+    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    type QueryOutput = impl Future<Output = Result<Vec<RowStreamOwned>, Error>> + Send + 'c;
+
     #[inline]
     fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
         execute_iter_with_pool(self.into_iter(), pool)
     }
 
-    #[cfg(feature = "nightly")]
     #[inline]
     fn query(self, pool: &'c Pool) -> Self::QueryOutput {
         query_iter_with_pool(self.into_iter(), pool)
@@ -575,7 +579,7 @@ mod test {
             stmt.execute(&conn.consume()).await.unwrap();
 
             let num = Statement::named("SELECT 1", &[])
-                .bind::<[i32; 0]>([])
+                .bind_none()
                 .query(&pool)
                 .await
                 .unwrap()
@@ -589,8 +593,8 @@ mod test {
         }
 
         let res = [
-            Statement::named("SELECT 1", &[]).bind(crate::zero_params()),
-            Statement::named("SELECT 1", &[]).bind(crate::zero_params()),
+            Statement::named("SELECT 1", &[]).bind_none(),
+            Statement::named("SELECT 1", &[]).bind_none(),
         ]
         .query(&pool)
         .await

@@ -14,7 +14,6 @@ use crate::{
         Statement, StatementCreate, StatementGuarded, StatementNamed, StatementPreparedQuery,
         StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQuery,
     },
-    zero_params,
 };
 
 use super::Execute;
@@ -28,12 +27,12 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        self.bind(zero_params()).execute(cli)
+        self.bind_none().execute(cli)
     }
 
     #[inline]
     fn query(self, cli: &C) -> Self::QueryOutput {
-        self.bind(zero_params()).query(cli)
+        self.bind_none().query(cli)
     }
 }
 
@@ -173,6 +172,7 @@ where
     }
 }
 
+#[cfg(not(feature = "nightly"))]
 impl<'c, C> Execute<&'c C> for &std::path::Path
 where
     C: Query + Sync,
@@ -202,6 +202,39 @@ where
                 .query(cli)
                 .await
         })
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<'c, C> Execute<&'c C> for &std::path::Path
+where
+    C: Query + Sync,
+{
+    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    type QueryOutput = impl Future<Output = Result<RowSimpleStream, Error>> + Send + 'c;
+
+    #[inline]
+    fn execute(self, cli: &'c C) -> Self::ExecuteOutput {
+        let path = self.to_path_buf();
+        async move {
+            tokio::task::spawn_blocking(|| std::fs::read_to_string(path))
+                .await
+                .unwrap()?
+                .execute(cli)
+                .await
+        }
+    }
+
+    #[inline]
+    fn query(self, cli: &'c C) -> Self::QueryOutput {
+        let path = self.to_path_buf();
+        async move {
+            tokio::task::spawn_blocking(|| std::fs::read_to_string(path))
+                .await
+                .unwrap()?
+                .query(cli)
+                .await
+        }
     }
 }
 
