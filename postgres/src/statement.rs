@@ -325,18 +325,14 @@ pub struct StatementSingleRTTQuery<'a, P> {
 
 impl<'a, P> StatementSingleRTTQuery<'a, P> {
     pub(crate) fn into_with_cli<'c, C>(self, cli: &'c C) -> StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
-        StatementSingleRTTQueryWithCli {
-            query: self.query,
-            cli
-        }
+        StatementSingleRTTQueryWithCli { query: self.query, cli }
     }
 }
 
 pub(crate) struct StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
     pub(crate) query: StatementQuery<'a, P>,
-    pub(crate) cli: &'c C
+    pub(crate) cli: &'c C,
 }
-
 
 #[cfg(feature = "compat")]
 pub(crate) mod compat {
