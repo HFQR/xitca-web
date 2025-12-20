@@ -142,14 +142,14 @@ fn parse(row: Row<'_>) {
 
     // please see doc for implementation detail
     impl<'a> FromSqlExt<'a> for Baz {
-        fn from_sql_nullable_ext(
+        fn from_sql_ext(
             ty: &Type, 
             (range, buf): (&Range<usize>, &'a Bytes)
         ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
             Ok(Baz)
         }
 
-        fn accepts(ty: &Type) -> bool {
+        fn accepts_ext(ty: &Type) -> bool {
             true
         }
     }

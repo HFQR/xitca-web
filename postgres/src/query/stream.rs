@@ -24,17 +24,20 @@ use crate::{
 #[derive(Debug)]
 pub struct GenericRowStream<C, M> {
     pub(crate) res: Response,
-    pub(crate) col: C,
     pub(crate) ranges: Vec<Range<usize>>,
+    pub(crate) col: C,
     pub(crate) _marker: PhantomData<M>,
 }
 
-impl<C, M> GenericRowStream<C, M> {
+impl<C, M> GenericRowStream<C, M>
+where
+    C: AsRef<[Column]>,
+{
     pub(crate) fn new(res: Response, col: C) -> Self {
         Self {
             res,
+            ranges: Vec::with_capacity(col.as_ref().len()),
             col,
-            ranges: Vec::new(),
             _marker: PhantomData,
         }
     }
@@ -153,7 +156,7 @@ impl Iterator for RowStreamOwned {
             match self.res.blocking_recv() {
                 Ok(msg) => match msg {
                     backend::Message::DataRow(body) => {
-                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()));
+                        return Some(RowOwned::try_new_owned(&self.col, body));
                     }
                     backend::Message::BindComplete
                     | backend::Message::EmptyQueryResponse
@@ -241,7 +244,7 @@ impl Iterator for RowSimpleStreamOwned {
                         Err(e) => return Some(Err(Error::from(e))),
                     },
                     backend::Message::DataRow(body) => {
-                        return Some(RowSimpleOwned::try_new(self.col.clone(), body, Vec::new()));
+                        return Some(RowSimpleOwned::try_new_owned(&self.col, body));
                     }
                     backend::Message::CommandComplete(_)
                     | backend::Message::EmptyQueryResponse
@@ -361,7 +364,7 @@ where
                         }
                     }
                     backend::Message::DataRow(body) => {
-                        return Some(RowOwned::try_new(self.col.clone(), body, Vec::new()));
+                        return Some(RowOwned::try_new_owned(&self.col, body));
                     }
                     backend::Message::ParseComplete
                     | backend::Message::BindComplete
