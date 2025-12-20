@@ -15,7 +15,7 @@ pub fn sql(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let Query { sql, exprs, types } = syn::parse_macro_input!(input as Query);
 
     quote! {
-        ::xitca_postgres::statement::Statement::unnamed(#sql, &[#(#types),*])
+        ::xitca_postgres::statement::Statement::named(#sql, &[#(#types),*])
             .bind_dyn(&[#(#exprs),*])
     }
     .into()

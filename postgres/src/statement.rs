@@ -121,11 +121,6 @@ impl Statement {
         StatementNamed { stmt, types }
     }
 
-    #[inline]
-    pub const fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementNamed<'a> {
-        StatementNamed { stmt, types }
-    }
-
     /// bind self to typed value parameters where they are encoded into a valid sql query in binary format
     ///
     /// # Examples

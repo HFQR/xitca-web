@@ -18,7 +18,11 @@ impl Stream for RowStreamOwned {
         loop {
             match ready!(this.res.poll_recv(cx))? {
                 backend::Message::DataRow(body) => {
-                    return Poll::Ready(Some(RowOwned::try_new(this.col.clone(), body, Vec::new())));
+                    return Poll::Ready(Some(RowOwned::try_new(
+                        this.col.clone(),
+                        body,
+                        Vec::with_capacity(this.col.len()),
+                    )));
                 }
                 backend::Message::BindComplete
                 | backend::Message::EmptyQueryResponse

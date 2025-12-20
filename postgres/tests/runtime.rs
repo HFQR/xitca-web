@@ -261,7 +261,7 @@ async fn query_unnamed_with_transaction() {
 
     let transaction = client.transaction().await.unwrap();
 
-    let mut stream = Statement::unnamed(
+    let mut stream = Statement::named(
         "INSERT INTO foo (name, age) VALUES ($1, $2), ($3, $4), ($5, $6) returning name, age",
         &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
     )
@@ -285,7 +285,7 @@ async fn query_unnamed_with_transaction() {
         ]
     );
 
-    let mut stream = Statement::unnamed(
+    let mut stream = Statement::named(
         "SELECT name, age, 'literal', 5 FROM foo WHERE name <> $1 AND age < $2 ORDER BY age",
         &[Type::TEXT, Type::INT4],
     )
@@ -309,7 +309,7 @@ async fn query_unnamed_with_transaction() {
     assert!(stream.try_next().await.unwrap().is_none());
 
     // Test for UPDATE that returns no data
-    let mut stream = Statement::unnamed("UPDATE foo set age = 33", &[])
+    let mut stream = Statement::named("UPDATE foo set age = 33", &[])
         .bind_dyn(&[])
         .query(&transaction)
         .await
