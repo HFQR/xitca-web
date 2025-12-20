@@ -25,8 +25,20 @@ pub type RowSimple<'r> = GenericRow<&'r [Column], &'r mut Vec<Range<usize>>, mar
 /// [`Row`] with static lifetime bound
 pub type RowOwned = GenericRow<Arc<[Column]>, Vec<Range<usize>>, marker::Typed>;
 
+impl RowOwned {
+    pub(crate) fn try_new_owned(columns: &Arc<[Column]>, body: DataRowBody) -> Result<Self, Error> {
+        RowOwned::try_new(columns.clone(), body, Vec::with_capacity(columns.len()))
+    }
+}
+
 /// [`RowSimple`] with static lifetime bound
 pub type RowSimpleOwned = GenericRow<Arc<[Column]>, Vec<Range<usize>>, marker::NoTyped>;
+
+impl RowSimpleOwned {
+    pub(crate) fn try_new_owned_simple(columns: &Arc<[Column]>, body: DataRowBody) -> Result<Self, Error> {
+        RowSimpleOwned::try_new(columns.clone(), body, Vec::with_capacity(columns.len()))
+    }
+}
 
 pub struct GenericRow<C, R, M> {
     columns: C,
@@ -55,7 +67,6 @@ where
         let ranges_mut = ranges.as_mut();
 
         ranges_mut.clear();
-        ranges_mut.reserve(iter.size_hint().0);
 
         while let Some(range) = iter.next()? {
             /*
