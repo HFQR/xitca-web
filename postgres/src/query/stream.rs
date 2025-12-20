@@ -244,7 +244,7 @@ impl Iterator for RowSimpleStreamOwned {
                         Err(e) => return Some(Err(Error::from(e))),
                     },
                     backend::Message::DataRow(body) => {
-                        return Some(RowSimpleOwned::try_new_owned_simple(&self.col, body));
+                        return Some(RowSimpleOwned::try_new_owned(&self.col, body));
                     }
                     backend::Message::CommandComplete(_)
                     | backend::Message::EmptyQueryResponse
