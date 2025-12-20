@@ -27,9 +27,9 @@ use super::{
     execute::Execute,
     iter::AsyncLendingIterator,
     prepare::Prepare,
-    query::{Query, RowStreamOwned},
+    query::{Query, RowAffected, RowStreamOwned},
     session::Session,
-    statement::{Statement, StatementNamed, StatementPreparedQuery, StatementQuery},
+    statement::{Statement, StatementNamed, StatementQuery},
     transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
 };
@@ -354,23 +354,40 @@ where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    type ExecuteOutput = BoxedFuture<'c, Result<u64, Error>>;
+    type ExecuteOutput = BoxedFuture<'c, Result<RowAffected, Error>>;
     type QueryOutput = BoxedFuture<'c, Result<RowStreamOwned, Error>>;
 
     fn execute(self, conn: &'c mut PoolConnection<'_>) -> Self::ExecuteOutput {
-        // TODO: this async block captures pool connection until row affected is generated. which is wasteful and unnecessary.
-        Box::pin(async {
-            execute_with_cached(self, conn, |stmt, conn| stmt.execute(conn))
-                .await?
-                .await
+        Box::pin(async move {
+            let StatementQuery { stmt, types, params } = self;
+
+            let stmt = match conn.conn().statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+                    conn.insert_cache(stmt, prepared_stmt);
+                    conn.conn().statements.get(stmt).unwrap()
+                }
+            };
+
+            stmt.bind(params).query(conn).await.map(RowAffected::from)
         })
     }
 
     fn query(self, conn: &'c mut PoolConnection<'_>) -> Self::QueryOutput {
-        Box::pin(async {
-            execute_with_cached(self, conn, |stmt, conn| stmt.into_owned().query(conn))
-                .await?
-                .await
+        Box::pin(async move {
+            let StatementQuery { stmt, types, params } = self;
+
+            let stmt = match conn.conn().statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+                    conn.insert_cache(stmt, prepared_stmt);
+                    conn.conn().statements.get(stmt).unwrap()
+                }
+            };
+
+            stmt.bind(params).into_owned().query(conn).await
         })
     }
 }
@@ -382,23 +399,40 @@ where
     's: 'c,
     'p: 'c,
 {
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    type ExecuteOutput = impl Future<Output = Result<RowAffected, Error>> + Send + 'c;
     type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
 
     fn execute(self, conn: &'c mut PoolConnection<'p>) -> Self::ExecuteOutput {
-        // TODO: this async block captures pool connection until row affected is generated. which is wasteful and unnecessary.
-        async {
-            execute_with_cached(self, conn, |stmt, conn| stmt.execute(conn))
-                .await?
-                .await
+        async move {
+            let StatementQuery { stmt, types, params } = self;
+
+            let stmt = match conn.conn().statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+                    conn.insert_cache(stmt, prepared_stmt);
+                    conn.conn().statements.get(stmt).unwrap()
+                }
+            };
+
+            stmt.bind(params).query(conn).await.map(RowAffected::from)
         }
     }
 
     fn query(self, conn: &'c mut PoolConnection<'p>) -> Self::QueryOutput {
-        async {
-            execute_with_cached(self, conn, |stmt, conn| stmt.into_owned().query(conn))
-                .await?
-                .await
+        async move {
+            let StatementQuery { stmt, types, params } = self;
+
+            let stmt = match conn.conn().statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
+                    conn.insert_cache(stmt, prepared_stmt);
+                    conn.conn().statements.get(stmt).unwrap()
+                }
+            };
+
+            stmt.bind(params).into_owned().query(conn).await
         }
     }
 }
@@ -418,7 +452,7 @@ where
         Box::pin(async {
             {
                 let mut conn = pool.get().await?;
-                execute_with_cached(self, &mut conn, |stmt, conn| stmt.execute(conn)).await?
+                self.execute(&mut conn).await?
             }
             // return connection to pool before await on execution future
             .await
@@ -448,7 +482,7 @@ where
         async {
             {
                 let mut conn = pool.get().await?;
-                execute_with_cached(self, &mut conn, |stmt, conn| stmt.execute(conn)).await?
+                self.execute(&mut conn).await?
             }
             // return connection to pool before await on execution future
             .await
@@ -522,8 +556,7 @@ where
         let mut conn = pool.get().await?;
 
         for stmt in iter {
-            // do not use stmt.execute(&mut conn) here. it's implementation capture pool connction for the entire async task which is too long.
-            let fut = execute_with_cached(stmt, &mut conn, |stmt, conn| stmt.execute(conn)).await?;
+            let fut = stmt.execute(&mut conn).await?;
             res.push(fut);
         }
     }
@@ -554,30 +587,6 @@ where
     }
 
     Ok(res)
-}
-
-async fn execute_with_cached<P, F, O, Fut>(
-    stmt: StatementQuery<'_, P>,
-    conn: &mut PoolConnection<'_>,
-    mut exec: F,
-) -> Result<Fut, Error>
-where
-    P: AsParams + Send,
-    F: FnMut(StatementPreparedQuery<'_, P>, &PoolConnection<'_>) -> Fut,
-    Fut: Future<Output = Result<O, Error>> + Send,
-{
-    let StatementQuery { stmt, types, params } = stmt;
-
-    let stmt = match conn.conn().statements.get(stmt) {
-        Some(stmt) => stmt,
-        None => {
-            let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-            conn.insert_cache(stmt, prepared_stmt);
-            conn.conn().statements.get(stmt).unwrap()
-        }
-    };
-
-    Ok(exec(stmt.bind(params), conn))
 }
 
 pub enum StatementCacheFuture<'c> {
