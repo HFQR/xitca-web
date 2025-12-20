@@ -149,7 +149,7 @@ where
     where
         T: FromSqlExt<'s>,
     {
-        let (idx, ty) = self.get_idx_ty::<T>(idx, T::accepts)?;
+        let (idx, ty) = self.get_idx_ty::<T>(idx, T::accepts_ext)?;
         FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
 
@@ -193,7 +193,7 @@ where
 
     /// Like [`Self::get_zc`], but returns a `Result` rather than panicking.
     pub fn try_get_zc(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<BytesStr>, Error> {
-        let (idx, ty) = self.get_idx_ty::<BytesStr>(idx, BytesStr::accepts)?;
+        let (idx, ty) = self.get_idx_ty::<BytesStr>(idx, BytesStr::accepts_ext)?;
         FromSqlExt::from_sql_nullable_ext(ty, self.col_buffer(idx)).map_err(Into::into)
     }
 

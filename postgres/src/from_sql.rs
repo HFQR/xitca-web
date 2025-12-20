@@ -3,7 +3,7 @@ use core::ops::Range;
 use xitca_io::bytes::Bytes;
 use xitca_unsafe_collection::bytes::BytesStr;
 
-use super::types::{FromSql, Type};
+use super::types::{FromSql, Type, WasNull};
 
 pub type FromSqlError = Box<dyn core::error::Error + Sync + Send>;
 
@@ -22,19 +22,38 @@ pub type FromSqlError = Box<dyn core::error::Error + Sync + Send>;
 /// }
 /// ```
 pub trait FromSqlExt<'a>: Sized {
+    /// byte parser of non null Postgres type
     /// [Type] represents the Postgres type hint which Self must be matching.
     /// [Bytes] represents the reference of raw bytes of row data Self belongs to.
     /// [Range] represents the start and end indexing into the raw data for correctly parsing Self.
-    /// When [Range] is an empty value it indicates trait implementor encounters a null pg value. It's
-    /// suggested to call [Range::is_empty] to check for this case and properly handle it
-    fn from_sql_nullable_ext(ty: &Type, col: (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError>;
+    fn from_sql_ext(ty: &Type, col: (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError>;
 
-    /// Determines if a value of this type can be created from the specified Postgres [Type].
-    fn accepts(ty: &Type) -> bool;
+    /// Creates a new value of this type from a `NULL` SQL value.
+    ///
+    /// The caller of this method is responsible for ensuring that this type
+    /// is compatible with the Postgres `Type`.
+    ///
+    /// The default implementation returns `Err(Box::new(WasNull))`.
+    #[allow(unused_variables)]
+    #[inline]
+    fn from_sql_null_ext(ty: &Type) -> Result<Self, FromSqlError> {
+        Err(Box::new(WasNull))
+    }
+
+    /// A convenience function that delegates to `from_sql` and `from_sql_null`.
+    fn from_sql_nullable_ext(ty: &Type, col: (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
+        match col.0.is_empty() {
+            false => Self::from_sql_ext(ty, col),
+            true => Self::from_sql_null_ext(ty),
+        }
+    }
+
+    /// Determines if a value of this type can be created from the specified Postgres `Type`.
+    fn accepts_ext(ty: &Type) -> bool;
 }
 
 impl<'a> FromSqlExt<'a> for BytesStr {
-    fn from_sql_nullable_ext(ty: &Type, (range, buf): (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
+    fn from_sql_ext(ty: &Type, (range, buf): (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
         // copy/paste from postgres-protocol dependency.
         fn adjust_range(name: &str, range: &Range<usize>, buf: &Bytes) -> Result<(usize, usize), FromSqlError> {
             if buf[range.start] == 1u8 {
@@ -42,11 +61,6 @@ impl<'a> FromSqlExt<'a> for BytesStr {
             } else {
                 Err(format!("only {name} version 1 supported").into())
             }
-        }
-
-        if range.is_empty() {
-            return <&str as FromSql>::from_sql_null(ty)
-                .map(|_| unreachable!("<&str as FromSql>::from_sql_null should always yield Result::Err branch"));
         }
 
         let (start, end) = match ty.name() {
@@ -60,48 +74,39 @@ impl<'a> FromSqlExt<'a> for BytesStr {
     }
 
     #[inline]
-    fn accepts(ty: &Type) -> bool {
+    fn accepts_ext(ty: &Type) -> bool {
         <&str as FromSql>::accepts(ty)
-    }
-}
-
-impl<'a> FromSqlExt<'a> for Option<BytesStr> {
-    #[inline]
-    fn from_sql_nullable_ext(ty: &Type, col: (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
-        BytesStr::from_sql_nullable_ext(ty, col).map(Some)
-    }
-
-    #[inline]
-    fn accepts(ty: &Type) -> bool {
-        <BytesStr as FromSqlExt>::accepts(ty)
     }
 }
 
 impl<'a> FromSqlExt<'a> for Bytes {
     #[inline]
-    fn from_sql_nullable_ext(ty: &Type, (range, buf): (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
-        if range.is_empty() {
-            return <&[u8] as FromSql>::from_sql_null(ty)
-                .map(|_| unreachable!("<&[u8] as FromSql>::from_sql_null should always yield Result::Err branch"));
-        }
-
+    fn from_sql_ext(_: &Type, (range, buf): (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
         Ok(buf.slice(range.start..range.end))
     }
 
     #[inline]
-    fn accepts(ty: &Type) -> bool {
+    fn accepts_ext(ty: &Type) -> bool {
         <&[u8] as FromSql>::accepts(ty)
     }
 }
 
-impl<'a> FromSqlExt<'a> for Option<Bytes> {
+impl<'a, T> FromSqlExt<'a> for Option<T>
+where
+    T: FromSqlExt<'a>,
+{
     #[inline]
-    fn from_sql_nullable_ext(ty: &Type, col: (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
-        Bytes::from_sql_nullable_ext(ty, col).map(Some)
+    fn from_sql_ext(ty: &Type, raw: (&Range<usize>, &'a Bytes)) -> Result<Option<T>, FromSqlError> {
+        <T as FromSqlExt>::from_sql_ext(ty, raw).map(Some)
     }
 
     #[inline]
-    fn accepts(ty: &Type) -> bool {
-        <Bytes as FromSqlExt>::accepts(ty)
+    fn from_sql_null_ext(_: &Type) -> Result<Option<T>, FromSqlError> {
+        Ok(None)
+    }
+
+    #[inline]
+    fn accepts_ext(ty: &Type) -> bool {
+        <T as FromSqlExt>::accepts_ext(ty)
     }
 }

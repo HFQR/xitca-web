@@ -19,6 +19,7 @@
 - change `Prepare::_get_type` to accept plain async trait method 
 - change `pool::Pool`'s dead connection detection lifecycle
 - change `AsyncLendingIterator::try_collect_into` to mirror the public API of nightly Rust's `iter_collect_into` feature
+- change `FromSqlExt` trait method to mirror `postgres_types::FromSql` trait behavior. For migration move paring logic to `FromSqlExt::from_sql_ext` method and null value logic to `FromSqlExt::from_sql_null_ext`
 
 # 0.2.1
 ## Fix
