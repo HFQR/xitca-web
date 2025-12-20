@@ -26,7 +26,7 @@ fn query_unnamed() {
         .execute_blocking(&cli)
         .unwrap();
 
-    let mut stream = Statement::unnamed(
+    let mut stream = Statement::named(
         "INSERT INTO foo (name, age) VALUES ($1, $2), ($3, $4), ($5, $6) returning name, age",
         &[Type::TEXT, Type::INT4, Type::TEXT, Type::INT4, Type::TEXT, Type::INT4],
     )
