@@ -381,6 +381,8 @@ where
     }
 }
 
+/// collect how many hows has been modified in async
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct RowAffected {
     res: Response,
     rows_affected: u64,
