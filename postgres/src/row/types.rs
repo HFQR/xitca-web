@@ -205,7 +205,7 @@ where
 
     /// Like `RowSimple::get`, but returns a `Result` rather than panicking.
     pub fn try_get(&self, idx: impl RowIndexAndType + fmt::Display) -> Result<Option<&str>, Error> {
-        let (idx, ty) = self.get_idx_ty::<&str>(idx, <&str as FromSql>::accepts)?;
+        let (idx, ty) = self.get_idx_ty::<&str>(idx, <&str>::accepts)?;
         FromSql::from_sql_nullable(ty, self.body.buffer().get(self.ranges.as_ref()[idx].clone())).map_err(Into::into)
     }
 }

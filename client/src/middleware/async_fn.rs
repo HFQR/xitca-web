@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     response::Response,
-    service::{async_fn, Service, ServiceRequest},
+    service::{Service, ServiceRequest, async_fn},
 };
 
 /// middleware to wrap async function as a service.

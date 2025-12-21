@@ -46,7 +46,7 @@ where
                             key,
                             conn: c.clone(),
                             destroy_on_drop: false,
-                        })
+                        });
                     }
                     Some(PooledConnection::Spawning(notify)) => notify.clone(),
                     None => {

@@ -55,22 +55,22 @@ pub trait FromSqlExt<'a>: Sized {
 impl<'a> FromSqlExt<'a> for BytesStr {
     fn from_sql_ext(ty: &Type, (range, buf): (&Range<usize>, &'a Bytes)) -> Result<Self, FromSqlError> {
         // copy/paste from postgres-protocol dependency.
-        fn adjust_range(name: &str, range: &Range<usize>, buf: &Bytes) -> Result<(usize, usize), FromSqlError> {
-            if buf[range.start] == 1u8 {
-                Ok((range.start + 1, range.end))
+        fn adjust_start(name: &str, range_start: usize, buf: &Bytes) -> Result<usize, FromSqlError> {
+            if buf[range_start] == 1u8 {
+                Ok(range_start + 1)
             } else {
                 Err(format!("only {name} version 1 supported").into())
             }
         }
 
-        let (start, end) = match ty.name() {
-            "ltree" => adjust_range("ltree", range, buf)?,
-            "lquery" => adjust_range("lquery", range, buf)?,
-            "ltxtquery" => adjust_range("ltxtquery", range, buf)?,
-            _ => (range.start, range.end),
+        let start = match ty.name() {
+            "ltree" => adjust_start("ltree", range.start, buf)?,
+            "lquery" => adjust_start("lquery", range.start, buf)?,
+            "ltxtquery" => adjust_start("ltxtquery", range.start, buf)?,
+            _ => range.start,
         };
 
-        BytesStr::try_from(buf.slice(start..end)).map_err(Into::into)
+        BytesStr::try_from(buf.slice(start..range.end)).map_err(Into::into)
     }
 
     #[inline]

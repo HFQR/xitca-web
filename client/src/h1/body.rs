@@ -1,7 +1,7 @@
 use std::{
     io,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use futures_core::stream::Stream;
