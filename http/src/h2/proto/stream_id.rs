@@ -46,7 +46,7 @@ impl StreamId {
     /// was initiated by the server.
     pub const fn is_server_initiated(&self) -> bool {
         let id = self.0;
-        id != 0 && id.is_multiple_of(2)
+        id != 0 && id % 2 == 0
     }
 
     /// Return a new `StreamId` for stream 0.

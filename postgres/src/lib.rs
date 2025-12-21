@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
-#![allow(clippy::collapsible_if)]
 
 mod cancel;
 mod client;

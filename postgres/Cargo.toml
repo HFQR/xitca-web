@@ -9,6 +9,7 @@ keywords = ["xitca-web", "database", "postgres", "sql", "async"]
 categories = ["database"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
+rust-version.workspace = true
 
 [lints]
 workspace = true

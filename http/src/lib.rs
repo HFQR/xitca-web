@@ -35,7 +35,6 @@
 //! ```
 
 #![forbid(unsafe_code)]
-#![allow(clippy::collapsible_if)]
 
 mod tls;
 
