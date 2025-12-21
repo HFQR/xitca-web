@@ -14,7 +14,7 @@ mod tls;
 pub(crate) mod quic;
 
 #[cfg(feature = "io-uring")]
-mod io_uring;
+pub(crate) mod io_uring;
 
 use core::{
     future::{Future, IntoFuture},

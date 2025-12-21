@@ -28,7 +28,7 @@ enum State {
 }
 
 impl UringDriver {
-    pub(super) fn from_tcp(drv: GenericDriver<xitca_io::net::TcpStream>) -> Self {
+    pub(crate) fn from_tcp(drv: GenericDriver<xitca_io::net::TcpStream>) -> Self {
         let GenericDriver { io, read_buf, rx, .. } = drv;
         Self {
             io: TcpStream::from_std(io.into_std().unwrap()),

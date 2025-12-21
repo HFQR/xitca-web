@@ -105,7 +105,17 @@ impl Pool {
         Box::pin(async move {
             let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
             match driver {
-                Driver::Tcp(drv) => drive(drv),
+                Driver::Tcp(drv) => {
+                    #[cfg(feature = "io-uring")]
+                    {
+                        drive_uring(drv)
+                    }
+
+                    #[cfg(not(feature = "io-uring"))]
+                    {
+                        drive(drv)
+                    }
+                }
                 Driver::Dynamic(drv) => drive(drv),
                 #[cfg(feature = "tls")]
                 Driver::Tls(drv) => drive(drv),
@@ -125,6 +135,19 @@ fn drive(mut drv: GenericDriver<impl AsyncIo + Send + 'static>) {
     tokio::task::spawn(async move {
         while drv.try_next().await?.is_some() {
             // TODO: add notify listen callback to Pool
+        }
+        Ok::<_, Error>(())
+    });
+}
+
+#[cfg(feature = "io-uring")]
+fn drive_uring(drv: GenericDriver<xitca_io::net::TcpStream>) {
+    use core::{async_iter::AsyncIterator, future::poll_fn, pin::pin};
+
+    tokio::task::spawn_local(async move {
+        let mut iter = pin!(crate::driver::io_uring::UringDriver::from_tcp(drv).into_iter());
+        while let Some(res) = poll_fn(|cx| iter.as_mut().poll_next(cx)).await {
+            let _ = res?;
         }
         Ok::<_, Error>(())
     });
@@ -614,6 +637,7 @@ impl Future for StatementCacheFuture<'_> {
     }
 }
 
+#[cfg(not(feature = "io-uring"))]
 #[cfg(test)]
 mod test {
     use super::*;
