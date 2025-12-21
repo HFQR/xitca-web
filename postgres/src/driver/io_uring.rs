@@ -1,9 +1,4 @@
-use core::{
-    async_iter::AsyncIterator,
-    future::{pending, poll_fn},
-    mem,
-    pin::pin,
-};
+use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
 
 use std::{io, net::Shutdown};
 
@@ -104,8 +99,8 @@ impl UringDriver {
                     (State::Running, State::Running) => {
                         write.as_mut().select(poll_fn(|cx| read.as_mut().poll_next(cx))).await
                     }
-                    (State::Running, _) => write.as_mut().select(pending()).await,
-                    (_, State::Running) => pending().select(poll_fn(|cx| read.as_mut().poll_next(cx))).await,
+                    (State::Running, _) => SelectOutput::A(write.as_mut().await),
+                    (_, State::Running) => SelectOutput::B(poll_fn(|cx| read.as_mut().poll_next(cx)).await),
                     (State::Closed(None), State::Closed(None)) => {
                         if let Err(e) = self.io.shutdown(Shutdown::Both) {
                             yield Err(e.into());
