@@ -1,4 +1,11 @@
-use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
+use core::{
+    async_iter::AsyncIterator,
+    future::{pending, poll_fn},
+    mem,
+    pin::pin,
+};
+
+use std::{io, net::Shutdown};
 
 use postgres_protocol::message::backend;
 use xitca_io::{
@@ -10,15 +17,19 @@ use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::error::Error;
 
-use super::{
-    codec::ResponseMessage,
-    generic::{DriverRx, GenericDriver, WaitState},
-};
+use super::generic::{DriverRx, GenericDriver, WaitState};
 
 pub struct UringDriver {
     io: TcpStream,
     read_buf: BytesMut,
     rx: DriverRx,
+    read_state: State,
+    write_state: State,
+}
+
+enum State {
+    Running,
+    Closed(Option<io::Error>),
 }
 
 impl UringDriver {
@@ -28,6 +39,8 @@ impl UringDriver {
             io: TcpStream::from_std(io.into_std().unwrap()),
             read_buf: read_buf.into_inner(),
             rx,
+            read_state: State::Running,
+            write_state: State::Running,
         }
     }
 
@@ -43,20 +56,20 @@ impl UringDriver {
                             let (res, _) = write_all(&self.io, buf).await;
                             res?;
                         }
-                        WaitState::WantClose => return Ok(()),
+                        WaitState::WantClose => return Ok::<_, io::Error>(()),
                     }
                 }
             };
 
             let read = || async gen {
                 loop {
-                    match try_decode(&self.rx, &mut read_buf) {
+                    match self.rx.try_decode(&mut read_buf) {
                         Ok(Some(msg)) => {
                             yield Ok(msg);
                             continue;
                         }
                         Err(e) => {
-                            yield Err(e);
+                            yield Err(SelectOutput::A(e));
                             return;
                         }
                         Ok(None) => {}
@@ -76,7 +89,7 @@ impl UringDriver {
                         Ok(0) => return,
                         Ok(_) => {}
                         Err(e) => {
-                            yield Err(e.into());
+                            yield Err(SelectOutput::B(e));
                             return;
                         }
                     }
@@ -86,67 +99,47 @@ impl UringDriver {
             let mut read = pin!(read());
             let mut write = pin!(write());
 
-            let mut read_err: Option<Error> = None;
-            let mut write_err: Option<Error> = None;
-
             loop {
-                match (write.as_mut()).select(poll_fn(|cx| read.as_mut().poll_next(cx))).await {
-                    SelectOutput::A(Ok(_)) => break,
-                    SelectOutput::A(Err(e)) => {
-                        write_err = Some(e);
-                        break;
+                let res = match (&mut self.write_state, &mut self.read_state) {
+                    (State::Running, State::Running) => {
+                        write.as_mut().select(poll_fn(|cx| read.as_mut().poll_next(cx))).await
                     }
+                    (State::Running, _) => write.as_mut().select(pending()).await,
+                    (_, State::Running) => pending().select(poll_fn(|cx| read.as_mut().poll_next(cx))).await,
+                    (State::Closed(None), State::Closed(None)) => {
+                        if let Err(e) = self.io.shutdown(Shutdown::Both) {
+                            yield Err(e.into());
+                        }
+                        return;
+                    }
+                    (State::Closed(err_w), State::Closed(err_r)) => {
+                        yield Err(Error::driver_io(err_r.take(), err_w.take()));
+                        return;
+                    }
+                };
+
+                match res {
+                    SelectOutput::A(Ok(_)) => self.write_state = State::Closed(None),
+                    SelectOutput::A(Err(e)) => self.write_state = State::Closed(Some(e)),
                     SelectOutput::B(Some(Ok(msg))) => {
                         yield Ok(msg);
                     }
-                    SelectOutput::B(Some(Err(e))) => {
-                        read_err = Some(e);
-                        if let Err(e) = write.await {
-                            write_err = Some(e);
+                    SelectOutput::B(Some(Err(e))) => match e {
+                        SelectOutput::A(e) => {
+                            yield Err(e);
+                            return;
                         }
-                        break;
-                    }
-                    SelectOutput::B(None) => break,
-                }
-            }
-
-            while let Some(res) = poll_fn(|cx| read.as_mut().poll_next(cx)).await {
-                match res {
-                    Ok(msg) => yield Ok(msg),
-                    Err(e) => {
-                        read_err = Some(e);
-                        break;
+                        SelectOutput::B(e) => {
+                            self.read_state = State::Closed(Some(e));
+                        }
+                    },
+                    SelectOutput::B(None) => {
+                        self.read_state = State::Closed(None);
                     }
                 }
             }
-
-            if read_err.is_some() || write_err.is_some() {
-                // yield Err(Error::driver_io(read_err, write_err));
-                return;
-            }
-
-            if let Err(e) = self.io.shutdown(std::net::Shutdown::Both) {
-                yield Err(e.into());
-            }
         }
     }
-}
-
-fn try_decode(rx: &DriverRx, read_buf: &mut BytesMut) -> Result<Option<backend::Message>, Error> {
-    let mut inner = rx.guarded.lock().unwrap();
-    while let Some(res) = ResponseMessage::try_from_buf(read_buf)? {
-        match res {
-            ResponseMessage::Normal(mut msg) => {
-                let complete = msg.complete();
-                let _ = inner.res.front_mut().ok_or_else(|| msg.parse_error())?.send(msg);
-                if complete {
-                    inner.res.pop_front();
-                }
-            }
-            ResponseMessage::Async(msg) => return Ok(Some(msg)),
-        }
-    }
-    Ok(None)
 }
 
 #[cfg(test)]

@@ -211,7 +211,7 @@ where
 
     async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
-            if let Some(msg) = self.try_decode()? {
+            if let Some(msg) = self.rx.try_decode(self.read_buf.get_mut())? {
                 return Ok(Some(msg));
             }
 
@@ -376,10 +376,12 @@ where
         }
         self.write_state = WriteState::Closed(Some(e));
     }
+}
 
-    fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
-        let mut inner = self.rx.guarded.lock().unwrap();
-        while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
+impl DriverRx {
+    pub(super) fn try_decode(&self, read_buf: &mut BytesMut) -> Result<Option<backend::Message>, Error> {
+        let mut inner = self.guarded.lock().unwrap();
+        while let Some(res) = ResponseMessage::try_from_buf(read_buf)? {
             match res {
                 ResponseMessage::Normal(mut msg) => {
                     let complete = msg.complete();
