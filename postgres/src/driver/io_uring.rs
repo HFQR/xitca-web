@@ -1,11 +1,9 @@
-use core::{async_iter::AsyncIterator, mem};
-
-use std::io;
+use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
 
 use postgres_protocol::message::backend;
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{BoundedBuf, Slice, write_all},
+    io_uring::{BoundedBuf, write_all},
     net::io_uring::TcpStream,
 };
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -34,62 +32,101 @@ impl UringDriver {
     }
 
     pub fn into_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> + use<> {
+        let mut read_buf = mem::take(&mut self.read_buf);
+
         async gen move {
-            let mut read_buf = Some(mem::take(&mut self.read_buf));
-
-            let mut read_task = None;
-
-            loop {
-                if let Some(ref mut task) = read_task {
-                    match self.rx.wait().select(task).await {
-                        SelectOutput::A(WaitState::WantWrite) => {
+            let write = || async {
+                loop {
+                    match self.rx.wait().await {
+                        WaitState::WantWrite => {
                             let buf = self.rx.guarded.lock().unwrap().buf.split();
                             let (res, _) = write_all(&self.io, buf).await;
-                            match res {
-                                Ok(_) => continue,
-                                Err(e) => {
-                                    yield Err(e.into());
-                                    return;
-                                }
-                            }
+                            res?;
                         }
-                        SelectOutput::A(WaitState::WantClose) => return,
-                        SelectOutput::B::<_, (io::Result<usize>, Slice<BytesMut>)>((res, r_buf)) => {
-                            read_task.take();
-                            read_buf = Some(r_buf.into_inner());
-                            match res {
-                                Ok(0) => return,
-                                Ok(_) => {}
-                                Err(e) => {
-                                    yield Err(e.into());
-                                    return;
-                                }
-                            }
-                        }
-                    };
+                        WaitState::WantClose => return Ok(()),
+                    }
                 }
+            };
 
-                match try_decode(&self.rx, read_buf.as_mut().unwrap()) {
-                    Ok(Some(msg)) => {
+            let read = || async gen {
+                loop {
+                    match try_decode(&self.rx, &mut read_buf) {
+                        Ok(Some(msg)) => {
+                            yield Ok(msg);
+                            continue;
+                        }
+                        Err(e) => {
+                            yield Err(e);
+                            return;
+                        }
+                        Ok(None) => {}
+                    }
+
+                    let len = read_buf.len();
+
+                    if len == read_buf.capacity() {
+                        read_buf.reserve(4096);
+                    }
+
+                    let (res, b) = self.io.read(read_buf.slice(len..)).await;
+
+                    read_buf = b.into_inner();
+
+                    match res {
+                        Ok(0) => return,
+                        Ok(_) => {}
+                        Err(e) => {
+                            yield Err(e.into());
+                            return;
+                        }
+                    }
+                }
+            };
+
+            let mut read = pin!(read());
+            let mut write = pin!(write());
+
+            let mut read_err: Option<Error> = None;
+            let mut write_err: Option<Error> = None;
+
+            loop {
+                match (write.as_mut()).select(poll_fn(|cx| read.as_mut().poll_next(cx))).await {
+                    SelectOutput::A(Ok(_)) => break,
+                    SelectOutput::A(Err(e)) => {
+                        write_err = Some(e);
+                        break;
+                    }
+                    SelectOutput::B(Some(Ok(msg))) => {
                         yield Ok(msg);
-                        continue;
                     }
-                    Err(e) => {
-                        yield Err(e);
-                        return;
+                    SelectOutput::B(Some(Err(e))) => {
+                        read_err = Some(e);
+                        if let Err(e) = write.await {
+                            write_err = Some(e);
+                        }
+                        break;
                     }
-                    Ok(None) => {}
-                };
-
-                let mut buf = read_buf.take().unwrap();
-
-                let len = buf.len();
-
-                if len == buf.capacity() {
-                    buf.reserve(4096);
+                    SelectOutput::B(None) => break,
                 }
+            }
 
-                read_task.replace(Box::pin(self.io.read(buf.slice(len..))));
+            while let Some(res) = poll_fn(|cx| read.as_mut().poll_next(cx)).await {
+                match res {
+                    Ok(msg) => yield Ok(msg),
+                    Err(e) => {
+                        read_err = Some(e);
+                        break;
+                    }
+                }
+            }
+
+            if read_err.is_some() || write_err.is_some() {
+                // yield Err(Error::driver_io(read_err, write_err));
+                return;
+            }
+
+            if let Err(e) = self.io.shutdown(std::net::Shutdown::Both) {
+                yield Err(e.into());
             }
         }
     }
