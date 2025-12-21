@@ -346,87 +346,76 @@ pub(crate) struct StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
     pub(crate) cli: &'c C,
 }
 
-#[cfg(feature = "compat")]
-pub(crate) mod compat {
-    use core::ops::Deref;
+/// functions the same as [`StatementGuarded`]
+///
+/// instead of work with a reference this guard offers ownership without named lifetime constraint
+pub struct StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    stmt: Statement,
+    cli: C,
+}
 
-    use std::sync::Arc;
-
-    use super::{Query, Statement, StatementCancel};
-
-    /// functions the same as [`StatementGuarded`]
-    ///
-    /// instead of work with a reference this guard offers ownership without named lifetime constraint.
-    ///
-    /// [`StatementGuarded`]: super::StatementGuarded
-    pub struct StatementGuarded<C>
-    where
-        C: Query,
-    {
-        stmt: Statement,
-        cli: C,
-    }
-
-    impl<C> Clone for StatementGuarded<C>
-    where
-        C: Query + Clone,
-    {
-        fn clone(&self) -> Self {
-            Self {
-                stmt: self.stmt.duplicate(),
-                cli: self.cli.clone(),
-            }
+impl<C> Clone for StatementGuardedOwned<C>
+where
+    C: Query + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            stmt: self.stmt.duplicate(),
+            cli: self.cli.clone(),
         }
     }
+}
 
-    impl<C> Drop for StatementGuarded<C>
-    where
-        C: Query,
-    {
-        fn drop(&mut self) {
-            // cancel statement when the last copy is about to be dropped.
-            if Arc::strong_count(&self.stmt.name) == 1 {
-                debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
-                debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
-                let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
-            }
+impl<C> Drop for StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    fn drop(&mut self) {
+        // cancel statement when the last copy is about to be dropped.
+        if Arc::strong_count(&self.stmt.name) == 1 {
+            debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
+            debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
+            let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
         }
     }
+}
 
-    impl<C> Deref for StatementGuarded<C>
-    where
-        C: Query,
-    {
-        type Target = Statement;
+impl<C> Deref for StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    type Target = Statement;
 
-        fn deref(&self) -> &Self::Target {
-            &self.stmt
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.stmt
+    }
+}
+
+impl<C> AsRef<Statement> for StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    fn as_ref(&self) -> &Statement {
+        &self.stmt
+    }
+}
+
+impl<C> StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    /// construct a new statement guard with raw statement and client
+    pub fn new(stmt: Statement, cli: C) -> Self {
+        Self { stmt, cli }
     }
 
-    impl<C> AsRef<Statement> for StatementGuarded<C>
-    where
-        C: Query,
-    {
-        fn as_ref(&self) -> &Statement {
-            &self.stmt
-        }
-    }
-
-    impl<C> StatementGuarded<C>
-    where
-        C: Query,
-    {
-        /// construct a new statement guard with raw statement and client
-        pub fn new(stmt: Statement, cli: C) -> Self {
-            Self { stmt, cli }
-        }
-
-        /// obtain client reference from guarded statement
-        /// can be helpful in use case where clinet object is not cheaply avaiable
-        pub fn client(&self) -> &C {
-            &self.cli
-        }
+    /// obtain client reference from guarded statement
+    /// can be helpful in use case where clinet object is not cheaply avaiable
+    pub fn client(&self) -> &C {
+        &self.cli
     }
 }
 

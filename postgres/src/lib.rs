@@ -81,8 +81,6 @@ pub mod compat {
     //! ```
     //!
     //! [`futures::Stream`]: futures_core::stream::Stream
-
-    pub use crate::statement::compat::StatementGuarded;
 }
 
 pub mod dev {
