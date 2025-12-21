@@ -13,7 +13,7 @@ use xitca_unsafe_collection::futures::{Select, SelectOutput};
 use crate::error::Error;
 
 use super::{
-    codec::{ResponseMessage, SenderState},
+    codec::ResponseMessage,
     generic::{DriverRx, GenericDriver, WaitState},
 };
 
@@ -100,12 +100,10 @@ fn try_decode(rx: &DriverRx, read_buf: &mut BytesMut) -> Result<Option<backend::
     while let Some(res) = ResponseMessage::try_from_buf(read_buf)? {
         match res {
             ResponseMessage::Normal(mut msg) => {
-                let front = inner.res.front_mut().ok_or_else(|| msg.parse_error())?;
-                match front.send(msg) {
-                    SenderState::Finish => {
-                        inner.res.pop_front();
-                    }
-                    SenderState::Continue => {}
+                let complete = msg.complete();
+                let _ = inner.res.front_mut().ok_or_else(|| msg.parse_error())?.send(msg);
+                if complete {
+                    inner.res.pop_front();
                 }
             }
             ResponseMessage::Async(msg) => return Ok(Some(msg)),
