@@ -25,6 +25,9 @@ quic = ["dep:quinn", "dep:rustls-pemfile", "tls"]
 # compatibility feature to enable implements with `futures` crate
 compat = []
 
+# io-uring driver optional
+io-uring = ["xitca-io/runtime-uring", "dep:tokio-uring"]
+
 # nightly compiler specific feature. can only be enabled with nightly Rust
 nightly = []
 
@@ -48,6 +51,9 @@ xitca-tls = { version = "0.4.0", optional = true }
 # quic
 quinn = { version = "0.11", features = ["ring"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
+
+#io-uring
+tokio-uring = { version = "0.5", optional = true }
 
 [dev-dependencies]
 xitca-postgres-codegen = "0.1"

@@ -14,7 +14,7 @@ use std::{
 use postgres_protocol::message::{backend, frontend};
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io::{AsyncIo, Interest, Ready},
+    io::{AsyncIo, Interest},
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
@@ -104,11 +104,11 @@ impl Drop for DriverRx {
 }
 
 pub(crate) struct SharedState {
-    guarded: Mutex<State>,
+    pub(super) guarded: Mutex<State>,
 }
 
 impl SharedState {
-    fn wait(&self) -> impl Future<Output = WaitState> + use<'_> {
+    pub(super) fn wait(&self) -> impl Future<Output = WaitState> + use<'_> {
         poll_fn(|cx| {
             let mut inner = self.guarded.lock().unwrap();
             if !inner.buf.is_empty() {
@@ -123,16 +123,16 @@ impl SharedState {
     }
 }
 
-enum WaitState {
+pub(super) enum WaitState {
     WantWrite,
     WantClose,
 }
 
-struct State {
-    closed: bool,
-    buf: BytesMut,
-    res: VecDeque<ResponseSender>,
-    waker: Option<Waker>,
+pub(super) struct State {
+    pub(super) closed: bool,
+    pub(super) buf: BytesMut,
+    pub(super) res: VecDeque<ResponseSender>,
+    pub(super) waker: Option<Waker>,
 }
 
 impl State {
@@ -148,9 +148,9 @@ impl State {
 }
 
 pub struct GenericDriver<Io> {
-    io: Io,
-    rx: DriverRx,
-    read_buf: PagedBytesMut,
+    pub(super) io: Io,
+    pub(super) read_buf: PagedBytesMut,
+    pub(super) rx: DriverRx,
     read_state: ReadState,
     write_state: WriteState,
 }
@@ -211,46 +211,24 @@ where
 
     async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
-            if let Some(msg) = self.try_decode()? {
+            if let Some(msg) = self.rx.try_decode(self.read_buf.get_mut())? {
                 return Ok(Some(msg));
             }
 
-            enum InterestOrReady {
-                Interest(Interest),
-                Ready(Ready),
-            }
-
-            let state = match (&mut self.read_state, &mut self.write_state) {
+            let res = match (&mut self.read_state, &mut self.write_state) {
                 (ReadState::WantRead, WriteState::Waiting) => {
-                    match self.rx.wait().select(self.io.ready(Interest::READABLE)).await {
-                        SelectOutput::A(WaitState::WantWrite) => {
-                            self.write_state = WriteState::WantWrite;
-                            InterestOrReady::Interest(INTEREST_READ_WRITE)
-                        }
-                        SelectOutput::A(WaitState::WantClose) => {
-                            self.write_state = WriteState::Closed(None);
-                            continue;
-                        }
-                        SelectOutput::B(ready) => InterestOrReady::Ready(ready?),
-                    }
+                    self.io.ready(Interest::READABLE).select(self.rx.wait()).await
                 }
                 (ReadState::WantRead, WriteState::WantWrite | WriteState::WantFlush) => {
-                    InterestOrReady::Interest(INTEREST_READ_WRITE)
+                    SelectOutput::A(self.io.ready(INTEREST_READ_WRITE).await)
                 }
-                (ReadState::WantRead, WriteState::Closed(_)) => InterestOrReady::Interest(Interest::READABLE),
+                (ReadState::WantRead, WriteState::Closed(_)) => {
+                    SelectOutput::A(self.io.ready(Interest::READABLE).await)
+                }
                 (ReadState::Closed(_), WriteState::WantFlush | WriteState::WantWrite) => {
-                    InterestOrReady::Interest(Interest::WRITABLE)
+                    SelectOutput::A(self.io.ready(Interest::WRITABLE).await)
                 }
-                (ReadState::Closed(_), WriteState::Waiting) => match self.rx.wait().await {
-                    WaitState::WantWrite => {
-                        self.write_state = WriteState::WantWrite;
-                        InterestOrReady::Interest(Interest::WRITABLE)
-                    }
-                    WaitState::WantClose => {
-                        self.write_state = WriteState::Closed(None);
-                        continue;
-                    }
-                },
+                (ReadState::Closed(_), WriteState::Waiting) => SelectOutput::B(self.rx.wait().await),
                 (ReadState::Closed(None), WriteState::Closed(None)) => {
                     poll_fn(|cx| Pin::new(&mut self.io).poll_shutdown(cx)).await?;
                     return Ok(None);
@@ -260,23 +238,25 @@ where
                 }
             };
 
-            let ready = match state {
-                InterestOrReady::Ready(ready) => ready,
-                InterestOrReady::Interest(interest) => self.io.ready(interest).await?,
-            };
+            match res {
+                SelectOutput::A(res) => {
+                    let ready = res?;
+                    if ready.is_readable() {
+                        match self.try_read() {
+                            Ok(Some(0)) => self.on_read_close(None),
+                            Ok(_) => {}
+                            Err(e) => self.on_read_close(Some(e)),
+                        }
+                    }
 
-            if ready.is_readable() {
-                match self.try_read() {
-                    Ok(Some(0)) => self.on_read_close(None),
-                    Ok(_) => {}
-                    Err(e) => self.on_read_close(Some(e)),
+                    if ready.is_writable() {
+                        if let Err(e) = self.try_write() {
+                            self.on_write_err(e);
+                        }
+                    }
                 }
-            }
-
-            if ready.is_writable() {
-                if let Err(e) = self.try_write() {
-                    self.on_write_err(e);
-                }
+                SelectOutput::B(WaitState::WantWrite) => self.write_state = WriteState::WantWrite,
+                SelectOutput::B(WaitState::WantClose) => self.write_state = WriteState::Closed(None),
             }
         }
     }
@@ -376,10 +356,12 @@ where
         }
         self.write_state = WriteState::Closed(Some(e));
     }
+}
 
-    fn try_decode(&mut self) -> Result<Option<backend::Message>, Error> {
-        let mut inner = self.rx.guarded.lock().unwrap();
-        while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
+impl DriverRx {
+    pub(super) fn try_decode(&self, read_buf: &mut BytesMut) -> Result<Option<backend::Message>, Error> {
+        let mut inner = self.guarded.lock().unwrap();
+        while let Some(res) = ResponseMessage::try_from_buf(read_buf)? {
             match res {
                 ResponseMessage::Normal(mut msg) => {
                     let complete = msg.complete();
