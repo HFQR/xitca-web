@@ -12,7 +12,7 @@ pub enum Error {
     Io(io::Error),
     Std(Box<dyn error::Error + Send + Sync>),
     InvalidUri(InvalidUri),
-    UnexpectedResponse(ErrorResponse),
+    UnexpectedResponse(Box<ErrorResponse>),
     #[cfg(feature = "http1")]
     H1(crate::h1::Error),
     #[cfg(feature = "http2")]
@@ -285,7 +285,7 @@ impl error::Error for ErrorResponse {}
 
 impl From<ErrorResponse> for Error {
     fn from(e: ErrorResponse) -> Self {
-        Self::UnexpectedResponse(e)
+        Self::UnexpectedResponse(Box::new(e))
     }
 }
 

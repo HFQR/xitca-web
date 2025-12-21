@@ -138,7 +138,7 @@ fn drive(mut drv: GenericDriver<impl AsyncIo + Send + 'static>) {
 /// [`Execute::execute`] on a [`StatementNamed`] with &[`PoolConnection`] the pool connection does nothing
 /// special and function the same as a regular [`Client`]. In order to utilize the cache caller must execute
 /// the named statement with &mut [`PoolConnection`]. With a mutable reference of pool connection it will do
-/// local cache look up for statement and hand out one in the type of [`Arc<Statement>`] if any found. If no
+/// local cache look up for statement and hand out one in the type of [`Statement`] if any found. If no
 /// copy is found in the cache pool connection will prepare a new statement and insert it into the cache.
 /// ## Examples
 /// ```
@@ -157,7 +157,7 @@ fn drive(mut drv: GenericDriver<impl AsyncIo + Send + 'static>) {
 /// - query statement repeatedly called intensely can benefit from cache.
 /// - query statement with low latency requirement can benefit from upfront cache.
 /// - rare query statement can benefit from no caching by reduce resource usage from the server side. For low
-///   latency of rare query consider use [`Statement::unnamed`] as alternative.
+///   latency of rare query consider use [`StatementNamed::bind`] as alternative.
 pub struct PoolConnection<'a> {
     pool: &'a Pool,
     conn: Option<PoolClient>,

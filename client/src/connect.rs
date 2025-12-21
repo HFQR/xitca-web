@@ -52,17 +52,12 @@ fn scheme_to_port(scheme: Option<&str>) -> Option<u16> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Eq, PartialEq, Hash)]
 pub(crate) enum Addrs {
+    #[default]
     None,
     One(SocketAddr),
     Multi(VecDeque<SocketAddr>),
-}
-
-impl Default for Addrs {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl From<Option<SocketAddr>> for Addrs {

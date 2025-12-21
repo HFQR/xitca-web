@@ -1,6 +1,7 @@
 //! Multi-threaded server for Tcp/Udp/UnixDomain handling.
 
 #![forbid(unsafe_code)]
+#![allow(clippy::collapsible_if)]
 
 mod builder;
 mod server;

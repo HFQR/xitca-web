@@ -10,10 +10,15 @@ use crate::signals::{self, Signal, SignalFuture};
 use super::{Command, Server, handle::ServerHandle};
 
 #[must_use = "ServerFuture must be .await/ spawn as task / consumed with ServerFuture::wait."]
+#[derive(Default)]
 pub enum ServerFuture {
-    Init { server: Server, enable_signal: bool },
+    Init {
+        server: Server,
+        enable_signal: bool,
+    },
     Running(ServerFutureInner),
     Error(io::Error),
+    #[default]
     Finished,
 }
 
@@ -108,12 +113,6 @@ impl ServerFuture {
 pub struct ServerFutureInner {
     pub(crate) server: Server,
     pub(crate) signals: Option<SignalFuture>,
-}
-
-impl Default for ServerFuture {
-    fn default() -> Self {
-        Self::Finished
-    }
 }
 
 impl ServerFutureInner {

@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+
 mod error;
 mod route;
 mod service;
