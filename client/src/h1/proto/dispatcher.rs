@@ -12,8 +12,8 @@ use crate::{
     date::DateTimeHandle,
     h1::Error,
     http::{
-        header::{HeaderValue, EXPECT, HOST},
         Method, Request, Response, StatusCode,
+        header::{EXPECT, HOST, HeaderValue},
     },
 };
 
@@ -228,7 +228,7 @@ where
                     Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)))
                 } else {
                     ctx.decode_head(buf).map_err(Into::into)
-                }
+                };
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 stream.ready(Interest::READABLE).await?;

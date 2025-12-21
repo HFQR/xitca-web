@@ -1,4 +1,5 @@
 use core::{
+    cmp::Ordering,
     fmt,
     ops::{Deref, RangeBounds},
     str::{self, Utf8Error},
@@ -7,7 +8,7 @@ use core::{
 use bytes_crate::Bytes;
 
 /// reference counted String type. cheap to Clone and share between multiple threads.
-#[derive(Clone, Default, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Default, Debug)]
 pub struct BytesStr(Bytes);
 
 impl fmt::Display for BytesStr {
@@ -45,11 +46,21 @@ impl BytesStr {
         // SAFETY: check valid utf-8 in constructor
         unsafe { str::from_utf8_unchecked(self.0.as_ref()) }
     }
+
+    fn bytes(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 impl From<&str> for BytesStr {
     fn from(value: &str) -> Self {
         BytesStr(Bytes::copy_from_slice(value.as_bytes()))
+    }
+}
+
+impl From<String> for BytesStr {
+    fn from(value: String) -> Self {
+        BytesStr(Bytes::from(value))
     }
 }
 
@@ -66,8 +77,7 @@ impl TryFrom<&[u8]> for BytesStr {
     type Error = Utf8Error;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        str::from_utf8(value)?;
-        Ok(BytesStr(Bytes::copy_from_slice(value)))
+        str::from_utf8(value).map(From::from)
     }
 }
 
@@ -96,9 +106,39 @@ impl AsRef<str> for BytesStr {
     }
 }
 
+impl Eq for BytesStr {}
+
+impl PartialEq<Self> for BytesStr {
+    #[inline]
+    fn eq(&self, other: &BytesStr) -> bool {
+        self.bytes().eq(other.bytes())
+    }
+}
+
 impl PartialEq<str> for BytesStr {
     #[inline]
     fn eq(&self, other: &str) -> bool {
-        self.as_str() == other
+        self.bytes().eq(other.as_bytes())
+    }
+}
+
+impl Ord for BytesStr {
+    #[inline]
+    fn cmp(&self, other: &BytesStr) -> Ordering {
+        self.bytes().cmp(other.bytes())
+    }
+}
+
+impl PartialOrd for BytesStr {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialOrd<str> for BytesStr {
+    #[inline]
+    fn partial_cmp(&self, other: &str) -> Option<Ordering> {
+        self.bytes().partial_cmp(other.as_bytes())
     }
 }

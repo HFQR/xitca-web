@@ -21,6 +21,9 @@ members = [
     "http-ws",
 ]
 
+[workspace.package]
+rust-version = "1.85"
+
 [patch.crates-io]
 xitca-client = { path = "./client" }
 xitca-codegen = { path = "./codegen" }

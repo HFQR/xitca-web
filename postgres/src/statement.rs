@@ -108,20 +108,17 @@ impl Statement {
         &self.name
     }
 
+    pub(crate) fn columns_owned(&self) -> Arc<[Column]> {
+        self.columns.clone()
+    }
+
     /// construct a new named statement.
-    /// must be called with [`Execute::execute`] method for making a prepared statement.
+    /// can be called with [`Execute::execute`] method for making a prepared statement.
     ///
     /// [`Execute::execute`]: crate::execute::Execute::execute
     #[inline]
     pub const fn named<'a>(stmt: &'a str, types: &'a [Type]) -> StatementNamed<'a> {
         StatementNamed { stmt, types }
-    }
-
-    /// construct a new unnamed statement.
-    /// unnamed statement can bind to it's parameter values without being prepared by database.
-    #[inline]
-    pub const fn unnamed<'a>(stmt: &'a str, types: &'a [Type]) -> StatementUnnamed<'a> {
-        StatementUnnamed { stmt, types }
     }
 
     /// bind self to typed value parameters where they are encoded into a valid sql query in binary format
@@ -139,11 +136,11 @@ impl Statement {
     /// # }
     /// ```
     #[inline]
-    pub fn bind<P>(&self, params: P) -> StatementQuery<'_, P>
+    pub fn bind<P>(&self, params: P) -> StatementPreparedQuery<'_, P>
     where
         P: AsParams,
     {
-        StatementQuery { stmt: self, params }
+        StatementPreparedQuery { stmt: self, params }
     }
 
     /// [Statement::bind] for dynamic typed parameters
@@ -159,8 +156,15 @@ impl Statement {
     pub fn bind_dyn<'p, 't>(
         &self,
         params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> StatementQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
+    ) -> StatementPreparedQuery<'_, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
         self.bind(params.iter().cloned())
+    }
+
+    /// specialized binding api for zero sized parameters.
+    /// function the same as `Statement::bind([])`
+    #[inline]
+    pub fn bind_none(&self) -> StatementPreparedQuery<'_, [bool; 0]> {
+        self.bind([])
     }
 
     /// Returns the expected types of the statement's parameters.
@@ -185,16 +189,45 @@ impl Statement {
     }
 }
 
-#[derive(Clone, Copy)]
+/// a named statement that can be prepared separately
 pub struct StatementNamed<'a> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
 }
 
-impl StatementNamed<'_> {
+impl<'a> StatementNamed<'a> {
     fn name() -> String {
         let id = crate::NEXT_ID.fetch_add(1, Ordering::Relaxed);
         format!("s{id}")
+    }
+
+    /// function the same as [`Statement::bind`]
+    #[inline]
+    pub fn bind<P>(self, params: P) -> StatementQuery<'a, P> {
+        StatementQuery {
+            stmt: self.stmt,
+            types: self.types,
+            params,
+        }
+    }
+
+    /// function the same as [`Statement::bind_dyn`]
+    #[inline]
+    pub fn bind_dyn<'p, 't>(
+        self,
+        params: &'p [&'t (dyn ToSql + Sync)],
+    ) -> StatementQuery<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
+        self.bind(params.iter().cloned())
+    }
+
+    /// function the same as [`Statement::bind_none`]
+    #[inline]
+    pub fn bind_none(self) -> StatementQuery<'a, [bool; 0]> {
+        StatementQuery {
+            stmt: self.stmt,
+            types: self.types,
+            params: [],
+        }
     }
 }
 
@@ -234,147 +267,155 @@ impl<'a, 'c, C> From<(StatementNamed<'a>, &'c C)> for StatementCreateBlocking<'a
     }
 }
 
-/// an unnamed statement that don't need to be prepared separately
-/// it's bundled together with database query it associated that can be processed
-/// with at least one-round-trip to database
-pub struct StatementUnnamed<'a> {
-    pub(crate) stmt: &'a str,
-    pub(crate) types: &'a [Type],
-}
-
-impl<'a> StatementUnnamed<'a> {
-    /// function the same as [`Statement::bind`]
-    #[inline]
-    pub fn bind<P>(self, params: P) -> StatementUnnamedBind<'a, P> {
-        StatementUnnamedBind {
-            stmt: self.stmt,
-            types: self.types,
-            params,
-        }
-    }
-
-    /// function the same as [`Statement::bind_dyn`]
-    #[inline]
-    pub fn bind_dyn<'p, 't>(
-        self,
-        params: &'p [&'t (dyn ToSql + Sync)],
-    ) -> StatementUnnamedBind<'a, impl ExactSizeIterator<Item = &'t (dyn ToSql + Sync)> + Clone + 'p> {
-        self.bind(params.iter().cloned())
-    }
-}
-
-/// a named statement with it's query params
-pub struct StatementQuery<'a, P> {
+/// a named and already prepared statement with it's query params
+///
+/// after [`Execute::query`] by certain excutor it would produce [`RowStream`] as response
+///
+/// [`Execute::query`]: crate::execute::Execute::query
+/// [`RowStream`]: crate::query::RowStream
+pub struct StatementPreparedQuery<'a, P> {
     pub(crate) stmt: &'a Statement,
     pub(crate) params: P,
 }
 
-/// an unnamed statement with it's query param binding
-pub struct StatementUnnamedBind<'a, P> {
-    stmt: &'a str,
-    types: &'a [Type],
-    params: P,
+impl<'a, P> StatementPreparedQuery<'a, P> {
+    #[inline]
+    pub fn into_owned(self) -> StatementPreparedQueryOwned<'a, P> {
+        StatementPreparedQueryOwned {
+            stmt: self.stmt,
+            params: self.params,
+        }
+    }
 }
 
-pub(crate) struct StatementUnnamedQuery<'a, 'c, P, C> {
+/// owned version of [`StatementPreparedQuery`]
+///
+/// after [`Execute::query`] by certain excutor it would produce [`RowStreamOwned`] as response
+///
+/// [`Execute::query`]: crate::execute::Execute::query
+/// [`RowStreamOwned`]: crate::query::RowStreamOwned
+pub struct StatementPreparedQueryOwned<'a, P> {
+    pub(crate) stmt: &'a Statement,
+    pub(crate) params: P,
+}
+
+/// an unprepared statement with it's query params
+///
+/// Certain executor can make use of unprepared statement and offer addtional functionality
+/// # Examples
+/// ```rust
+/// # use xitca_postgres::{pool::Pool, types::Type, Execute, Statement};
+/// async fn execute_with_pool(pool: &Pool) {
+///     // connection pool can execute unprepared statement directly where statement preparing
+///     // execution and caching happens internally
+///     let rows = Statement::named("SELECT * FROM user WHERE id = $1", &[Type::INT4])
+///         .bind([9527])
+///         .query(pool)
+///         .await;
+/// }
+/// ```
+pub struct StatementQuery<'a, P> {
     pub(crate) stmt: &'a str,
     pub(crate) types: &'a [Type],
     pub(crate) params: P,
+}
+
+impl<'a, P> StatementQuery<'a, P> {
+    /// transform self to a single use of statement query with given executor
+    ///
+    /// See [`StatementSingleRTTQuery`] for explaination
+    pub fn into_single_rtt(self) -> StatementSingleRTTQuery<'a, P> {
+        StatementSingleRTTQuery { query: self }
+    }
+}
+
+/// an unprepared statement with it's query params and reference of certain executor
+/// given executor is tasked with prepare and query with a single round-trip to database
+pub struct StatementSingleRTTQuery<'a, P> {
+    query: StatementQuery<'a, P>,
+}
+
+impl<'a, P> StatementSingleRTTQuery<'a, P> {
+    pub(crate) fn into_with_cli<'c, C>(self, cli: &'c C) -> StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
+        StatementSingleRTTQueryWithCli { query: self.query, cli }
+    }
+}
+
+pub(crate) struct StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
+    pub(crate) query: StatementQuery<'a, P>,
     pub(crate) cli: &'c C,
 }
 
-impl<'a, 'c, P, C> From<(StatementUnnamedBind<'a, P>, &'c C)> for StatementUnnamedQuery<'a, 'c, P, C> {
-    fn from((bind, cli): (StatementUnnamedBind<'a, P>, &'c C)) -> Self {
+/// functions the same as [`StatementGuarded`]
+///
+/// instead of work with a reference this guard offers ownership without named lifetime constraint
+pub struct StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    stmt: Statement,
+    cli: C,
+}
+
+impl<C> Clone for StatementGuardedOwned<C>
+where
+    C: Query + Clone,
+{
+    fn clone(&self) -> Self {
         Self {
-            stmt: bind.stmt,
-            types: bind.types,
-            params: bind.params,
-            cli,
+            stmt: self.stmt.duplicate(),
+            cli: self.cli.clone(),
         }
     }
 }
 
-#[cfg(feature = "compat")]
-pub(crate) mod compat {
-    use core::ops::Deref;
-
-    use std::sync::Arc;
-
-    use super::{Query, Statement, StatementCancel};
-
-    /// functions the same as [`StatementGuarded`]
-    ///
-    /// instead of work with a reference this guard offers ownership without named lifetime constraint.
-    ///
-    /// [`StatementGuarded`]: super::StatementGuarded
-    pub struct StatementGuarded<C>
-    where
-        C: Query,
-    {
-        stmt: Statement,
-        cli: C,
-    }
-
-    impl<C> Clone for StatementGuarded<C>
-    where
-        C: Query + Clone,
-    {
-        fn clone(&self) -> Self {
-            Self {
-                stmt: self.stmt.duplicate(),
-                cli: self.cli.clone(),
-            }
+impl<C> Drop for StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    fn drop(&mut self) {
+        // cancel statement when the last copy is about to be dropped.
+        if Arc::strong_count(&self.stmt.name) == 1 {
+            debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
+            debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
+            let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
         }
     }
+}
 
-    impl<C> Drop for StatementGuarded<C>
-    where
-        C: Query,
-    {
-        fn drop(&mut self) {
-            // cancel statement when the last copy is about to be dropped.
-            if Arc::strong_count(&self.stmt.name) == 1 {
-                debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
-                debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
-                let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
-            }
-        }
+impl<C> Deref for StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    type Target = Statement;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stmt
+    }
+}
+
+impl<C> AsRef<Statement> for StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    fn as_ref(&self) -> &Statement {
+        &self.stmt
+    }
+}
+
+impl<C> StatementGuardedOwned<C>
+where
+    C: Query,
+{
+    /// construct a new statement guard with raw statement and client
+    pub fn new(stmt: Statement, cli: C) -> Self {
+        Self { stmt, cli }
     }
 
-    impl<C> Deref for StatementGuarded<C>
-    where
-        C: Query,
-    {
-        type Target = Statement;
-
-        fn deref(&self) -> &Self::Target {
-            &self.stmt
-        }
-    }
-
-    impl<C> AsRef<Statement> for StatementGuarded<C>
-    where
-        C: Query,
-    {
-        fn as_ref(&self) -> &Statement {
-            &self.stmt
-        }
-    }
-
-    impl<C> StatementGuarded<C>
-    where
-        C: Query,
-    {
-        /// construct a new statement guard with raw statement and client
-        pub fn new(stmt: Statement, cli: C) -> Self {
-            Self { stmt, cli }
-        }
-
-        /// obtain client reference from guarded statement
-        /// can be helpful in use case where clinet object is not cheaply avaiable
-        pub fn client(&self) -> &C {
-            &self.cli
-        }
+    /// obtain client reference from guarded statement
+    /// can be helpful in use case where clinet object is not cheaply avaiable
+    pub fn client(&self) -> &C {
+        &self.cli
     }
 }
 

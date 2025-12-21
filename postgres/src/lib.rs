@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![cfg_attr(feature = "io-uring", feature(async_iterator, gen_blocks))]
+#![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
 
 mod cancel;
 mod client;
@@ -81,8 +82,6 @@ pub mod compat {
     //! ```
     //!
     //! [`futures::Stream`]: futures_core::stream::Stream
-
-    pub use crate::statement::compat::StatementGuarded;
 }
 
 pub mod dev {

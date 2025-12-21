@@ -18,9 +18,12 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 
-use crate::error::{DriverDown, Error};
+use crate::{
+    error::{DriverDown, Error},
+    iter::AsyncLendingIterator,
+};
 
-use super::codec::{Response, ResponseMessage, ResponseSender, SenderState};
+use super::codec::{Response, ResponseMessage, ResponseSender};
 
 type PagedBytesMut = xitca_unsafe_collection::bytes::PagedBytesMut<4096>;
 
@@ -83,13 +86,13 @@ impl DriverTx {
     }
 }
 
-pub(super) struct DriverRx(Arc<SharedState>);
+pub(crate) struct DriverRx(Arc<SharedState>);
 
 impl Deref for DriverRx {
     type Target = SharedState;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 
@@ -100,7 +103,7 @@ impl Drop for DriverRx {
     }
 }
 
-pub(super) struct SharedState {
+pub(crate) struct SharedState {
     pub(super) guarded: Mutex<State>,
 }
 
@@ -181,8 +184,8 @@ where
         (
             Self {
                 io,
-                read_buf: PagedBytesMut::new(),
                 rx: DriverRx(state.clone()),
+                read_buf: PagedBytesMut::new(),
                 read_state: ReadState::WantRead,
                 write_state: WriteState::Waiting,
             },
@@ -206,7 +209,7 @@ where
         self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose())
     }
 
-    pub async fn try_next(&mut self) -> Result<Option<backend::Message>, Error> {
+    async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
         loop {
             if let Some(msg) = self.try_decode()? {
                 return Ok(Some(msg));
@@ -379,17 +382,31 @@ where
         while let Some(res) = ResponseMessage::try_from_buf(self.read_buf.get_mut())? {
             match res {
                 ResponseMessage::Normal(mut msg) => {
-                    let front = inner.res.front_mut().ok_or_else(|| msg.parse_error())?;
-                    match front.send(msg) {
-                        SenderState::Finish => {
-                            inner.res.pop_front();
-                        }
-                        SenderState::Continue => {}
+                    let complete = msg.complete();
+                    let _ = inner.res.front_mut().ok_or_else(|| msg.parse_error())?.send(msg);
+                    if complete {
+                        inner.res.pop_front();
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
             }
         }
         Ok(None)
+    }
+}
+
+impl<Io> AsyncLendingIterator for GenericDriver<Io>
+where
+    Io: AsyncIo + Send,
+{
+    type Ok<'i>
+        = backend::Message
+    where
+        Self: 'i;
+    type Err = Error;
+
+    #[inline]
+    fn try_next(&mut self) -> impl Future<Output = Result<Option<Self::Ok<'_>>, Self::Err>> + Send {
+        self._try_next()
     }
 }

@@ -9,10 +9,10 @@ use crate::{
     driver::codec::AsParams,
     error::Error,
     prepare::Prepare,
-    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
+    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned},
     statement::{
-        Statement, StatementCreate, StatementGuarded, StatementNamed, StatementQuery, StatementUnnamedBind,
-        StatementUnnamedQuery,
+        Statement, StatementCreate, StatementGuarded, StatementNamed, StatementPreparedQuery,
+        StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQuery,
     },
 };
 
@@ -27,12 +27,12 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        cli._query(self).map(RowAffected::from).into()
+        self.bind_none().execute(cli)
     }
 
     #[inline]
     fn query(self, cli: &C) -> Self::QueryOutput {
-        ready(cli._query(self))
+        self.bind_none().query(cli)
     }
 }
 
@@ -96,7 +96,7 @@ where
     }
 }
 
-impl<'s, C, P> Execute<&C> for StatementQuery<'s, P>
+impl<'s, C, P> Execute<&C> for StatementPreparedQuery<'s, P>
 where
     C: Query,
     P: AsParams,
@@ -115,7 +115,26 @@ where
     }
 }
 
-impl<'c, C, P> Execute<&'c C> for StatementUnnamedBind<'_, P>
+impl<'s, C, P> Execute<&C> for StatementPreparedQueryOwned<'s, P>
+where
+    C: Query,
+    P: AsParams,
+{
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Ready<Result<RowStreamOwned, Error>>;
+
+    #[inline]
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
+        cli._query(self).map(RowAffected::from).into()
+    }
+
+    #[inline]
+    fn query(self, cli: &C) -> Self::QueryOutput {
+        ready(cli._query(self))
+    }
+}
+
+impl<'c, C, P> Execute<&'c C> for StatementQuery<'_, P>
 where
     C: Prepare,
     P: AsParams,
@@ -125,17 +144,35 @@ where
 
     #[inline]
     fn execute(self, cli: &C) -> Self::ExecuteOutput {
-        cli._query(StatementUnnamedQuery::from((self, cli)))
-            .map(RowAffected::from)
-            .into()
+        self.into_single_rtt().execute(cli)
     }
 
     #[inline]
     fn query(self, cli: &'c C) -> Self::QueryOutput {
-        ready(cli._query(StatementUnnamedQuery::from((self, cli))))
+        self.into_single_rtt().query(cli)
     }
 }
 
+impl<'c, C, P> Execute<&'c C> for StatementSingleRTTQuery<'_, P>
+where
+    C: Prepare,
+    P: AsParams,
+{
+    type ExecuteOutput = ResultFuture<RowAffected>;
+    type QueryOutput = Ready<Result<RowStreamGuarded<'c, C>, Error>>;
+
+    #[inline]
+    fn execute(self, cli: &C) -> Self::ExecuteOutput {
+        cli._query(self.into_with_cli(cli)).map(RowAffected::from).into()
+    }
+
+    #[inline]
+    fn query(self, cli: &'c C) -> Self::QueryOutput {
+        ready(cli._query(self.into_with_cli(cli)))
+    }
+}
+
+#[cfg(not(feature = "nightly"))]
 impl<'c, C> Execute<&'c C> for &std::path::Path
 where
     C: Query + Sync,
@@ -165,6 +202,39 @@ where
                 .query(cli)
                 .await
         })
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<'c, C> Execute<&'c C> for &std::path::Path
+where
+    C: Query + Sync,
+{
+    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
+    type QueryOutput = impl Future<Output = Result<RowSimpleStream, Error>> + Send + 'c;
+
+    #[inline]
+    fn execute(self, cli: &'c C) -> Self::ExecuteOutput {
+        let path = self.to_path_buf();
+        async move {
+            tokio::task::spawn_blocking(|| std::fs::read_to_string(path))
+                .await
+                .unwrap()?
+                .execute(cli)
+                .await
+        }
+    }
+
+    #[inline]
+    fn query(self, cli: &'c C) -> Self::QueryOutput {
+        let path = self.to_path_buf();
+        async move {
+            tokio::task::spawn_blocking(|| std::fs::read_to_string(path))
+                .await
+                .unwrap()?
+                .query(cli)
+                .await
+        }
     }
 }
 

@@ -3,9 +3,9 @@
 use super::{
     error::{Error, ErrorResponse},
     http::{
+        StatusCode,
         header::{self, HeaderValue},
         response::Parts,
-        StatusCode,
     },
     http_tunnel::HttpTunnel,
     request::RequestBuilder,

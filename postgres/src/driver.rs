@@ -227,6 +227,7 @@ impl Driver {
         }
     }
 
+    // try to unwrap driver that using unencrypted tcp connection
     pub fn try_into_tcp(self) -> Option<GenericDriver<TcpStream>> {
         match self {
             Self::Tcp(drv) => Some(drv),

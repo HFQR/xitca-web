@@ -48,17 +48,21 @@ pub trait AsyncLendingIteratorExt: AsyncLendingIterator {
         T: Default + for<'i> Extend<Self::Ok<'i>> + Send,
         Self: Send + Sized,
     {
-        self.try_collect_into(T::default())
+        async {
+            let mut collection = T::default();
+            self.try_collect_into(&mut collection).await?;
+            Ok(collection)
+        }
     }
 
-    fn try_collect_into<T>(mut self, mut collection: T) -> impl Future<Output = Result<T, Self::Err>> + Send
+    fn try_collect_into<T>(mut self, collection: &mut T) -> impl Future<Output = Result<&mut T, Self::Err>> + Send
     where
         T: for<'i> Extend<Self::Ok<'i>> + Send,
         Self: Send + Sized,
     {
         async move {
             while let Some(item) = self.try_next().await? {
-                collection.extend([item]);
+                collection.extend(Some(item));
             }
             Ok(collection)
         }
@@ -160,6 +164,16 @@ async fn _map_ok_err_try_collect(stream: crate::RowStreamOwned) -> Result<Vec<St
         .await
 }
 
-async fn _try_map_try_collect(stream: crate::RowStreamOwned) -> Result<Vec<String>, crate::error::Error> {
+async fn _connect_quictry_collect(stream: crate::RowStreamOwned) -> Result<Vec<String>, crate::error::Error> {
     stream.try_map(|row| row?.try_get(0)).try_collect::<Vec<_>>().await
+}
+
+async fn _try_collect_into(stream: crate::RowStreamOwned) {
+    stream
+        .try_map(|row| row?.try_get::<i32>(0))
+        .try_collect_into(&mut Vec::new())
+        .await
+        .unwrap()
+        .iter()
+        .next();
 }

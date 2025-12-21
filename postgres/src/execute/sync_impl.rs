@@ -4,8 +4,8 @@ use crate::{
     prepare::Prepare,
     query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{
-        Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementQuery, StatementUnnamedBind,
-        StatementUnnamedQuery,
+        Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementPreparedQuery, StatementQuery,
+        StatementSingleRTTQuery,
     },
 };
 
@@ -26,7 +26,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
+        self.bind_none().query_blocking(cli)
     }
 }
 
@@ -68,7 +68,7 @@ where
     }
 }
 
-impl<'s, C, P> ExecuteBlocking<&C> for StatementQuery<'s, P>
+impl<'s, C, P> ExecuteBlocking<&C> for StatementPreparedQuery<'s, P>
 where
     C: Query,
     P: AsParams,
@@ -88,7 +88,7 @@ where
     }
 }
 
-impl<'c, C, P> ExecuteBlocking<&'c C> for StatementUnnamedBind<'_, P>
+impl<'c, C, P> ExecuteBlocking<&'c C> for StatementQuery<'_, P>
 where
     C: Prepare,
     P: AsParams,
@@ -98,13 +98,32 @@ where
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
+        self.into_single_rtt().execute_blocking(cli)
+    }
+
+    #[inline]
+    fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
+        self.into_single_rtt().query_blocking(cli)
+    }
+}
+
+impl<'c, C, P> ExecuteBlocking<&'c C> for StatementSingleRTTQuery<'_, P>
+where
+    C: Prepare,
+    P: AsParams,
+{
+    type ExecuteOutput = Result<u64, Error>;
+    type QueryOutput = Result<RowStreamGuarded<'c, C>, Error>;
+
+    #[inline]
+    fn execute_blocking(self, cli: &C) -> Self::ExecuteOutput {
         let stream = self.query_blocking(cli)?;
         RowAffected::from(stream).wait()
     }
 
     #[inline]
     fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
-        cli._query(StatementUnnamedQuery::from((self, cli)))
+        cli._query(self.into_with_cli(cli))
     }
 }
 

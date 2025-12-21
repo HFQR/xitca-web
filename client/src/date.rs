@@ -1,10 +1,10 @@
 use std::{ops::Deref, sync::Arc, sync::RwLock, time::Duration};
 
 use tokio::{
-    task::{spawn, JoinHandle},
-    time::{interval, Instant},
+    task::{JoinHandle, spawn},
+    time::{Instant, interval},
 };
-use xitca_http::date::{DateTime, DateTimeState, DATE_VALUE_LENGTH};
+use xitca_http::date::{DATE_VALUE_LENGTH, DateTime, DateTimeState};
 
 pub(crate) struct DateTimeService {
     state: Arc<RwLock<DateTimeState>>,

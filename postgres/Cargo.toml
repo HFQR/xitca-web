@@ -9,6 +9,7 @@ keywords = ["xitca-web", "database", "postgres", "sql", "async"]
 categories = ["database"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
+rust-version.workspace = true
 
 [lints]
 workspace = true
@@ -26,6 +27,9 @@ compat = []
 
 # io-uring driver optional
 io-uring = ["xitca-io/runtime-uring", "dep:tokio-uring"]
+
+# nightly compiler specific feature. can only be enabled with nightly Rust
+nightly = []
 
 [dependencies]
 xitca-io = { version = "0.4.1", features = ["runtime"] }

@@ -20,7 +20,7 @@ use super::DriverTx;
 pub(super) fn request_pair() -> (ResponseSender, Response) {
     let (tx, rx) = unbounded_channel();
     (
-        ResponseSender { tx },
+        tx,
         Response {
             rx,
             buf: BytesMut::new(),
@@ -138,29 +138,7 @@ pub(crate) fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Resu
         .map(|r| r.rsplit(' ').next().unwrap().parse().unwrap_or(0))
 }
 
-#[derive(Debug)]
-pub(crate) struct ResponseSender {
-    tx: UnboundedSender<BytesMessage>,
-}
-
-pub(super) enum SenderState {
-    Continue,
-    Finish,
-}
-
-impl ResponseSender {
-    pub(super) fn send(&mut self, msg: BytesMessage) -> SenderState {
-        let complete = msg.complete;
-
-        let _ = self.tx.send(msg);
-
-        if complete {
-            SenderState::Finish
-        } else {
-            SenderState::Continue
-        }
-    }
-}
+pub(super) type ResponseSender = UnboundedSender<BytesMessage>;
 
 // TODO: remove this lint.
 #[allow(dead_code)]
@@ -172,6 +150,10 @@ pub(super) struct BytesMessage {
 }
 
 impl BytesMessage {
+    pub(super) fn complete(&self) -> bool {
+        self.complete
+    }
+
     #[cold]
     #[inline(never)]
     pub(super) fn parse_error(&mut self) -> Error {
