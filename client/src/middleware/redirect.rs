@@ -2,11 +2,11 @@ use crate::{
     body::BoxBody,
     error::{Error, InvalidUri},
     http::{
+        Method, StatusCode, Uri,
         header::{
             AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, LOCATION, PROXY_AUTHORIZATION,
             TRANSFER_ENCODING,
         },
-        Method, StatusCode, Uri,
     },
     response::Response,
     service::{Service, ServiceRequest},
@@ -126,7 +126,7 @@ mod test {
     use crate::{
         body::ResponseBody,
         http,
-        service::{mock_service, Service},
+        service::{Service, mock_service},
     };
 
     use super::*;

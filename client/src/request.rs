@@ -8,9 +8,8 @@ use crate::{
     client::Client,
     error::Error,
     http::{
-        self, const_header_value,
-        header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE},
-        Extensions, Method, Version,
+        self, Extensions, Method, Version, const_header_value,
+        header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderValue},
     },
     response::Response,
     service::ServiceRequest,

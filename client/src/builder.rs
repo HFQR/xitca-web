@@ -8,13 +8,13 @@ use crate::{
     date::DateTimeService,
     error::Error,
     middleware, pool,
-    resolver::{base_resolver, ResolverService},
+    resolver::{ResolverService, base_resolver},
     response::Response,
-    service::{async_fn::AsyncFn, http::base_service, HttpService, Service, ServiceRequest},
+    service::{HttpService, Service, ServiceRequest, async_fn::AsyncFn, http::base_service},
     timeout::TimeoutConfig,
     tls::{
-        connector::{self, Connector},
         TlsStream,
+        connector::{self, Connector},
     },
 };
 
@@ -404,11 +404,10 @@ impl ClientBuilder {
             #[cfg(feature = "dangerous")]
             {
                 use xitca_tls::rustls::{
-                    self,
+                    self, DigitallySignedStruct,
                     client::danger::HandshakeSignatureValid,
                     crypto::{verify_tls12_signature, verify_tls13_signature},
                     pki_types::{CertificateDer, ServerName, UnixTime},
-                    DigitallySignedStruct,
                 };
 
                 #[derive(Debug)]

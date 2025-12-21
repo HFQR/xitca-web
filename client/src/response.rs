@@ -2,7 +2,7 @@ use core::{
     fmt,
     future::poll_fn,
     ops::{Deref, DerefMut},
-    pin::{pin, Pin},
+    pin::{Pin, pin},
     time::Duration,
 };
 use futures_core::stream::Stream;

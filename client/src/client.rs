@@ -12,7 +12,7 @@ use crate::{
     connection::{ConnectionExclusive, ConnectionKey, ConnectionShared},
     date::DateTimeService,
     error::{Error, ResolveError, TimeoutError},
-    http::{self, uri, Method, Version},
+    http::{self, Method, Version, uri},
     http_tunnel::HttpTunnelRequest,
     pool,
     request::RequestBuilder,

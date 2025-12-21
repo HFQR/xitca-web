@@ -90,7 +90,7 @@ pub(crate) mod rustls {
     use std::sync::Arc;
 
     use webpki_roots::TLS_SERVER_ROOTS;
-    use xitca_tls::rustls::{self, pki_types::ServerName, ClientConfig, ClientConnection, RootCertStore};
+    use xitca_tls::rustls::{self, ClientConfig, ClientConnection, RootCertStore, pki_types::ServerName};
 
     use super::*;
 

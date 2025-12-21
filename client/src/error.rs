@@ -4,7 +4,7 @@ use core::{convert::Infallible, fmt, str};
 
 use std::{error, io};
 
-use super::http::{uri, StatusCode};
+use super::http::{StatusCode, uri};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -215,7 +215,7 @@ pub(crate) use _rustls::*;
 
 #[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
 mod _rustls {
-    use super::{io, Error};
+    use super::{Error, io};
 
     #[derive(Debug)]
     pub enum RustlsError {

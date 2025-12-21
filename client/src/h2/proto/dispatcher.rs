@@ -1,13 +1,13 @@
 use core::{cmp, future::poll_fn, pin::pin};
 
-use ::h2::{client, Reason};
+use ::h2::{Reason, client};
 use futures_core::stream::Stream;
 use xitca_http::{
     date::DateTime,
     http::{
         self,
         const_header_name::PROTOCOL,
-        header::{HeaderValue, CONNECTION, CONTENT_LENGTH, DATE, HOST, TRANSFER_ENCODING, UPGRADE},
+        header::{CONNECTION, CONTENT_LENGTH, DATE, HOST, HeaderValue, TRANSFER_ENCODING, UPGRADE},
         method::Method,
     },
 };
@@ -17,7 +17,7 @@ use crate::{
     body::{BodyError, BodySize, ResponseBody},
     bytes::Bytes,
     date::DateTimeHandle,
-    h2::{body::ResponseBody as H2ResponseBody, Connection, Error},
+    h2::{Connection, Error, body::ResponseBody as H2ResponseBody},
 };
 
 pub(crate) async fn send<B, E>(

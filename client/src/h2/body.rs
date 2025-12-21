@@ -1,7 +1,7 @@
 use core::{
     cmp,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use xitca_http::h2::body::RequestBody;

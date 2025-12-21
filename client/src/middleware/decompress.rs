@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     http::{
         self,
-        header::{HeaderValue, ACCEPT_ENCODING},
+        header::{ACCEPT_ENCODING, HeaderValue},
     },
     response::Response,
     service::{Service, ServiceRequest},

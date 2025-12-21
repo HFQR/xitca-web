@@ -6,8 +6,8 @@ use crate::{
     date::DateTimeHandle,
     h3::{Connection, Error},
     http::{
-        header::{HeaderValue, CONTENT_LENGTH, DATE, HOST},
         Method, Request, Response,
+        header::{CONTENT_LENGTH, DATE, HOST, HeaderValue},
     },
 };
 use ::h3_quinn::quinn::Endpoint;

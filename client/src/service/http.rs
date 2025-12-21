@@ -1,4 +1,5 @@
 use crate::{
+    Service, ServiceRequest,
     connect::Connect,
     error::Error,
     http::Version,
@@ -6,7 +7,6 @@ use crate::{
     response::Response,
     service::ServiceDyn,
     uri::Uri,
-    Service, ServiceRequest,
 };
 
 /// type alias for object safe wrapper of type implement [Service] trait.
