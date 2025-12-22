@@ -59,7 +59,7 @@ impl BufIo for BytesMut {
 
         let len = buf.len();
 
-        if len = buf.capacity() {
+        if len == buf.capacity() {
             buf.reserve(4096);
         }
 
