@@ -360,10 +360,13 @@ where
 
 impl DriverRx {
     pub(super) fn try_decode(&self, read_buf: &mut BytesMut) -> Result<Option<backend::Message>, Error> {
-        let mut inner = self.guarded.lock().unwrap();
+        let mut guard = None;
+
         while let Some(res) = ResponseMessage::try_from_buf(read_buf)? {
             match res {
                 ResponseMessage::Normal(mut msg) => {
+                    // lock the shared state only when needed and keep the lock around a bit for possible multiple messages
+                    let inner = guard.get_or_insert_with(|| self.guarded.lock().unwrap());
                     let complete = msg.complete();
                     let _ = inner.res.front_mut().ok_or_else(|| msg.parse_error())?.send(msg);
                     if complete {
@@ -373,6 +376,7 @@ impl DriverRx {
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
             }
         }
+
         Ok(None)
     }
 }
