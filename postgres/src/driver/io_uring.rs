@@ -137,6 +137,7 @@ impl UringDriver {
     }
 }
 
+#[cfg(not(feature = "tls"))]
 #[cfg(test)]
 mod test {
     use core::{future::poll_fn, pin::pin};

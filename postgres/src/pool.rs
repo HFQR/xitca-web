@@ -1,6 +1,7 @@
 use core::{
     future::Future,
     mem,
+    ops::Deref,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -274,8 +275,11 @@ impl PoolConnection<'_> {
         self.conn().client.cancel_token()
     }
 
-    fn insert_cache(&mut self, named: &str, stmt: Statement) -> &Statement {
-        self.conn_mut().statements.entry(Box::from(named)).or_insert(stmt)
+    fn insert_cache(&mut self, named: &str, stmt: Statement) -> &CachedStatement {
+        self.conn_mut()
+            .statements
+            .entry(Box::from(named))
+            .or_insert(CachedStatement { stmt })
     }
 
     fn conn(&self) -> &PoolClient {
@@ -333,9 +337,33 @@ impl Drop for PoolConnection<'_> {
     }
 }
 
+/// Cached [`Statement`] from [`PoolConnection`]
+///
+/// Can be used for the same purpose without the ability to cancel actively
+/// It's lifetime is managed by [`PoolConnection`]
+pub struct CachedStatement {
+    stmt: Statement,
+}
+
+impl Clone for CachedStatement {
+    fn clone(&self) -> Self {
+        Self {
+            stmt: self.stmt.duplicate(),
+        }
+    }
+}
+
+impl Deref for CachedStatement {
+    type Target = Statement;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stmt
+    }
+}
+
 struct PoolClient {
     client: Client,
-    statements: HashMap<Box<str>, Statement>,
+    statements: HashMap<Box<str>, CachedStatement>,
 }
 
 impl PoolClient {
@@ -356,11 +384,11 @@ where
 
     fn execute(self, cli: &'c mut PoolConnection) -> Self::ExecuteOutput {
         match cli.conn().statements.get(self.stmt) {
-            Some(stmt) => StatementCacheFuture::Cached(stmt.duplicate()),
+            Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
             None => StatementCacheFuture::Prepared(Box::pin(async move {
                 let name = self.stmt;
                 let stmt = self.execute(&*cli).await?.leak();
-                Ok(cli.insert_cache(name, stmt).duplicate())
+                Ok(cli.insert_cache(name, stmt).clone())
             })),
         }
     }
@@ -613,13 +641,13 @@ where
 }
 
 pub enum StatementCacheFuture<'c> {
-    Cached(Statement),
-    Prepared(BoxedFuture<'c, Result<Statement, Error>>),
+    Cached(CachedStatement),
+    Prepared(BoxedFuture<'c, Result<CachedStatement, Error>>),
     Done,
 }
 
 impl Future for StatementCacheFuture<'_> {
-    type Output = Result<Statement, Error>;
+    type Output = Result<CachedStatement, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
