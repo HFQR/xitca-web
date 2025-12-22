@@ -1,9 +1,13 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.0
 ## Add
-- add `StatementNamedBind` which can be execute by `Pool`
+- add `StatementNamedQuery` which can be execute by `Pool`
+- add `pool::CachedStatement` which can be cloned and function the same as normal `Statement` without the ability to cancel
 - export `transaction::builder::IsolationLevel` for building transaction with specific level of isolation
 - add default `Prepare`, `Query` impl for `&T` and `&mut T`
 - add default `ClientBorrowMut` impl for `&mut T`
+- add `nightly` crate feature
 
 ## Remove 
 - remove `pipeline` module

@@ -42,7 +42,6 @@ pub trait AsyncLendingIteratorExt: AsyncLendingIterator {
         Map { iter: self, func }
     }
 
-    #[inline]
     fn try_collect<T>(self) -> impl Future<Output = Result<T, Self::Err>> + Send
     where
         T: Default + for<'i> Extend<Self::Ok<'i>> + Send,
