@@ -58,7 +58,10 @@ impl BufIo for BytesMut {
         let mut buf = mem::take(self);
 
         let len = buf.len();
-        buf.reserve(4096);
+
+        if len = buf.capacity() {
+            buf.reserve(4096);
+        }
 
         let (res, buf) = io.read(buf.slice(len..)).await;
         *self = buf.into_inner();
