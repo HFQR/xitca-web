@@ -57,7 +57,7 @@ impl PoolBuilder {
         Ok(Pool {
             conn: Mutex::new(VecDeque::with_capacity(self.capacity)),
             permits: Semaphore::new(self.capacity),
-            config,
+            config: Box::new(config),
         })
     }
 }
@@ -66,7 +66,7 @@ impl PoolBuilder {
 pub struct Pool {
     conn: Mutex<VecDeque<PoolClient>>,
     permits: Semaphore,
-    config: Config,
+    config: Box<Config>,
 }
 
 impl Pool {
@@ -103,7 +103,7 @@ impl Pool {
     #[inline(never)]
     fn connect(&self) -> BoxedFuture<'_, Result<PoolClient, Error>> {
         Box::pin(async move {
-            let (client, driver) = Postgres::new(self.config.clone()).connect().await?;
+            let (client, driver) = Postgres::new(Clone::clone(&*self.config)).connect().await?;
             match driver {
                 Driver::Tcp(drv) => {
                     #[cfg(feature = "io-uring")]
