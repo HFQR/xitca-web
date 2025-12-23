@@ -1,11 +1,12 @@
 use crate::{
+    RowStreamOwned,
     driver::codec::AsParams,
     error::Error,
     prepare::Prepare,
     query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
     statement::{
-        Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementPreparedQuery, StatementQuery,
-        StatementSingleRTTQuery,
+        Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementPreparedQuery,
+        StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQuery,
     },
 };
 
@@ -75,6 +76,26 @@ where
 {
     type ExecuteOutput = Result<u64, Error>;
     type QueryOutput = Result<RowStream<'s>, Error>;
+
+    #[inline]
+    fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
+        let stream = self.query_blocking(cli)?;
+        RowAffected::from(stream).wait()
+    }
+
+    #[inline]
+    fn query_blocking(self, cli: &C) -> Self::QueryOutput {
+        cli._query(self)
+    }
+}
+
+impl<'s, C, P> ExecuteBlocking<&C> for StatementPreparedQueryOwned<'s, P>
+where
+    C: Query,
+    P: AsParams,
+{
+    type ExecuteOutput = Result<u64, Error>;
+    type QueryOutput = Result<RowStreamOwned, Error>;
 
     #[inline]
     fn execute_blocking(self, cli: &C) -> Result<u64, Error> {
