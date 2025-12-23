@@ -56,7 +56,7 @@ macro_rules! from_bytes_impl {
 
                 let mut body = pin!(body);
 
-                let mut buf = <$type>::new();
+                let mut buf = <$type>::with_capacity(LIMIT);
 
                 while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
                     let chunk = chunk.map_err(Into::into)?;
