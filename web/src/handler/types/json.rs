@@ -12,7 +12,6 @@ use xitca_http::util::service::router::{PathGen, RouteGen, RouterMapErr};
 
 use crate::{
     body::BodyStream,
-    bytes::{BufMutWriter, Bytes, BytesMut},
     context::WebContext,
     error::{Error, error_from_service, forward_blank_bad_request},
     handler::{FromRequest, Responder},
@@ -70,8 +69,8 @@ where
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         HeaderRef::<'a, { header::CONTENT_TYPE }>::from_request(ctx).await?;
-        let (bytes, _) = <(BytesMut, Limit<LIMIT>)>::from_request(ctx).await?;
-        serde_json::from_slice(&bytes).map(Json).map_err(Into::into)
+        let (buf, _) = <(Vec<u8>, Limit<LIMIT>)>::from_request(ctx).await?;
+        serde_json::from_slice(&buf).map(Json).map_err(Into::into)
     }
 }
 
@@ -148,12 +147,12 @@ where
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        self._respond(|bytes| ctx.into_response(bytes))
+        self._respond(|buf| ctx.into_response(buf))
     }
 
     #[inline]
     fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-        self._respond(|bytes| res.map(|_| bytes.into()))
+        self._respond(|buf| res.map(|_| buf.into()))
     }
 }
 
@@ -161,11 +160,10 @@ impl<T> Json<T> {
     fn _respond<F>(self, func: F) -> Result<WebResponse, Error>
     where
         T: Serialize,
-        F: FnOnce(Bytes) -> WebResponse,
+        F: FnOnce(Vec<u8>) -> WebResponse,
     {
-        let mut bytes = BytesMut::new();
-        serde_json::to_writer(BufMutWriter(&mut bytes), &self.0)?;
-        let mut res = func(bytes.freeze());
+        let buf = serde_json::to_vec(&self.0)?;
+        let mut res = func(buf);
         res.headers_mut().insert(CONTENT_TYPE, JSON);
         Ok(res)
     }
