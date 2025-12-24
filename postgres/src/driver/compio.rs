@@ -2,9 +2,11 @@ use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
 
 use std::io;
 
-use compio_buf::BufResult;
-use compio_io::{AsyncRead, AsyncWrite};
-use compio_net::TcpStream;
+use compio::{
+    buf::BufResult,
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
 use postgres_protocol::message::backend;
 use xitca_io::bytes::{Buf, BytesMut};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -132,11 +134,7 @@ impl CompIoDriver {
                         Ok(None) => {}
                     }
 
-                    let len = read_buf.len();
-
-                    if len == read_buf.capacity() {
-                        read_buf.reserve(4096);
-                    }
+                    read_buf.reserve(4096);
 
                     let BufResult(res, b) = (&self.io).read(read_buf).await;
 
