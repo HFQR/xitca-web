@@ -3,7 +3,7 @@ use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
 use std::io;
 
 use compio::{
-    buf::BufResult,
+    buf::{BufResult, IntoInner, IoBuf},
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
@@ -134,11 +134,15 @@ impl CompIoDriver {
                         Ok(None) => {}
                     }
 
-                    read_buf.reserve(4096);
+                    let len = read_buf.len();
 
-                    let BufResult(res, b) = (&self.io).read(read_buf).await;
+                    if len == read_buf.capacity() {
+                        read_buf.reserve(4096);
+                    }
 
-                    read_buf = b;
+                    let BufResult(res, b) = (&self.io).read(read_buf.slice(len..)).await;
+
+                    read_buf = b.into_inner();
 
                     match res {
                         Ok(0) => return,
