@@ -8,7 +8,7 @@ use core::{
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -88,16 +88,29 @@ impl Pool {
     /// return as [`Error`]
     pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
-        let conn = self.conn.lock().unwrap().pop_front();
-        let conn = match conn {
-            Some(conn) if !conn.client.closed() => conn,
-            _ => self.connect().await?,
+
+        let conn = match self.try_get() {
+            Some(conn) => conn,
+            None => self.connect().await?,
         };
+
         Ok(PoolConnection {
             pool: self,
             conn: Some(conn),
             _permit,
         })
+    }
+
+    fn try_get(&self) -> Option<PoolClient> {
+        let mut inner = self.conn.lock().unwrap();
+
+        while let Some(conn) = inner.pop_front() {
+            if !conn.client.closed() {
+                return Some(conn);
+            }
+        }
+
+        None
     }
 
     #[cold]
@@ -638,6 +651,24 @@ where
     }
 
     Ok(res)
+}
+
+impl<'c, Q> Execute<&'c Arc<Pool>> for Q
+where
+    Q: Execute<&'c Pool>,
+{
+    type ExecuteOutput = Q::ExecuteOutput;
+    type QueryOutput = Q::QueryOutput;
+
+    #[inline]
+    fn execute(self, pool: &'c Arc<Pool>) -> Self::ExecuteOutput {
+        Q::execute(self, pool)
+    }
+
+    #[inline]
+    fn query(self, pool: &'c Arc<Pool>) -> Self::QueryOutput {
+        Q::query(self, pool)
+    }
 }
 
 pub enum StatementCacheFuture<'c> {
