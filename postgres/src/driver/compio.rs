@@ -1,36 +1,23 @@
 use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
 
-use std::{io, net::Shutdown};
+use std::io;
 
+use ::compio::io::{AsyncRead, AsyncWrite};
+use compio_buf::BufResult;
+use compio_net::TcpStream;
 use postgres_protocol::message::backend;
-use xitca_io::{
-    bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
-    net::io_uring::TcpStream,
-};
+use xitca_io::bytes::{Buf, BytesMut};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::error::Error;
 
 use super::generic::{DriverRx, GenericDriver, WaitState};
 
-pub type UringDriver = GenericUringDriver<TcpStream>;
-
-impl UringDriver {
-    pub(crate) fn from_tcp(drv: GenericDriver<xitca_io::net::TcpStream>) -> Self {
-        let GenericDriver { io, read_buf, rx, .. } = drv;
-        Self {
-            io: TcpStream::from_std(io.into_std().unwrap()),
-            read_buf: read_buf.into_inner(),
-            rx,
-            read_state: State::Running,
-            write_state: State::Running,
-        }
-    }
-}
-
-pub struct GenericUringDriver<Io> {
-    io: Io,
+/// postgres driver with compio support enabled
+///
+/// See [`CompIoDriver::from_tcp`] for usage
+pub struct CompIoDriver {
+    io: TcpStream,
     read_buf: BytesMut,
     rx: DriverRx,
     read_state: State,
@@ -42,11 +29,71 @@ pub(super) enum State {
     Closed(Option<io::Error>),
 }
 
-impl<Io> GenericUringDriver<Io>
-where
-    Io: AsyncBufRead + AsyncBufWrite + 'static,
-{
-    pub fn into_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> + use<Io> {
+impl CompIoDriver {
+    /// convert an existing driver backed by tokio runtime to an driver that can run in compio runtime
+    ///
+    /// # Examples
+    /// ```rust
+    /// #![feature(async_iterator)]
+    ///
+    /// # use xitca_postgres::{iter::AsyncLendingIterator, Execute, ExecuteBlocking};
+    /// # type Err = Box<dyn core::error::Error + Send + Sync>;
+    /// # fn convert() -> Result<(), Err> {
+    /// // start the client and driver in tokio runtime and after that the tokio runtime is safe to be dropped
+    /// let (cli, drv) = tokio::runtime::Builder::new_current_thread()
+    ///     .enable_all()
+    ///     .build()?
+    ///     .block_on(xitca_postgres::Postgres::new("postgres://postgres:postgres@localhost:5432").connect())?;
+    ///
+    /// // start a compio runtime
+    /// compio::runtime::RuntimeBuilder::new().build().unwrap().block_on(async move {
+    ///     // spawn a task for driver
+    ///     let handle = compio::runtime::spawn(async {
+    ///         // try to convert the tokio postgres driver to compio uring driver. only work with plain tcp connection for now
+    ///         let drv = drv.try_into_tcp().unwrap();
+    ///         let drv = xitca_postgres::CompIoDriver::from_tcp(drv)?;
+    ///
+    ///         // convert driver to async iterator. this step needs nightly rust
+    ///         let mut drv = std::pin::pin!(drv.into_async_iter());
+    ///
+    ///         // poll the async iterator to keep driver running
+    ///         use std::async_iter::AsyncIterator;
+    ///         while let Some(notify) = std::future::poll_fn(|cx| drv.as_mut().poll_next(cx)).await {
+    ///             // handle server side notify
+    ///             let _notify = notify;
+    ///         }
+    ///         std::io::Result::Ok(())
+    ///     });
+    ///
+    ///     // from here client can be used in any async runtime or non async runtime
+    ///     {
+    ///         let stmt = xitca_postgres::Statement::named("SELECT 1", &[]).execute(&cli).await?;
+    ///         let mut res = stmt.query(&cli).await?;
+    ///         let row = res.try_next().await?.unwrap();
+    ///         let num = row.get::<i32>(0);
+    ///         assert_eq!(num, 1);
+    ///     }
+    ///
+    ///     // when client is dropped the driver task would end right after
+    ///     drop(cli);
+    ///     handle.await.unwrap();
+    /// # Ok::<_, Err>(())
+    /// })
+    /// # }
+    ///
+    /// ```
+    pub fn from_tcp(drv: GenericDriver<xitca_io::net::TcpStream>) -> io::Result<Self> {
+        let GenericDriver { io, read_buf, rx, .. } = drv;
+        Ok(Self {
+            io: TcpStream::from_std(io.into_std()?)?,
+            read_buf: read_buf.into_inner(),
+            rx,
+            read_state: State::Running,
+            write_state: State::Running,
+        })
+    }
+
+    pub fn into_async_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> + use<> {
         let mut read_buf = mem::take(&mut self.read_buf);
 
         async gen move {
@@ -54,9 +101,17 @@ where
                 loop {
                     match self.rx.wait().await {
                         WaitState::WantWrite => {
-                            let buf = self.rx.guarded.lock().unwrap().buf.split();
-                            let (res, _) = write_all(&self.io, buf).await;
-                            res?;
+                            let mut buf = self.rx.guarded.lock().unwrap().buf.split();
+
+                            while !buf.is_empty() {
+                                let BufResult(res, b) = (&self.io).write(buf).await;
+                                buf = b;
+                                let n = res?;
+                                buf.advance(n);
+                                if n == 0 {
+                                    return Err(io::ErrorKind::WriteZero.into());
+                                }
+                            }
                         }
                         WaitState::WantClose => return Ok::<_, io::Error>(()),
                     }
@@ -83,9 +138,9 @@ where
                         read_buf.reserve(4096);
                     }
 
-                    let (res, b) = self.io.read(read_buf.slice(len..)).await;
+                    let BufResult(res, b) = (&self.io).read(read_buf).await;
 
-                    read_buf = b.into_inner();
+                    read_buf = b;
 
                     match res {
                         Ok(0) => return,
@@ -109,7 +164,7 @@ where
                     (State::Running, _) => SelectOutput::A(write.as_mut().await),
                     (_, State::Running) => SelectOutput::B(poll_fn(|cx| read.as_mut().poll_next(cx)).await),
                     (State::Closed(None), State::Closed(None)) => {
-                        if let Err(e) = self.io.shutdown(Shutdown::Both) {
+                        if let Err(e) = (&self.io).shutdown().await {
                             yield Err(e.into());
                         }
                         return;
@@ -154,16 +209,21 @@ mod test {
     use super::*;
 
     #[tokio::test]
-    async fn io_uring_drv() {
+    async fn compio() {
         let (conn, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
             .connect()
             .await
             .unwrap();
 
         let handle = std::thread::spawn(move || {
-            tokio_uring::start(async move {
-                let mut drv = pin!(drv.try_into_uring().unwrap().into_iter());
-                while poll_fn(|cx| drv.as_mut().poll_next(cx)).await.is_some() {}
+            compio::runtime::RuntimeBuilder::new().build().unwrap().block_on(async {
+                compio::runtime::spawn(async {
+                    let drv = drv.try_into_tcp().unwrap();
+                    let drv = CompIoDriver::from_tcp(drv).unwrap();
+                    let mut drv = pin!(drv.into_async_iter());
+                    while poll_fn(|cx| drv.as_mut().poll_next(cx)).await.is_some() {}
+                })
+                .await
             })
         });
 
@@ -184,6 +244,6 @@ mod test {
 
         drop(conn);
 
-        handle.join().unwrap()
+        handle.join().unwrap().unwrap();
     }
 }

@@ -28,6 +28,9 @@ compat = []
 # io-uring driver optional
 io-uring = ["xitca-io/runtime-uring", "dep:tokio-uring"]
 
+# compio driver optional. not officially supported only exist for possible benchmarking usage
+compio = ["dep:compio", "dep:compio-buf", "dep:compio-net"]
+
 # nightly compiler specific feature. can only be enabled with nightly Rust
 nightly = []
 
@@ -54,6 +57,11 @@ rustls-pemfile = { version = "2", optional = true }
 
 #io-uring
 tokio-uring = { version = "0.5", optional = true }
+
+#compio
+compio = { version = "0.17", optional = true }
+compio-buf = { version = "0.7", features = ["bytes"], optional = true }
+compio-net = { version = "0.10", optional = true }
 
 [dev-dependencies]
 xitca-postgres-codegen = "0.1"

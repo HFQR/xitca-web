@@ -70,11 +70,12 @@ where
 /// named prepared postgres statement without information of which [`Client`] it belongs to and lifetime
 /// cycle management
 ///
-/// this type is used as entry point for other statement types like [`StatementGuarded`] and [`StatementUnnamed`].
+/// this type is used as entry point for other statement types like [`StatementGuarded`] and [`CachedStatement`].
 /// itself is rarely directly used and main direct usage is for statement caching where owner of it is tasked
 /// with manual management of it's association and lifetime
 ///
 /// [`Client`]: crate::client::Client
+/// [`CachedStatement`]: crate::pool::CachedStatement
 // Statement must not implement Clone trait. use `Statement::duplicate` if needed.
 // StatementGuarded impls Deref trait and with Clone trait it will be possible to copy Statement out of a
 // StatementGuarded. This is not a desired behavior and obtaining a Statement from it's guard should only

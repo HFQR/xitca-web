@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "io-uring", feature(async_iterator, gen_blocks))]
+#![cfg_attr(any(feature = "io-uring", feature = "compio"), feature(async_iterator, gen_blocks))]
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
 
 mod cancel;
@@ -27,6 +27,9 @@ pub mod types;
 pub mod proxy;
 #[cfg(feature = "quic")]
 pub use driver::quic::QuicStream;
+
+#[cfg(feature = "compio")]
+pub use driver::compio::CompIoDriver;
 
 pub use self::{
     client::Client,
