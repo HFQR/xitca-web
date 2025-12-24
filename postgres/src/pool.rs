@@ -88,16 +88,29 @@ impl Pool {
     /// return as [`Error`]
     pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
-        let conn = self.conn.lock().unwrap().pop_front();
-        let conn = match conn {
-            Some(conn) if !conn.client.closed() => conn,
-            _ => self.connect().await?,
+
+        let conn = match self.try_get() {
+            Some(conn) => conn,
+            None => self.connect().await?,
         };
+
         Ok(PoolConnection {
             pool: self,
             conn: Some(conn),
             _permit,
         })
+    }
+
+    fn try_get(&self) -> Option<PoolClient> {
+        let mut inner = self.conn.lock().unwrap();
+
+        while let Some(conn) = inner.pop_front() {
+            if !conn.client.closed() {
+                return Some(conn);
+            }
+        }
+
+        None
     }
 
     #[cold]
