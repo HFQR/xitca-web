@@ -21,15 +21,13 @@ use xitca_unsafe_collection::futures::SelectOutput;
 
 use crate::{
     bytes::{Bytes, BytesMut},
-    config::HttpServiceConfig,
     date::DateTime,
     h1::{body::RequestBody, error::Error},
     http::response::Response,
-    util::timer::{KeepAlive, Timeout},
 };
 
 use super::{
-    dispatcher::{Timer, handle_error},
+    dispatcher::handle_error,
     proto::{
         codec::{ChunkResult, TransferCoding},
         context::Context,
@@ -42,7 +40,6 @@ type ExtRequest<B> = crate::http::Request<crate::http::RequestExt<B>>;
 /// Http/1 dispatcher
 pub struct Dispatcher<'a, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize> {
     io: SharedIo<TcpStream>,
-    timer: Timer<'a>,
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
     read_buf: BytesMut,
@@ -104,17 +101,9 @@ where
     ResB: Stream<Item = Result<Bytes, BE>>,
     D: DateTime,
 {
-    pub async fn run(
-        io: TcpStream,
-        addr: SocketAddr,
-        timer: Pin<&'a mut KeepAlive>,
-        config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
-        service: &'a S,
-        date: &'a D,
-    ) -> Result<(), Error<S::Error, BE>> {
+    pub async fn run(io: TcpStream, addr: SocketAddr, service: &'a S, date: &'a D) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io: SharedIo::new(io),
-            timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
             ctx: Context::with_addr(addr, date),
             service,
             read_buf: BytesMut::new(),
@@ -136,14 +125,7 @@ where
     }
 
     async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        self.timer.update(self.ctx.date().now());
-
-        let read = self
-            .read_buf
-            .read(self.io.io())
-            .timeout(self.timer.get())
-            .await
-            .map_err(|_| self.timer.map_to_err())??;
+        let read = self.read_buf.read(self.io.io()).await?;
 
         if read == 0 {
             self.ctx.set_close();
@@ -151,8 +133,6 @@ where
         }
 
         while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf)? {
-            self.timer.reset_state();
-
             let (wait_for_notify, body) = if decoder.is_eof() {
                 (false, RequestBody::none())
             } else {
