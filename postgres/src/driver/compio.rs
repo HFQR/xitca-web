@@ -2,8 +2,8 @@ use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
 
 use std::io;
 
-use ::compio::io::{AsyncRead, AsyncWrite};
 use compio_buf::BufResult;
+use compio_io::{AsyncRead, AsyncWrite};
 use compio_net::TcpStream;
 use postgres_protocol::message::backend;
 use xitca_io::bytes::{Buf, BytesMut};
