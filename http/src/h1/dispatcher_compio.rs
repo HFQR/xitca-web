@@ -10,7 +10,7 @@ use core::{
 
 use std::{io, rc::Rc};
 
-use compio_buf::BufResult;
+use compio_buf::{BufResult, IntoInner, IoBuf};
 use compio_io::{AsyncRead, AsyncWrite};
 use compio_net::TcpStream;
 use futures_core::stream::Stream;
@@ -63,8 +63,8 @@ impl BufIo for BytesMut {
             buf.reserve(4096);
         }
 
-        let BufResult(res, buf) = (&mut io).read(buf).await;
-        *self = buf;
+        let BufResult(res, buf) = (&mut io).read(buf.slice(len..)).await;
+        *self = buf.into_inner();
         res
     }
 
