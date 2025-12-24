@@ -8,7 +8,7 @@ use core::{
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -651,6 +651,24 @@ where
     }
 
     Ok(res)
+}
+
+impl<'c, Q> Execute<&'c Arc<Pool>> for Q
+where
+    Q: Execute<&'c Pool>,
+{
+    type ExecuteOutput = Q::ExecuteOutput;
+    type QueryOutput = Q::QueryOutput;
+
+    #[inline]
+    fn execute(self, pool: &'c Arc<Pool>) -> Self::ExecuteOutput {
+        Q::execute(self, pool)
+    }
+
+    #[inline]
+    fn query(self, pool: &'c Arc<Pool>) -> Self::QueryOutput {
+        Q::query(self, pool)
+    }
 }
 
 pub enum StatementCacheFuture<'c> {
