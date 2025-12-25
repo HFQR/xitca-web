@@ -1,0 +1,53 @@
+[package]
+name = "tokio-uring-xitca"
+version = "0.1.0"
+authors = ["Tokio Contributors <team@tokio.rs>", "fakeshadow <everestshadow@gmail.com>"]
+edition = "2024"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/HFQR/xitca-web"
+description = """
+a fork of tokio-uring with miniaml maintenance
+"""
+categories = ["asynchronous", "network-programming"]
+keywords = ["async", "fs", "io-uring"]
+rust-version.workspace = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+
+[features]
+bytes = ["dep:bytes"]
+
+[dependencies]
+tokio = { version = "1.48", features = ["net", "rt", "sync"] }
+slab = "0.4.11"
+libc = "0.2.178"
+io-uring = "0.7.11"
+socket2 = { version = "0.6.1", features = ["all"] }
+bytes = { version = "1.11.0", optional = true }
+
+[dev-dependencies]
+tempfile = "3.2.0"
+tokio-test = "0.4.2"
+iai = "0.1.1"
+criterion = "0.8.0"
+# we use joinset in our tests
+tokio = "1.48"
+nix = { version = "0.30", features = ["resource"] }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[profile.bench]
+debug = true
+
+[[bench]]
+name = "lai_no_op"
+path = "benches/lai/no_op.rs"
+harness = false
+
+[[bench]]
+name = "criterion_no_op"
+path = "benches/criterion/no_op.rs"
+harness = false
