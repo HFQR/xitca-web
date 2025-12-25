@@ -37,6 +37,7 @@ where
                             let _ = service.call(req).await;
                             drop(ready);
                         });
+                        tokio::task::yield_now().await;
                     }
                 }
                 Err(ref e) if connection_error(e) => continue,
