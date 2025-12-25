@@ -7,7 +7,7 @@ pub use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf, Ready};
 use core::{
     future::Future,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use std::io;

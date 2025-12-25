@@ -1,6 +1,12 @@
-# unreleased 0.4.2
+# unreleased
+
+# 0.5.0
 ## Fix
 - relax trait bound of `io_uring::write_all`
+
+## Change
+- switch to `tokio-uring-xitca` for io_uring feature
+- update `tokio` to `1.48`
 
 # 0.4.1
 ## Fix
