@@ -145,7 +145,7 @@ fn explicit_close() {
 fn drop_open() {
     tokio_uring_xitca::start(async {
         let tempfile = tempfile();
-        let _ = File::create(tempfile.path());
+        drop(File::create(tempfile.path()));
 
         // Do something else
         let file = File::create(tempfile.path()).await.unwrap();
