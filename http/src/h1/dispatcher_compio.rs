@@ -11,11 +11,10 @@ use core::{
 use std::{io, rc::Rc};
 
 use compio_buf::{BufResult, IntoInner, IoBuf};
-use compio_io::{AsyncRead, AsyncWrite};
+use compio_io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use compio_net::TcpStream;
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use xitca_io::bytes::Buf;
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
 
@@ -68,29 +67,13 @@ impl BufIo for BytesMut {
         res
     }
 
-    async fn write(&mut self, io: &TcpStream) -> io::Result<()> {
+    async fn write(&mut self, mut io: &TcpStream) -> io::Result<()> {
         let buf = mem::take(self);
-        let (res, buf) = write_all(io, buf).await;
+        let BufResult(res, mut buf) = (&mut io).write_all(buf).await;
+        buf.clear();
         *self = buf;
         res
     }
-}
-
-async fn write_all(mut io: &TcpStream, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
-    while !buf.is_empty() {
-        let BufResult(res, b) = (&mut io).write(buf).await;
-        buf = b;
-        match res {
-            Ok(n) => {
-                buf.advance(n);
-                if n == 0 {
-                    return (Err(io::ErrorKind::WriteZero.into()), buf);
-                }
-            }
-            Err(e) => return (Err(e), buf),
-        };
-    }
-    (Ok(()), buf)
 }
 
 impl<'a, S, ReqB, ResB, BE, D, const H_LIMIT: usize, const R_LIMIT: usize, const W_LIMIT: usize>
@@ -230,7 +213,7 @@ fn body(
     let state = if is_expect {
         State::ExpectWrite {
             fut: async {
-                let (res, _) = write_all(body.io.io(), BytesMut::from(CONTINUE_BYTES)).await;
+                let BufResult(res, _) = body.io.io().write_all(BytesMut::from(CONTINUE_BYTES)).await;
                 res.map(|_| body)
             },
         }

@@ -1,14 +1,14 @@
-use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
+use core::{async_iter::AsyncIterator, future::poll_fn, pin::pin};
 
 use std::io;
 
 use compio::{
     buf::{BufResult, IntoInner, IoBuf},
-    io::{AsyncRead, AsyncWrite},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 use postgres_protocol::message::backend;
-use xitca_io::bytes::{Buf, BytesMut};
+use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::error::Error;
@@ -96,24 +96,17 @@ impl CompIoDriver {
     }
 
     pub fn into_async_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> + use<> {
-        let mut read_buf = mem::take(&mut self.read_buf);
+        let mut read_buf = self.read_buf;
 
         async gen move {
             let write = || async {
                 loop {
                     match self.rx.wait().await {
                         WaitState::WantWrite => {
-                            let mut buf = self.rx.guarded.lock().unwrap().buf.split();
-
-                            while !buf.is_empty() {
-                                let BufResult(res, b) = (&self.io).write(buf).await;
-                                buf = b;
-                                let n = res?;
-                                buf.advance(n);
-                                if n == 0 {
-                                    return Err(io::ErrorKind::WriteZero.into());
-                                }
-                            }
+                            let buf = self.rx.guarded.lock().unwrap().buf.split();
+                            let BufResult(res, _) = (&self.io).write_all(buf).await;
+                            res?;
+                            (&self.io).flush().await?;
                         }
                         WaitState::WantClose => return Ok::<_, io::Error>(()),
                     }

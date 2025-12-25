@@ -1,14 +1,14 @@
 [alias]
-ci-check-http-exclude-io-uring = "hack check --package xitca-http --feature-powerset --exclude-features=io-uring,rustls-uring"
+ci-check-http-exclude-io-uring = "hack check --package xitca-http --feature-powerset --exclude-features=io-uring,rustls-uring,compio"
 ci-check-http = "hack check --package xitca-http --feature-powerset"
 
-ci-check-web-exclude-io-uring = "hack check --package xitca-web --each-feature --no-dev-deps --exclude-features=io-uring,file-io-uring"
+ci-check-web-exclude-io-uring = "hack check --package xitca-web --each-feature --no-dev-deps --exclude-features=io-uring,file-io-uring,compio"
 ci-check-web = "hack check --package xitca-web --each-feature --no-dev-deps"
 
-ci-check-client-exclude-io-uring = "hack check --package xitca-client --each-feature --no-dev-deps --exclude-features=io-uring"
+ci-check-client-exclude-io-uring = "hack check --package xitca-client --each-feature --no-dev-deps --exclude-features=io-uring,compio"
 ci-check-client = "hack check --package xitca-client --each-feature --no-dev-deps"
 
-ci-check-other-exclude-io-uring = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset --exclude-features=io-uring,tokio-uring,runtime-uring,rustls-uring,rustls-uring-no-crypto"
+ci-check-other-exclude-io-uring = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset --exclude-features=io-uring,tokio-uring,runtime-uring,rustls-uring,rustls-uring-no-crypto,compio"
 ci-check-other = "hack check --workspace --exclude xitca-http --exclude xitca-client --exclude xitca-web --feature-powerset"
 
 ci-test-other = "test --workspace --exclude xitca-client --exclude xitca-test --all-features --no-fail-fast -- --nocapture"
