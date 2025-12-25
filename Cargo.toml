@@ -19,6 +19,7 @@ members = [
     "http-multipart",
     "http-rate",
     "http-ws",
+    "tokio-uring"
 ]
 
 [workspace.package]
@@ -42,6 +43,8 @@ http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }
 http-rate = { path = "./http-rate" }
 http-ws = { path = "./http-ws" }
+
+tokio-uring-xitca = { path = "./tokio-uring" }
 
 [profile.release]
 lto = true
