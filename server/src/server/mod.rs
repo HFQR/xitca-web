@@ -161,7 +161,7 @@ impl Server {
                         {
                             thread.spawn_scoped(scope, move || {
                                 let _ = worker_max_blocking_threads;
-                                tokio_uring::start(task())
+                                tokio_uring_xitca::start(task())
                             })?;
                         }
                     }

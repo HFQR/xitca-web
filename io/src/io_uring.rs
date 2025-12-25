@@ -4,9 +4,9 @@ use core::future::Future;
 
 use std::{io, net::Shutdown};
 
-use tokio_uring::buf::IoBuf;
+use tokio_uring_xitca::buf::IoBuf;
 
-pub use tokio_uring::buf::{BoundedBuf, BoundedBufMut, Slice};
+pub use tokio_uring_xitca::buf::{BoundedBuf, BoundedBufMut, Slice};
 
 pub trait AsyncBufRead {
     fn read<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>

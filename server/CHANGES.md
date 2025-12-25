@@ -1,7 +1,10 @@
 # unreleased
+
+# 0.6.0
 ## Change
 - update `socket2` to `0.6.0`
-- update `tokio` to `1.47.1`
+- update `tokio` to `1.48`
+- update `xitca-io` to `0.5.0`
 
 # 0.5.0
 ## Add

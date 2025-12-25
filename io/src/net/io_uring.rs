@@ -2,10 +2,10 @@ use core::net::SocketAddr;
 
 use std::{io, net::Shutdown};
 
-pub use tokio_uring::net::TcpStream;
+pub use tokio_uring_xitca::net::TcpStream;
 
 #[cfg(unix)]
-pub use tokio_uring::net::UnixStream;
+pub use tokio_uring_xitca::net::UnixStream;
 
 use crate::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
 
@@ -60,7 +60,7 @@ impl AsyncBufWrite for TcpStream {
 mod unix {
     use std::os::unix::net::SocketAddr;
 
-    use tokio_uring::buf::BoundedBuf;
+    use tokio_uring_xitca::buf::BoundedBuf;
 
     use super::*;
 
