@@ -16,6 +16,9 @@ pub(crate) mod quic;
 #[cfg(feature = "io-uring")]
 pub(crate) mod io_uring;
 
+#[cfg(feature = "compio")]
+pub(crate) mod compio;
+
 use core::{
     future::{Future, IntoFuture},
     net::SocketAddr,
