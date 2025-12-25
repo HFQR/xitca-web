@@ -161,7 +161,7 @@ mod test {
             .unwrap();
 
         let handle = std::thread::spawn(move || {
-            tokio_uring::start(async move {
+            tokio_uring_xitca::start(async move {
                 let mut drv = pin!(drv.try_into_uring().unwrap().into_iter());
                 while poll_fn(|cx| drv.as_mut().poll_next(cx)).await.is_some() {}
             })
