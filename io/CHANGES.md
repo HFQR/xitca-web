@@ -1,5 +1,9 @@
 # unreleased
 
+# 0.5.1
+## Fix
+- fix MSRV
+
 # 0.5.0
 ## Fix
 - relax trait bound of `io_uring::write_all`

@@ -1,4 +1,4 @@
-<h1 align="center">Xitca-Web</h1>
+<h1 align="center">xitca-web</h1>
 <p align="center">
   <b align="center"><a href="README.md">Readme</a></b> |
   <b><a href="https://github.com/HFQR/xitca-web">GitHub</a></b> |
@@ -35,7 +35,7 @@
   - [Quick Start](#quick-start)
   - [FAQ (Frequently Asked Questions)](#faq-frequently-asked-questions)
   - [More Contributors Wanted](#more-contributors-wanted)
-  - [Supporting Xitca-web](#supporting-xitca-web)
+  - [Supporting xitca-web](#supporting-xitca-web)
   - [Documentation](#documentation)
   - [Roadmap](#roadmap)
   - [Contributing](#contributing)
@@ -160,7 +160,7 @@ If you are a developer, have a look at the [CONTRIBUTING.md](CONTRIBUTING.md) do
 
 # License
 
-Xitca-web is licensed under the [APACHEv2](LICENSE) license.
+xitca-web is licensed under the [APACHEv2](LICENSE) license.
 
 **[⬆️ Back to Top](#xitca-web)**
 
