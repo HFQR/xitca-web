@@ -1,5 +1,10 @@
 # unreleased
 
+# 0.5.0
+## Change
+- update to Rust edition 2024
+- update `xitca-io` to `0.5.0`
+
 # 0.4.1
 ## Fix
 - fix possible io hanging when utilizing `rustls` feature 

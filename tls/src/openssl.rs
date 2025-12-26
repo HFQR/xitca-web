@@ -129,8 +129,8 @@ impl From<openssl::error::ErrorStack> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(ref e) => fmt::Display::fmt(e, f),
-            Self::Tls(ref e) => fmt::Display::fmt(e, f),
+            Self::Io(e) => fmt::Display::fmt(e, f),
+            Self::Tls(e) => fmt::Display::fmt(e, f),
         }
     }
 }

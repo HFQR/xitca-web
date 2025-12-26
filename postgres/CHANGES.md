@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.4.0
+## Change
+- switch to `tokio-uring-xitca` for `io-uring` feature. IO uring driver must run in it's runtime instead of original `tokio-uring`
 
 # 0.3.0
 ## Add
