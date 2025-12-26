@@ -3,25 +3,19 @@ use std::{hint::black_box, time::SystemTime};
 use criterion::{Criterion, criterion_group, criterion_main};
 use httpdate::HttpDate;
 use tokio::time::Instant;
-use xitca_http::{
-    bytes::BytesMut,
-    date::{DATE_VALUE_LENGTH, DateTime},
-    h1::proto::context::Context,
-};
+use xitca_http::{bytes::BytesMut, date::DateTime, h1::proto::context::Context};
 
-struct DT([u8; DATE_VALUE_LENGTH]);
+struct DT([u8; 29]);
 
 impl DT {
     fn dummy_date_time() -> Self {
-        let mut date = [0; DATE_VALUE_LENGTH];
+        let mut date = [0; 29];
         date.copy_from_slice(HttpDate::from(SystemTime::now()).to_string().as_bytes());
         DT(date)
     }
 }
 
 impl DateTime for DT {
-    const DATE_VALUE_LENGTH: usize = DATE_VALUE_LENGTH;
-
     fn with_date<F, O>(&self, f: F) -> O
     where
         F: FnOnce(&[u8]) -> O,

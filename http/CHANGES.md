@@ -2,6 +2,8 @@
 
 # 0.8.0
 ## Change
+- remove `date::DATE_VALUE_LENGTH` from public export
+- rename `date::DateTime::DATE_VALUE_LENGTH` const to `DATE_SIZE_HINT`. It's default value is the same as removed `DATE_VALUE_LENGTH`
 - update `xitca-server` to `0.6.1`
 - update `xitca-tls` to `0.5.1`
 - update `xitca-io` to `0.5.1`

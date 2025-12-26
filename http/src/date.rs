@@ -14,12 +14,15 @@ use tokio::{
     time::{Instant, interval},
 };
 
+// The length of byte representation of HttpDate
+const DATE_VALUE_LENGTH: usize = 29;
+
 /// Trait for getting current date/time.
 ///
 /// This is usually used by a low resolution of timer to reduce frequent syscall to OS.
 pub trait DateTime {
     /// The size hint of slice by Self::date method.
-    const DATE_VALUE_LENGTH: usize;
+    const DATE_SIZE_HINT: usize = DATE_VALUE_LENGTH;
 
     /// closure would receive byte slice representation of [HttpDate].
     fn with_date<F, O>(&self, f: F) -> O
@@ -51,16 +54,15 @@ impl Default for DateTimeService {
 impl DateTimeService {
     pub fn new() -> Self {
         // shared date and timer for Date and update async task.
-        let state = Rc::new(RefCell::new(DateTimeState::new()));
+        let state = Rc::new(RefCell::new(DateTimeState::default()));
         let state_clone = Rc::clone(&state);
         // spawn an async task sleep for 1 sec and update date in a loop.
         // handle is used to stop the task on Date drop.
         let handle = tokio::task::spawn_local(async move {
             let mut interval = interval(Duration::from_millis(500));
-            let state = &*state_clone;
             loop {
                 let _ = interval.tick().await;
-                *state.borrow_mut() = DateTimeState::new();
+                *state_clone.borrow_mut() = DateTimeState::default();
             }
         });
 
@@ -75,9 +77,6 @@ impl DateTimeService {
 
 pub(crate) type DateTimeHandle = RefCell<DateTimeState>;
 
-/// The length of byte representation of [HttpDate].
-pub const DATE_VALUE_LENGTH: usize = 29;
-
 /// struct contains byte representation of [HttpDate] and [Instant].
 #[derive(Copy, Clone)]
 pub struct DateTimeState {
@@ -87,12 +86,6 @@ pub struct DateTimeState {
 
 impl Default for DateTimeState {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DateTimeState {
-    pub fn new() -> Self {
         let mut date = Self {
             date: [0; DATE_VALUE_LENGTH],
             now: Instant::now(),
@@ -110,8 +103,6 @@ impl Write for DateTimeState {
 }
 
 impl DateTime for DateTimeHandle {
-    const DATE_VALUE_LENGTH: usize = DATE_VALUE_LENGTH;
-
     // TODO: remove this allow
     #[allow(dead_code)]
     #[inline]
@@ -133,8 +124,6 @@ impl DateTime for DateTimeHandle {
 pub struct SystemTimeDateTimeHandler;
 
 impl DateTime for SystemTimeDateTimeHandler {
-    const DATE_VALUE_LENGTH: usize = DATE_VALUE_LENGTH;
-
     // TODO: remove this allow
     #[allow(dead_code)]
     fn with_date<F, O>(&self, f: F) -> O
