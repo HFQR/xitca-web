@@ -5,11 +5,11 @@ use httpdate::HttpDate;
 use tokio::time::Instant;
 use xitca_http::{bytes::BytesMut, date::DateTime, h1::proto::context::Context};
 
-struct DT([u8; 29]);
+struct DT([u8; DT::DATE_SIZE_HINT]);
 
 impl DT {
     fn dummy_date_time() -> Self {
-        let mut date = [0; 29];
+        let mut date = [0; DT::DATE_SIZE_HINT];
         date.copy_from_slice(HttpDate::from(SystemTime::now()).to_string().as_bytes());
         DT(date)
     }
