@@ -4,7 +4,7 @@ use tokio::{
     task::{JoinHandle, spawn},
     time::{Instant, interval},
 };
-use xitca_http::date::{DATE_VALUE_LENGTH, DateTime, DateTimeState};
+use xitca_http::date::{DateTime, DateTimeState};
 
 pub(crate) struct DateTimeService {
     state: Arc<RwLock<DateTimeState>>,
@@ -31,7 +31,7 @@ impl Deref for DateTimeHandle<'_> {
 impl DateTimeService {
     pub(crate) fn new() -> Self {
         // shared date and timer for Date and update async task.
-        let state = Arc::new(RwLock::new(DateTimeState::new()));
+        let state = Arc::new(RwLock::new(DateTimeState::default()));
         let state_clone = Arc::clone(&state);
         // spawn an async task sleep for 500 milli sec and update date in a loop.
         // handle is used to stop the task on Date drop.
@@ -40,7 +40,7 @@ impl DateTimeService {
             let state = &*state_clone;
             loop {
                 let _ = interval.tick().await;
-                *state.write().unwrap() = DateTimeState::new();
+                *state.write().unwrap() = DateTimeState::default();
             }
         });
 
@@ -53,8 +53,6 @@ impl DateTimeService {
 }
 
 impl DateTime for DateTimeHandle<'_> {
-    const DATE_VALUE_LENGTH: usize = DATE_VALUE_LENGTH;
-
     fn with_date<F, O>(&self, f: F) -> O
     where
         F: FnOnce(&[u8]) -> O,

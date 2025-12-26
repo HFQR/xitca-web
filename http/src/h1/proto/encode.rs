@@ -203,7 +203,7 @@ where
 
         // set date header if there is not any.
         if !skip_date {
-            buf.reserve(D::DATE_VALUE_LENGTH + 12);
+            buf.reserve(D::DATE_SIZE_HINT + 12);
             buf.extend_from_slice(b"\r\ndate: ");
             self.date().with_date(|slice| buf.extend_from_slice(slice));
         }

@@ -83,7 +83,7 @@ impl<'a> Response<'a, 2> {
     }
 
     fn try_write_date(&mut self) {
-        self.buf.reserve(DateTimeHandle::DATE_VALUE_LENGTH + 12);
+        self.buf.reserve(DateTimeHandle::DATE_SIZE_HINT + 12);
         self.buf.extend_from_slice(b"\r\ndate: ");
         self.date.with_date(|date| self.buf.extend_from_slice(date));
     }

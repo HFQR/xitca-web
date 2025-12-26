@@ -1,3 +1,4 @@
+use ::h3::error::{ConnectionError as H3ConnectionError, StreamError};
 use h3_quinn::quinn::ConnectionError;
 
 use crate::error::HttpServiceError;
@@ -6,20 +7,26 @@ use crate::error::HttpServiceError;
 pub enum Error<S, B> {
     Service(S),
     Body(B),
-    Connection(ConnectionError),
-    // error from h3 crate.
-    H3(::h3::Error),
+    Stream(StreamError),
+    QuinnConnection(ConnectionError),
+    H3Connection(H3ConnectionError),
 }
 
-impl<S, B> From<::h3::Error> for Error<S, B> {
-    fn from(e: ::h3::Error) -> Self {
-        Self::H3(e)
+impl<S, B> From<StreamError> for Error<S, B> {
+    fn from(e: StreamError) -> Self {
+        Self::Stream(e)
     }
 }
 
 impl<S, B> From<ConnectionError> for Error<S, B> {
     fn from(e: ConnectionError) -> Self {
-        Self::Connection(e)
+        Self::QuinnConnection(e)
+    }
+}
+
+impl<S, B> From<H3ConnectionError> for Error<S, B> {
+    fn from(e: H3ConnectionError) -> Self {
+        Self::H3Connection(e)
     }
 }
 
