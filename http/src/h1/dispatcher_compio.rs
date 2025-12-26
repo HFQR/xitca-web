@@ -41,38 +41,31 @@ pub struct Dispatcher<'a, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize
     io: SharedIo<TcpStream>,
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
-    read_buf: BytesMut,
-    write_buf: BytesMut,
     _phantom: PhantomData<ReqB>,
 }
 
 trait BufIo {
-    async fn read(&mut self, io: &TcpStream) -> io::Result<usize>;
+    fn read(self, io: &TcpStream) -> impl Future<Output = (io::Result<usize>, Self)>;
 
-    async fn write(&mut self, io: &TcpStream) -> io::Result<()>;
+    fn write(self, io: &TcpStream) -> impl Future<Output = (io::Result<()>, Self)>;
 }
 
 impl BufIo for BytesMut {
-    async fn read(&mut self, mut io: &TcpStream) -> io::Result<usize> {
-        let mut buf = mem::take(self);
+    async fn read(mut self, mut io: &TcpStream) -> (io::Result<usize>, Self) {
+        let len = self.len();
 
-        let len = buf.len();
-
-        if len == buf.capacity() {
-            buf.reserve(4096);
+        if len == self.capacity() {
+            self.reserve(4096);
         }
 
-        let BufResult(res, buf) = (&mut io).read(buf.slice(len..)).await;
-        *self = buf.into_inner();
-        res
+        let BufResult(res, buf) = (&mut io).read(self.slice(len..)).await;
+        (res, buf.into_inner())
     }
 
-    async fn write(&mut self, mut io: &TcpStream) -> io::Result<()> {
-        let buf = mem::take(self);
-        let BufResult(res, mut buf) = (&mut io).write_all(buf).await;
+    async fn write(self, mut io: &TcpStream) -> (io::Result<()>, Self) {
+        let BufResult(res, mut buf) = (&mut io).write_all(self).await;
         buf.clear();
-        *self = buf;
-        res
+        (res, buf)
     }
 }
 
@@ -89,17 +82,24 @@ where
             io: SharedIo::new(io),
             ctx: Context::with_addr(addr, date),
             service,
-            read_buf: BytesMut::new(),
-            write_buf: BytesMut::new(),
             _phantom: PhantomData,
         };
 
+        let mut read_buf = BytesMut::new();
+        let mut write_buf = BytesMut::new();
+
         loop {
-            if let Err(err) = dispatcher._run().await {
-                handle_error(&mut dispatcher.ctx, &mut dispatcher.write_buf, err)?;
+            let (res, r_buf, w_buf) = dispatcher._run(read_buf, write_buf).await;
+            read_buf = r_buf;
+            write_buf = w_buf;
+            if let Err(err) = res {
+                handle_error(&mut dispatcher.ctx, &mut write_buf, err)?;
             }
 
-            dispatcher.write_buf.write(dispatcher.io.io()).await?;
+            let (res, w_buf) = write_buf.write(dispatcher.io.io()).await;
+            write_buf = w_buf;
+
+            res?;
 
             if dispatcher.ctx.is_connection_closed() {
                 return dispatcher.shutdown().await;
@@ -107,15 +107,30 @@ where
         }
     }
 
-    async fn _run(&mut self) -> Result<(), Error<S::Error, BE>> {
-        let read = self.read_buf.read(self.io.io()).await?;
-
-        if read == 0 {
-            self.ctx.set_close();
-            return Ok(());
+    async fn _run(
+        &mut self,
+        mut read_buf: BytesMut,
+        mut write_buf: BytesMut,
+    ) -> (Result<(), Error<S::Error, BE>>, BytesMut, BytesMut) {
+        let (res, r_buf) = read_buf.read(self.io.io()).await;
+        read_buf = r_buf;
+        match res {
+            Ok(read) => {
+                if read == 0 {
+                    self.ctx.set_close();
+                    return (Ok(()), read_buf, write_buf);
+                }
+            }
+            Err(e) => return (Err(e.into()), read_buf, write_buf),
         }
 
-        while let Some((req, decoder)) = self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf)? {
+        loop {
+            let (req, decoder) = match self.ctx.decode_head::<R_LIMIT>(&mut read_buf) {
+                Ok(Some(req)) => req,
+                Ok(None) => break,
+                Err(e) => return (Err(e.into()), read_buf, write_buf),
+            };
+
             let (wait_for_notify, body) = if decoder.is_eof() {
                 (false, RequestBody::none())
             } else {
@@ -124,7 +139,7 @@ where
                     self.ctx.is_expect_header(),
                     R_LIMIT,
                     decoder,
-                    mem::take(&mut self.read_buf),
+                    read_buf.split(),
                 );
 
                 (true, body)
@@ -132,9 +147,15 @@ where
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
-            let (parts, body) = self.service.call(req).await.map_err(Error::Service)?.into_parts();
+            let (parts, body) = match self.service.call(req).await {
+                Ok(res) => res.into_parts(),
+                Err(e) => return (Err(Error::Service(e)), read_buf, write_buf),
+            };
 
-            let mut encoder = self.ctx.encode_head(parts, &body, &mut self.write_buf)?;
+            let mut encoder = match self.ctx.encode_head(parts, &body, &mut write_buf) {
+                Ok(encoder) => encoder,
+                Err(e) => return (Err(e.into()), read_buf, write_buf),
+            };
 
             // this block is necessary. ResB has to be dropped asap as it may hold ownership of
             // Body type which if not dropped before Notifier::notify is called would prevent
@@ -145,30 +166,38 @@ where
                 loop {
                     let res = poll_fn(|cx| match body.as_mut().poll_next(cx) {
                         Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
-                        Poll::Pending if self.write_buf.is_empty() => Poll::Pending,
+                        Poll::Pending if write_buf.is_empty() => Poll::Pending,
                         Poll::Pending => Poll::Ready(SelectOutput::B(())),
                     })
                     .await;
 
                     match res {
                         SelectOutput::A(Some(Ok(bytes))) => {
-                            encoder.encode(bytes, &mut self.write_buf);
-                            if self.write_buf.len() < W_LIMIT {
+                            encoder.encode(bytes, &mut write_buf);
+                            if write_buf.len() < W_LIMIT {
                                 continue;
                             }
                         }
-                        SelectOutput::A(Some(Err(e))) => return self.on_body_error(e).await,
-                        SelectOutput::A(None) => break encoder.encode_eof(&mut self.write_buf),
+                        SelectOutput::A(Some(Err(e))) => {
+                            let (res, w_buf) = self.on_body_error(e, write_buf).await;
+                            write_buf = w_buf;
+                            return (res, read_buf, write_buf);
+                        }
+                        SelectOutput::A(None) => break encoder.encode_eof(&mut write_buf),
                         SelectOutput::B(_) => {}
                     }
 
-                    self.write_buf.write(self.io.io()).await?;
+                    let (res, w_buf) = write_buf.write(self.io.io()).await;
+                    write_buf = w_buf;
+                    if let Err(e) = res {
+                        return (Err(e.into()), read_buf, write_buf);
+                    }
                 }
             }
 
             if wait_for_notify {
                 match self.io.wait().await {
-                    Some(read_buf) => self.read_buf = read_buf,
+                    Some(r_buf) => read_buf = r_buf,
                     None => {
                         self.ctx.set_close();
                         break;
@@ -177,7 +206,7 @@ where
             }
         }
 
-        Ok(())
+        (Ok(()), read_buf, write_buf)
     }
 
     #[cold]
@@ -188,9 +217,10 @@ where
 
     #[cold]
     #[inline(never)]
-    async fn on_body_error(&mut self, e: BE) -> Result<(), Error<S::Error, BE>> {
-        self.write_buf.write(self.io.io()).await?;
-        Err(Error::Body(e))
+    async fn on_body_error(&mut self, e: BE, write_buf: BytesMut) -> (Result<(), Error<S::Error, BE>>, BytesMut) {
+        let (res, write_buf) = write_buf.write(self.io.io()).await;
+        let e = res.err().map(Error::from).unwrap_or(Error::Body(e));
+        (Err(e), write_buf)
     }
 }
 
@@ -257,7 +287,9 @@ struct BodyInner {
 }
 
 async fn chunk_read(mut body: BodyInner) -> io::Result<(usize, BodyInner)> {
-    let read = body.decoder.read_buf.read(body.io.io()).await?;
+    let (res, r_buf) = body.decoder.read_buf.split().read(body.io.io()).await;
+    body.decoder.read_buf.unsplit(r_buf);
+    let read = res?;
     Ok((read, body))
 }
 
