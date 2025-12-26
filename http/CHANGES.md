@@ -1,8 +1,8 @@
 # unreleased 0.8.0
 ## Change
-- update `xitca-server` to `0.6.0`
+- update `xitca-server` to `0.6.1`
 - update `xitca-tls` to `0.5.0`
-- update `xitca-io` to `0.5.0`
+- update `xitca-io` to `0.5.1`
 - update `socket2` to `0.6.0`
 - update `tokio` to `1.48`
 - update `h3` to `0.0.7`

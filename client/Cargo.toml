@@ -34,14 +34,14 @@ websocket = ["http-ws"]
 dangerous = []
 
 [dependencies]
-xitca-http = { version = "0.7.0", default-features = false, features = ["runtime"] }
-xitca-io = "0.5.0"
+xitca-http = { version = "0.8.0", default-features = false, features = ["runtime"] }
+xitca-io = "0.5.1"
 xitca-unsafe-collection = "0.2.0"
 
 futures-core = { version = "0.3.17", default-features = false }
 futures-sink = { version = "0.3.17", default-features = false }
 pin-project-lite = "0.2.9"
-tokio = { version = "1.30", features = ["sync", "time"] }
+tokio = { version = "1.48", features = ["sync", "time"] }
 tracing = { version = "0.1.40", default-features = false }
 
 # http/1
@@ -79,4 +79,4 @@ http-ws = { version = "0.4", features = ["stream"], optional = true }
 
 [dev-dependencies]
 futures = "0.3"
-tokio = { version = "1.30", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
