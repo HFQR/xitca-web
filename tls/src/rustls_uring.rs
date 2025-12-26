@@ -6,7 +6,7 @@ use core::{
     slice,
 };
 
-use std::{io, net::Shutdown};
+use std::{io, net::Shutdown, rc::Rc};
 
 pub use rustls_crate::*;
 
@@ -48,7 +48,19 @@ use self::buf::WriteBuf;
 /// ```
 pub struct TlsStream<C, Io> {
     io: Io,
-    session: RefCell<Session<C>>,
+    session: Rc<RefCell<Session<C>>>,
+}
+
+impl<C, Io> Clone for TlsStream<C, Io>
+where
+    Io: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            io: self.io.clone(),
+            session: self.session.clone(),
+        }
+    }
 }
 
 struct Session<C> {
@@ -171,14 +183,20 @@ where
     pub async fn handshake(io: Io, session: C) -> io::Result<Self> {
         let mut stream = TlsStream {
             io,
-            session: RefCell::new(Session {
+            session: Rc::new(RefCell::new(Session {
                 session,
                 read_buf: Some(BytesMut::new()),
                 write_buf: Some(WriteBuf::default()),
-            }),
+            })),
         };
         stream._handshake().await?;
         Ok(stream)
+    }
+
+    fn session_mut(&mut self) -> &mut C {
+        Rc::get_mut(&mut self.session)
+            .map(|session| &mut session.get_mut().session)
+            .expect("handshake must have exclusive ownership of TlsStream until it returns")
     }
 
     pub(crate) async fn _handshake(&mut self) -> io::Result<(usize, usize)> {
@@ -187,12 +205,11 @@ where
         let mut eof = false;
 
         loop {
-            while self.session.get_mut().session.wants_write() && self.session.get_mut().session.is_handshaking() {
+            while self.session_mut().wants_write() && self.session_mut().is_handshaking() {
                 wrlen += self.write_tls().await?;
             }
 
-            while !eof && self.session.get_mut().session.wants_read() && self.session.get_mut().session.is_handshaking()
-            {
+            while !eof && self.session_mut().wants_read() && self.session_mut().is_handshaking() {
                 let n = self.read_tls().await?;
                 rdlen += n;
                 if n == 0 {
@@ -200,7 +217,7 @@ where
                 }
             }
 
-            match (eof, self.session.get_mut().session.is_handshaking()) {
+            match (eof, self.session_mut().is_handshaking()) {
                 (true, true) => {
                     return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "tls handshake eof"));
                 }
@@ -209,7 +226,7 @@ where
             };
         }
 
-        while self.session.get_mut().session.wants_write() {
+        while self.session_mut().wants_write() {
             wrlen += self.write_tls().await?;
         }
 
