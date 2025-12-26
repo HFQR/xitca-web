@@ -101,12 +101,12 @@ impl Driver {
     }
 
     pub(crate) fn unregister_buffers(&mut self, buffers: Rc<RefCell<dyn FixedBuffers>>) -> io::Result<()> {
-        if let Some(currently_registered) = &self.fixed_buffers
-            && Rc::ptr_eq(&buffers, currently_registered)
-        {
-            self.uring.submitter().unregister_buffers()?;
-            self.fixed_buffers = None;
-            return Ok(());
+        if let Some(currently_registered) = &self.fixed_buffers {
+            if Rc::ptr_eq(&buffers, currently_registered) {
+                self.uring.submitter().unregister_buffers()?;
+                self.fixed_buffers = None;
+                return Ok(());
+            }
         }
         Err(io::Error::other("fixed buffers are not currently registered"))
     }

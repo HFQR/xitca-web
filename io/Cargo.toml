@@ -1,6 +1,6 @@
 [package]
 name = "xitca-io"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "async network io types and traits"
@@ -24,4 +24,4 @@ xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 bytes = "1.4"
 quinn = { version = "0.11", features = ["ring"], optional = true }
 tokio = { version = "1.48", features = ["net"], optional = true }
-tokio-uring-xitca = { version = "0.1.0", features = ["bytes"], optional = true }
+tokio-uring-xitca = { version = "0.1.1", features = ["bytes"], optional = true }

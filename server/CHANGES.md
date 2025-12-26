@@ -1,5 +1,9 @@
 # unreleased
 
+# 0.6.1
+## Fix
+- fix MSRV
+
 # 0.6.0
 ## Change
 - update `socket2` to `0.6.0`

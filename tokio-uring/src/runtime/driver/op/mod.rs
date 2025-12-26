@@ -102,10 +102,10 @@ impl<D: Unpin, T: OneshotOutputTransform<StoredData = D> + Unpin> Future for InF
 
 impl<D: 'static, T: OneshotOutputTransform<StoredData = D>> Drop for InFlightOneshot<D, T> {
     fn drop(&mut self) {
-        if let Some(inner) = self.inner.take()
-            && let Some(driver) = inner.driver.upgrade()
-        {
-            driver.remove_op_2(inner.index, inner.stable_data)
+        if let Some(inner) = self.inner.take() {
+            if let Some(driver) = inner.driver.upgrade() {
+                driver.remove_op_2(inner.index, inner.stable_data)
+            }
         }
     }
 }

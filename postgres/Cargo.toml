@@ -35,7 +35,7 @@ compio = ["dep:compio"]
 nightly = []
 
 [dependencies]
-xitca-io = { version = "0.5.0", features = ["runtime"] }
+xitca-io = { version = "0.5.1", features = ["runtime"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
 fallible-iterator = "0.2"
@@ -56,7 +56,7 @@ quinn = { version = "0.11", features = ["ring"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
 
 #io-uring
-tokio-uring-xitca = { version = "0.1", optional = true }
+tokio-uring-xitca = { version = "0.1.1", optional = true }
 
 #compio
 compio = { version = "0.17", features = ["bytes"], optional = true }

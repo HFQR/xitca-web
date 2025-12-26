@@ -54,6 +54,7 @@ codegen-units = 1
 # disable useless and/or broken lints
 [workspace.lints.rust]
 unreachable_patterns = "allow"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
 [workspace.lints.clippy]
 await_holding_lock = "allow"

@@ -39,7 +39,7 @@ compio = ["dep:compio-buf", "dep:compio-io", "dep:compio-net"]
 router = ["xitca-router"]
 
 [dependencies]
-xitca-io = "0.5.0"
+xitca-io = "0.5.1"
 xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
@@ -85,7 +85,7 @@ socket2 = { version = "0.6.0", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.8"
-xitca-server = "0.6"
+xitca-server = "0.6.1"
 
 [[bench]]
 name = "h1_decode"
