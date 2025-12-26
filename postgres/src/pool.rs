@@ -1,3 +1,5 @@
+mod connect;
+
 use core::{
     future::Future,
     mem,
@@ -12,21 +14,20 @@ use std::{
 };
 
 use tokio::sync::{Semaphore, SemaphorePermit};
-use xitca_io::{bytes::BytesMut, io::AsyncIo};
+use xitca_io::bytes::BytesMut;
+
+pub use connect::Connect;
+
+use self::connect::{ConnectorDyn, DefaultConnector};
 
 use super::{
-    BoxedFuture, Postgres,
+    BoxedFuture,
     client::{Client, ClientBorrowMut},
     config::Config,
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::{
-        Driver,
-        codec::{AsParams, Response, encode::Encode},
-        generic::GenericDriver,
-    },
+    driver::codec::{AsParams, Response, encode::Encode},
     error::Error,
     execute::Execute,
-    iter::AsyncLendingIterator,
     prepare::Prepare,
     query::{Query, RowAffected, RowStreamOwned},
     session::Session,
@@ -39,6 +40,7 @@ use super::{
 pub struct PoolBuilder {
     config: Result<Config, Error>,
     capacity: usize,
+    connector: Box<dyn ConnectorDyn>,
 }
 
 impl PoolBuilder {
@@ -51,14 +53,26 @@ impl PoolBuilder {
         self
     }
 
+    /// set connector type for establishing connection to database. C must impl [`Connect`] trait
+    pub fn connector<C>(mut self, connector: C) -> Self
+    where
+        C: Connect + 'static,
+    {
+        self.connector = Box::new(connector) as _;
+        self
+    }
+
     /// try convert builder to a connection pool instance.
     pub fn build(self) -> Result<Pool, Error> {
-        let config = self.config?;
+        let cfg = self.config?;
 
         Ok(Pool {
             conn: Mutex::new(VecDeque::with_capacity(self.capacity)),
             permits: Semaphore::new(self.capacity),
-            config: Box::new(config),
+            config: Box::new(PoolConfig {
+                connector: self.connector,
+                cfg,
+            }),
         })
     }
 }
@@ -67,7 +81,12 @@ impl PoolBuilder {
 pub struct Pool {
     conn: Mutex<VecDeque<PoolClient>>,
     permits: Semaphore,
-    config: Box<Config>,
+    config: Box<PoolConfig>,
+}
+
+struct PoolConfig {
+    connector: Box<dyn ConnectorDyn>,
+    cfg: Config,
 }
 
 impl Pool {
@@ -80,6 +99,7 @@ impl Pool {
         PoolBuilder {
             config: cfg.try_into().map_err(Into::into),
             capacity: 1,
+            connector: Box::new(DefaultConnector),
         }
     }
 
@@ -115,56 +135,13 @@ impl Pool {
 
     #[cold]
     #[inline(never)]
-    fn connect(&self) -> BoxedFuture<'_, Result<PoolClient, Error>> {
-        Box::pin(async move {
-            let (client, driver) = Postgres::new(Clone::clone(&*self.config)).connect().await?;
-            match driver {
-                Driver::Tcp(drv) => {
-                    #[cfg(feature = "io-uring")]
-                    {
-                        drive_uring(drv)
-                    }
-
-                    #[cfg(not(feature = "io-uring"))]
-                    {
-                        drive(drv)
-                    }
-                }
-                Driver::Dynamic(drv) => drive(drv),
-                #[cfg(feature = "tls")]
-                Driver::Tls(drv) => drive(drv),
-                #[cfg(unix)]
-                Driver::Unix(drv) => drive(drv),
-                #[cfg(all(unix, feature = "tls"))]
-                Driver::UnixTls(drv) => drive(drv),
-                #[cfg(feature = "quic")]
-                Driver::Quic(drv) => drive(drv),
-            };
-            Ok(PoolClient::new(client))
-        })
+    async fn connect(&self) -> Result<PoolClient, Error> {
+        self.config
+            .connector
+            .connect_dyn(self.config.cfg.clone())
+            .await
+            .map(PoolClient::new)
     }
-}
-
-fn drive(mut drv: GenericDriver<impl AsyncIo + Send + 'static>) {
-    tokio::task::spawn(async move {
-        while drv.try_next().await?.is_some() {
-            // TODO: add notify listen callback to Pool
-        }
-        Ok::<_, Error>(())
-    });
-}
-
-#[cfg(feature = "io-uring")]
-fn drive_uring(drv: GenericDriver<xitca_io::net::TcpStream>) {
-    use core::{async_iter::AsyncIterator, future::poll_fn, pin::pin};
-
-    tokio::task::spawn_local(async move {
-        let mut iter = pin!(crate::driver::io_uring::UringDriver::from_tcp(drv).into_iter());
-        while let Some(res) = poll_fn(|cx| iter.as_mut().poll_next(cx)).await {
-            let _ = res?;
-        }
-        Ok::<_, Error>(())
-    });
 }
 
 /// a RAII type for connection. it manages the lifetime of connection and it's [`Statement`] cache.
