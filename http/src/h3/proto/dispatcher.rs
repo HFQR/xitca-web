@@ -61,16 +61,17 @@ where
         // accept loop
         loop {
             match conn.accept().select(queue.next()).await {
-                SelectOutput::A(Ok(Some((req, stream)))) => {
-                    let (tx, rx) = stream.split();
-
-                    // Reconstruct Request to attach crate body type.
-                    let req = req.map(|_| {
-                        let body = ReqB::from(RequestBody(rx));
-                        RequestExt::from_parts(body, Extension::new(self.addr))
-                    });
-
+                SelectOutput::A(Ok(Some(req))) => {
                     queue.push(async move {
+                        let (req, stream) = req.resolve_request().await?;
+                        let (tx, rx) = stream.split();
+
+                        // Reconstruct Request to attach crate body type.
+                        let req = req.map(|_| {
+                            let body = ReqB::from(RequestBody(rx));
+                            RequestExt::from_parts(body, Extension::new(self.addr))
+                        });
+
                         let fut = self.service.call(req);
                         h3_handler(fut, tx).await
                     });
