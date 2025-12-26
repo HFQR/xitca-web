@@ -1,5 +1,9 @@
 # unreleased
 
+# 0.5.1
+## Add
+- add `Clone` impl for `rustls_uring::TlsStream`
+
 # 0.5.0
 ## Change
 - update to Rust edition 2024
