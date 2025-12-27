@@ -1,6 +1,6 @@
 [package]
 name = "http-file"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "file serving for http crate type"
@@ -8,6 +8,7 @@ repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "file"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
+rust-version = "1.79"
 
 [lints]
 workspace = true
@@ -34,4 +35,5 @@ tokio-uring = { version = "0.5", features = ["bytes"], optional = true }
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }
+tempfile = "3.2.0"
 tokio = { version = "1.30", features = ["macros", "rt"] }

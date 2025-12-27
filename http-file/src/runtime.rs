@@ -157,6 +157,7 @@ mod tokio_uring_impl {
     use core::{
         future::{ready, Ready},
         pin::Pin,
+        time::Duration,
     };
 
     use tokio_uring::fs::File;
@@ -175,21 +176,14 @@ mod tokio_uring_impl {
         fn open(&self, path: PathBuf) -> Self::OpenFuture {
             Box::pin(async {
                 let file = File::open(path).await?;
+                let statx = file.statx().await?;
 
-                // SAFETY: fd is borrowed and lives longer than the unsafe block
-                let meta = unsafe {
-                    use std::os::fd::{AsRawFd, FromRawFd};
+                let mtime = statx.stx_mtime;
+                let len = statx.stx_size;
 
-                    let file = std::fs::File::from_raw_fd(file.as_raw_fd());
-                    let md = file.metadata();
-                    // SAFETY: forget the fd before exiting block in success or error case but don't
-                    // run destructor (that would close file handle)
-                    core::mem::forget(file);
-                    md?
-                };
-
-                let modified_time = meta.modified().ok();
-                let len = meta.len();
+                let modified_time = SystemTime::UNIX_EPOCH
+                    .checked_add(Duration::from_secs(mtime.tv_sec as _))
+                    .and_then(|time| time.checked_add(Duration::from_nanos(mtime.tv_nsec as _)));
 
                 Ok(TokioUringFile {
                     file,
@@ -246,5 +240,22 @@ mod tokio_uring_impl {
                 }
             })
         }
+    }
+}
+
+#[cfg(feature = "tokio-uring")]
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[test]
+    fn meta() {
+        tokio_uring::start(async {
+            let mut file = TokioUringFs::open(&TokioUringFs, "./sample/test.txt".into())
+                .await
+                .unwrap();
+            assert!(file.modified().is_some());
+        })
     }
 }
