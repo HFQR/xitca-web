@@ -3,8 +3,8 @@ use core::{async_iter::AsyncIterator, future::poll_fn, pin::pin};
 use std::io;
 
 use compio::{
-    buf::{BufResult, IntoInner, IoBuf},
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
+    buf::BufResult,
+    io::{AsyncReadManaged, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 use postgres_protocol::message::backend;
@@ -96,7 +96,7 @@ impl CompIoDriver {
     }
 
     pub fn into_async_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> + use<> {
-        let mut read_buf = self.read_buf;
+        let read_buf = self.read_buf;
 
         async gen move {
             let write = || async {
@@ -114,6 +114,14 @@ impl CompIoDriver {
             };
 
             let read = || async gen {
+                let pool = match compio::runtime::BufferPool::new(1, 4096 * 4) {
+                    Ok(pool) => pool,
+                    Err(e) => {
+                        yield Err(SelectOutput::A(e.into()));
+                        return;
+                    }
+                };
+                let mut read_buf = read_buf;
                 loop {
                     match self.rx.try_decode(&mut read_buf) {
                         Ok(Some(msg)) => {
@@ -127,19 +135,15 @@ impl CompIoDriver {
                         Ok(None) => {}
                     }
 
-                    let len = read_buf.len();
-
-                    if len == read_buf.capacity() {
-                        read_buf.reserve(4096);
-                    }
-
-                    let BufResult(res, b) = (&self.io).read(read_buf.slice(len..)).await;
-
-                    read_buf = b.into_inner();
+                    let res = (&self.io).read_managed(&pool, 4096 * 4).await;
 
                     match res {
-                        Ok(0) => return,
-                        Ok(_) => {}
+                        Ok(buf) => {
+                            if buf.is_empty() {
+                                return;
+                            }
+                            read_buf.extend_from_slice(buf.as_ref());
+                        }
                         Err(e) => {
                             yield Err(SelectOutput::B(e));
                             return;
