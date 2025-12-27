@@ -62,7 +62,21 @@ impl PoolBuilder {
     }
 }
 
-/// connection pool for a set of connections to database.
+/// connection pool for a set of connections to database. Can be used as entry point of query
+///
+/// # Examples
+/// ```rust
+/// # use xitca_postgres::{Error, Execute};
+/// # async fn query() -> Result<(), Error> {
+/// let pool = xitca_postgres::pool::Pool::builder("db_url").build()?;
+/// xitca_postgres::Statement::named("SELECT 1", &[]).bind_none().execute(&pool).await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Caching
+/// When connection pool is used as executor through [`Execute::query`] and [`Execute::execute`] methods
+/// it would prepare and cache statement for reuse. For selective caching consider use [`PoolConnection`]
 pub struct Pool {
     conn: Mutex<VecDeque<PoolClient>>,
     permits: Semaphore,
@@ -302,6 +316,8 @@ where
 #[cfg(not(feature = "io-uring"))]
 #[cfg(test)]
 mod test {
+    use crate::{iter::AsyncLendingIterator, statement::Statement};
+
     use super::*;
 
     #[tokio::test]
