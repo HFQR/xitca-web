@@ -78,7 +78,7 @@ mod tokio_impl {
 
         fn open(&self, path: PathBuf) -> Self::OpenFuture {
             Box::pin(async {
-                let file = tokio::fs::File::open(path).await?;
+                let file = File::open(path).await?;
                 let meta = file.metadata().await?;
 
                 let modified_time = meta.modified().ok();
