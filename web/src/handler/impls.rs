@@ -201,8 +201,8 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for StatusCode {
 // shared error impl for serde enabled features: json, urlencoded, etc.
 #[cfg(feature = "serde")]
 const _: () = {
-    crate::error::error_from_service!(serde::de::value::Error);
-    crate::error::forward_blank_bad_request!(serde::de::value::Error);
+    crate::error::error_from_service!(serde_core::de::value::Error);
+    crate::error::forward_blank_bad_request!(serde_core::de::value::Error);
 };
 
 #[cfg(test)]
