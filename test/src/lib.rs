@@ -2,8 +2,7 @@ use std::{
     error, fmt, fs,
     future::Future,
     io,
-    net::SocketAddr,
-    net::TcpListener,
+    net::{SocketAddr, TcpListener, ToSocketAddrs},
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -36,9 +35,18 @@ where
     T::Response: ReadyService + Service<Req>,
     Req: TryFrom<NetStream> + 'static,
 {
-    let lst = TcpListener::bind("127.0.0.1:0")?;
+    test_server_with_addr(service, "127.0.0.1:0")
+}
 
-    let addr = lst.local_addr()?;
+pub fn test_server_with_addr<T, Req, A>(service: T, addr: A) -> Result<TestServerHandle, Error>
+where
+    T: Service + Send + Sync + 'static,
+    T::Response: ReadyService + Service<Req>,
+    Req: TryFrom<NetStream> + 'static,
+    A: ToSocketAddrs,
+{
+    let lst = TcpListener::bind(addr)?;
+    let local_addr = lst.local_addr()?;
 
     let handle = Builder::new()
         .worker_threads(1)
@@ -47,7 +55,35 @@ where
         .listen::<_, _, _, Req>("test_server", lst, service)
         .build();
 
-    Ok(TestServerHandle { addr, handle })
+    Ok(TestServerHandle {
+        addr: local_addr,
+        handle,
+    })
+}
+
+/// A specialized http/1 server on top of [test_server]
+pub fn test_h1_server_with_addr<T, B, E, A>(service: T, addr: A) -> Result<TestServerHandle, Error>
+where
+    T: Service + Send + Sync + 'static,
+    T::Response: ReadyService + Service<Request<RequestExt<h1::RequestBody>>, Response = HResponse<B>> + 'static,
+    <T::Response as Service<Request<RequestExt<h1::RequestBody>>>>::Error: fmt::Debug,
+    T::Error: error::Error + 'static,
+    B: Stream<Item = Result<Bytes, E>> + 'static,
+    E: fmt::Debug + 'static,
+    A: ToSocketAddrs,
+{
+    #[cfg(not(feature = "io-uring"))]
+    {
+        test_server_with_addr::<_, (TcpStream, SocketAddr), A>(service.enclosed(HttpServiceBuilder::h1()), addr)
+    }
+
+    #[cfg(feature = "io-uring")]
+    {
+        test_server_with_addr::<_, (xitca_io::net::io_uring::TcpStream, SocketAddr), A>(
+            service.enclosed(HttpServiceBuilder::h1().io_uring()),
+            addr,
+        )
+    }
 }
 
 /// A specialized http/1 server on top of [test_server]

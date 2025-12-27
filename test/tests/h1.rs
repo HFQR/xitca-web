@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use xitca_client::Client;
+use xitca_client::{middleware::RetryClosedConnection, Client};
 use xitca_http::{
     body::{BoxBody, ResponseBody},
     bytes::{Bytes, BytesMut},
@@ -16,7 +16,7 @@ use xitca_http::{
     },
 };
 use xitca_service::fn_service;
-use xitca_test::{test_h1_server, Error};
+use xitca_test::{test_h1_server, test_h1_server_with_addr, Error};
 
 #[tokio::test]
 async fn h1_get() -> Result<(), Error> {
@@ -265,6 +265,41 @@ async fn h1_keepalive() -> Result<(), Error> {
 
     handle.try_handle()?.stop(true);
 
+    handle.await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn h1_get_connection_closed_by_server() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+    let ip_port = handle.ip_port_string();
+
+    let server_url = format!("http://{}/", ip_port);
+
+    let c = Client::builder()
+        .middleware(RetryClosedConnection::new)
+        .set_pool_capacity(1)
+        .finish();
+
+    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    handle.try_handle()?.stop(false);
+    handle.await?;
+
+    let mut handle = test_h1_server_with_addr(fn_service(crate::handle), ip_port)?;
+    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    handle.try_handle()?.stop(false);
     handle.await?;
 
     Ok(())
