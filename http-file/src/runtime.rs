@@ -85,7 +85,7 @@ mod tokio_impl {
                 let len = meta.len();
 
                 Ok(TokioFile {
-                    file: file.into(),
+                    file,
                     modified_time,
                     len,
                 })
@@ -231,7 +231,6 @@ mod tokio_uring_impl {
 #[cfg(feature = "tokio-uring")]
 #[cfg(test)]
 mod test {
-
     use super::*;
 
     #[test]
