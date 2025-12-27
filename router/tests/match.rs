@@ -6,12 +6,12 @@ fn partial_overlap() {
     let mut x = Router::new();
     x.insert("/foo_bar", "Welcome!").unwrap();
     x.insert("/foo/bar", "Welcome!").unwrap();
-    assert_eq!(x.at("/foo/").unwrap_err(), MatchError::NotFound);
+    assert_eq!(x.at("/foo/").unwrap_err(), MatchError);
 
     let mut x = Router::new();
     x.insert("/foo", "Welcome!").unwrap();
     x.insert("/foo/bar", "Welcome!").unwrap();
-    assert_eq!(x.at("/foo/").unwrap_err(), MatchError::NotFound);
+    assert_eq!(x.at("/foo/").unwrap_err(), MatchError);
 }
 
 // https://github.com/ibraheemdev/matchit/issues/31

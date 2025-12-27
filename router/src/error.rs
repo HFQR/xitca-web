@@ -143,10 +143,7 @@ impl Deref for MergeError {
 /// # Ok(())
 /// # }
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum MatchError {
-    /// No matching route was found.
-    NotFound,
-}
+pub struct MatchError;
 
 impl fmt::Display for MatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

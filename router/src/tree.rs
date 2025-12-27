@@ -943,7 +943,7 @@ impl<T> Node<T> {
                             Some(ref value) => value,
 
                             // Otherwise, there are no matching routes in the tree.
-                            None => return Err(MatchError::NotFound),
+                            None => return Err(MatchError),
                         };
 
                         // Remap the keys of any route parameters we accumulated during the search.
@@ -983,7 +983,7 @@ impl<T> Node<T> {
                 }
             }
 
-            return Err(MatchError::NotFound);
+            return Err(MatchError);
         }
     }
 
