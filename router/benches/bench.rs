@@ -1,38 +1,36 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
-fn call() -> impl IntoIterator<Item = &'static str> {
-    [
-        "/user/repos",
-        "/repos/rust-lang/rust/stargazers",
-        "/orgs/rust-lang/public_members/nikomatsakis",
-        "/repos/rust-lang/rust/releases/1.51.0",
-    ]
-}
+use criterion::{criterion_group, criterion_main, Criterion};
 
 fn compare(c: &mut Criterion) {
     let mut group = c.benchmark_group("Compare");
 
+    let paths = routes!(literal).to_vec();
+
     let mut matchit = matchit::Router::new();
-    for route in register!(colon) {
+    for route in routes!(brackets) {
         matchit.insert(route, true).unwrap();
     }
-
     group.bench_function("matchit", |b| {
         b.iter(|| {
-            for route in black_box(call()) {
-                black_box(matchit.at(route).unwrap());
+            for path in black_box(&paths) {
+                let result = black_box(matchit.at(path).unwrap());
+                assert!(*result.value);
             }
         });
     });
 
-    let mut xitca = xitca_router::Router::new();
-    for route in register!(colon) {
-        xitca.insert(route, true).unwrap();
+    let paths = routes!(literal).to_vec();
+
+    let mut matchit = xitca_router::Router::new();
+    for route in routes!(brackets) {
+        matchit.insert(route, true).unwrap();
     }
     group.bench_function("xitca", |b| {
         b.iter(|| {
-            for route in black_box(call()) {
-                black_box(xitca.at(route).unwrap());
+            for path in black_box(&paths) {
+                let result = black_box(matchit.at(path).unwrap());
+                assert!(*result.value);
             }
         });
     });
@@ -43,18 +41,19 @@ fn compare(c: &mut Criterion) {
 fn compare_erase(c: &mut Criterion) {
     let mut group = c.benchmark_group("Compare lifetime erase");
 
+    let paths = routes!(literal).to_vec();
+
     let mut matchit = matchit::Router::new();
-    for route in register!(colon) {
+    for route in routes!(brackets) {
         matchit.insert(route, true).unwrap();
     }
 
     group.bench_function("matchit", |b| {
         b.iter(|| {
-            for route in black_box(call()) {
-                black_box(
-                    matchit
-                        .at(route)
-                        .unwrap()
+            for path in black_box(&paths) {
+                let result = black_box(matchit.at(path).unwrap());
+                let _ = black_box(
+                    result
                         .params
                         .iter()
                         // as of writing the bench this is roughly what axum do to erase lifetime
@@ -62,18 +61,23 @@ fn compare_erase(c: &mut Criterion) {
                         .map(|(k, v)| (String::from(k), String::from(v)))
                         .collect::<Vec<_>>(),
                 );
+
+                assert!(*result.value);
             }
         });
     });
 
-    let mut xitca = xitca_router::Router::new();
-    for route in register!(colon) {
-        xitca.insert(route, true).unwrap();
+    let paths = routes!(literal).to_vec();
+
+    let mut matchit = xitca_router::Router::new();
+    for route in routes!(brackets) {
+        matchit.insert(route, true).unwrap();
     }
     group.bench_function("xitca", |b| {
         b.iter(|| {
-            for route in black_box(call()) {
-                black_box(xitca.at(route).unwrap().params);
+            for path in black_box(&paths) {
+                let result = black_box(matchit.at(path).unwrap());
+                assert!(*result.value);
             }
         });
     });
@@ -104,19 +108,22 @@ fn compare_empty_path(c: &mut Criterion) {
 criterion_group!(benches, compare, compare_erase, compare_empty_path);
 criterion_main!(benches);
 
-macro_rules! register {
+macro_rules! routes {
+    (literal) => {{
+        routes!(finish => "p1", "p2", "p3", "p4")
+    }};
     (colon) => {{
-        register!(finish => ":p1", ":p2", ":p3", ":p4")
+        routes!(finish => ":p1", ":p2", ":p3", ":p4")
     }};
     (brackets) => {{
-        register!(finish => "{p1}", "{p2}", "{p3}", "{p4}")
+        routes!(finish => "{p1}", "{p2}", "{p3}", "{p4}")
     }};
     (regex) => {{
-        register!(finish => "(.*)", "(.*)", "(.*)", "(.*)")
+        routes!(finish => "(.*)", "(.*)", "(.*)", "(.*)")
     }};
     (finish => $p1:literal, $p2:literal, $p3:literal, $p4:literal) => {{
         [
-           "/authorizations",
+            "/authorizations",
             concat!("/authorizations/", $p1),
             concat!("/applications/", $p1, "/tokens/", $p2),
             "/events",
@@ -139,11 +146,11 @@ macro_rules! register {
             concat!("/user/starred/", $p1, "/", $p2),
             concat!("/repos/", $p1, "/", $p2, "/subscribers"),
             concat!("/users/", $p1, "/subscriptions"),
-           "/user/subscriptions",
+            "/user/subscriptions",
             concat!("/repos/", $p1, "/", $p2, "/subscription"),
             concat!("/user/subscriptions/", $p1, "/", $p2),
             concat!("/users/", $p1, "/gists"),
-           "/gists",
+            "/gists",
             concat!("/gists/", $p1),
             concat!("/gists/", $p1, "/star"),
             concat!("/repos/", $p1, "/", $p2, "/git/blobs/", $p3),
@@ -175,13 +182,13 @@ macro_rules! register {
             "/user/orgs",
             concat!("/orgs/", $p1),
             concat!("/orgs/", $p1, "/members"),
-            concat!("/orgs/", $p1, "/members", $p2),
+            concat!("/orgs/", $p1, "/members/", $p2),
             concat!("/orgs/", $p1, "/public_members"),
             concat!("/orgs/", $p1, "/public_members/", $p2),
             concat!("/orgs/", $p1, "/teams"),
             concat!("/teams/", $p1),
             concat!("/teams/", $p1, "/members"),
-            concat!("/teams/", $p1, "/members", $p2),
+            concat!("/teams/", $p1, "/members/", $p2),
             concat!("/teams/", $p1, "/repos"),
             concat!("/teams/", $p1, "/repos/", $p2, "/", $p3),
             "/user/teams",
@@ -210,12 +217,12 @@ macro_rules! register {
             concat!("/repos/", $p1, "/", $p2, "/commits/", $p3),
             concat!("/repos/", $p1, "/", $p2, "/readme"),
             concat!("/repos/", $p1, "/", $p2, "/keys"),
-            concat!("/repos/", $p1, "/", $p2, "/keys", $p3),
+            concat!("/repos/", $p1, "/", $p2, "/keys/", $p3),
             concat!("/repos/", $p1, "/", $p2, "/downloads"),
-            concat!("/repos/", $p1, "/", $p2, "/downloads", $p3),
+            concat!("/repos/", $p1, "/", $p2, "/downloads/", $p3),
             concat!("/repos/", $p1, "/", $p2, "/forks"),
             concat!("/repos/", $p1, "/", $p2, "/hooks"),
-            concat!("/repos/", $p1, "/", $p2, "/hooks", $p3),
+            concat!("/repos/", $p1, "/", $p2, "/hooks/", $p3),
             concat!("/repos/", $p1, "/", $p2, "/releases"),
             concat!("/repos/", $p1, "/", $p2, "/releases/", $p3),
             concat!("/repos/", $p1, "/", $p2, "/releases/", $p3, "/assets"),
@@ -236,13 +243,13 @@ macro_rules! register {
             concat!("/users/", $p1),
             "/user",
             "/users",
-            "/user/emails",
+           "/user/emails",
             concat!("/users/", $p1, "/followers"),
             "/user/followers",
             concat!("/users/", $p1, "/following"),
             "/user/following",
             concat!("/user/following/", $p1),
-            concat!("/users/", $p1, "/following", $p2),
+            concat!("/users/", $p1, "/following/", $p2),
             concat!("/users/", $p1, "/keys"),
             "/user/keys",
             concat!("/user/keys/", $p1),
@@ -250,4 +257,4 @@ macro_rules! register {
     }};
 }
 
-use register;
+use routes;

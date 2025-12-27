@@ -557,7 +557,7 @@ mod tests {
     #[test]
     fn test_request_extract() {
         let service = Router::new()
-            .insert("/:key/:value/", fn_service(handler))
+            .insert("/{key}/{value}/", fn_service(handler))
             .call(())
             .now_or_panic()
             .unwrap();
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn test_extract_path_single() {
         let service = Router::new()
-            .insert("/name/:value/", fn_service(handler))
+            .insert("/name/{value}/", fn_service(handler))
             .call(())
             .now_or_panic()
             .unwrap();
@@ -657,7 +657,7 @@ mod tests {
     #[test]
     fn test_extract_enum() {
         let service = Router::new()
-            .insert("/:val/", fn_service(handler))
+            .insert("/{val}/", fn_service(handler))
             .call(())
             .now_or_panic()
             .unwrap();
@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn test_extract_errors() {
         let service = Router::new()
-            .insert("/:value/", fn_service(handler))
+            .insert("/{value}/", fn_service(handler))
             .insert("/", fn_service(handler))
             .call(())
             .now_or_panic()
@@ -755,7 +755,7 @@ mod tests {
         *req.uri_mut() = Uri::from_static("/qingling/dagongren/");
 
         let res = App::new()
-            .at("/:key/:value/", handler_service(handler2))
+            .at("/{key}/{value}/", handler_service(handler2))
             .finish()
             .call(())
             .now_or_panic()
@@ -786,7 +786,7 @@ mod tests {
         *req.uri_mut() = Uri::from_static("/meme/doge");
 
         let res = App::new()
-            .at("/meme/:name", handler_service(handler3))
+            .at("/meme/{name}", handler_service(handler3))
             .finish()
             .call(())
             .now_or_panic()

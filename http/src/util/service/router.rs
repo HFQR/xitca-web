@@ -175,8 +175,8 @@ where
 {
     fn path_gen(&mut self, path: &str) -> String {
         let mut path = String::from(path);
-        if path.ends_with("/*") {
-            path.pop();
+        if path.ends_with("/{*}") {
+            drop(path.split_off("{*}".len()));
         }
 
         if path.ends_with('/') {
@@ -189,7 +189,7 @@ where
             v.path_gen(path.as_str());
         });
 
-        path.push_str("/*");
+        path.push_str("/{*}");
 
         path
     }
@@ -548,7 +548,7 @@ mod test {
 
         Router::new()
             .insert(
-                "/users/:id",
+                "/users/{id}",
                 fn_service(|req: Request<RequestExt<()>>| async move {
                     let params = req.body().params();
                     assert_eq!(params.get("id").unwrap(), "1");

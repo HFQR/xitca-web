@@ -1,6 +1,6 @@
 [package]
 name = "xitca-router"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 description = "router for xitca"
@@ -8,6 +8,7 @@ repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
+rust-version.workspace = true
 
 [lints]
 workspace = true
@@ -16,11 +17,10 @@ workspace = true
 xitca-unsafe-collection = "0.2.0"
 
 [dev-dependencies]
-criterion = "0.5"
-matchit = "0.7.3"
+criterion = "0.7"
+matchit = "0.9.1"
 
 [features]
-__test_helpers = []
 
 [[bench]]
 name = "bench"
