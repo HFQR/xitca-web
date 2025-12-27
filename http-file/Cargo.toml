@@ -1,6 +1,6 @@
 [package]
 name = "http-file"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "file serving for http crate type"
@@ -17,8 +17,8 @@ workspace = true
 default = ["tokio"]
 # tokio runtime as async file system
 tokio = ["tokio/fs", "tokio/io-util"]
-# tokio-uring as async file system. (can be used together with tokio feature)
-tokio-uring = ["dep:tokio", "dep:tokio-uring"]
+# xitca's fork of tokio-uring as file system. (can be used together with tokio feature)
+tokio-uring-xitca = ["dep:tokio", "dep:tokio-uring-xitca"]
 
 [dependencies]
 bytes = "1.4"
@@ -31,7 +31,7 @@ percent-encoding = "2.2.0"
 pin-project-lite = "0.2.9"
 
 tokio = { version = "1.30", features = ["rt"], optional = true }
-tokio-uring = { version = "0.5", features = ["bytes"], optional = true }
+tokio-uring-xitca = { version = "0.1.1", features = ["bytes"], optional = true }
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }

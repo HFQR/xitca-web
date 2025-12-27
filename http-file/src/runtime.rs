@@ -134,10 +134,10 @@ mod tokio_impl {
     }
 }
 
-#[cfg(feature = "tokio-uring")]
+#[cfg(feature = "tokio-uring-xitca")]
 pub(crate) use tokio_uring_impl::TokioUringFs;
 
-#[cfg(feature = "tokio-uring")]
+#[cfg(feature = "tokio-uring-xitca")]
 mod tokio_uring_impl {
     use core::{
         future::{ready, Ready},
@@ -145,7 +145,7 @@ mod tokio_uring_impl {
         time::Duration,
     };
 
-    use tokio_uring::fs::File;
+    use tokio_uring_xitca::fs::File;
 
     use super::*;
 
@@ -228,14 +228,14 @@ mod tokio_uring_impl {
     }
 }
 
-#[cfg(feature = "tokio-uring")]
+#[cfg(feature = "tokio-uring-xitca")]
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
     fn meta() {
-        tokio_uring::start(async {
+        tokio_uring_xitca::start(async {
             let mut file = TokioUringFs::open(&TokioUringFs, "./sample/test.txt".into())
                 .await
                 .unwrap();

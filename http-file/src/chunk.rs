@@ -63,7 +63,7 @@ where
         match self {
             // see xitca_http::body::none_body_hint for reason. this is a library hack.
             Self::Empty => (usize::MAX, Some(0)),
-            Self::Reader { ref reader } => reader.size_hint(),
+            Self::Reader { reader } => reader.size_hint(),
         }
     }
 }
