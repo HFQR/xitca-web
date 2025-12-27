@@ -51,7 +51,7 @@ impl ServeDir<runtime::TokioFs> {
     }
 }
 
-#[cfg(feature = "tokio-uring")]
+#[cfg(feature = "tokio-uring-xitca")]
 impl ServeDir<runtime::TokioUringFs> {
     /// Construct a new ServeDir with given path.
     pub fn new_tokio_uring(path: impl Into<PathBuf>) -> Self {
@@ -180,7 +180,7 @@ impl<FS: AsyncFs> ServeDir<FS> {
                 }
                 Component::CurDir => {}
                 Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
-                    return Err(ServeError::InvalidPath)
+                    return Err(ServeError::InvalidPath);
                 }
             }
         }
@@ -313,10 +313,10 @@ mod test {
         _basic(ServeDir::new("sample")).await;
     }
 
-    #[cfg(all(target_os = "linux", feature = "tokio-uring"))]
+    #[cfg(all(target_os = "linux", feature = "tokio-uring-xitca"))]
     #[test]
     fn basic_tokio_uring() {
-        tokio_uring::start(_basic(ServeDir::new_tokio_uring("sample")));
+        tokio_uring_xitca::start(_basic(ServeDir::new_tokio_uring("sample")));
     }
 
     async fn test_range<FS: AsyncFs>(dir: ServeDir<FS>) {
@@ -356,9 +356,9 @@ mod test {
         test_range(ServeDir::new("sample")).await;
     }
 
-    #[cfg(all(target_os = "linux", feature = "tokio-uring"))]
+    #[cfg(all(target_os = "linux", feature = "tokio-uring-xitca"))]
     #[test]
     fn ranged_tokio_uring() {
-        tokio_uring::start(test_range(ServeDir::new_tokio_uring("sample")))
+        tokio_uring_xitca::start(test_range(ServeDir::new_tokio_uring("sample")))
     }
 }

@@ -1,4 +1,9 @@
-# unreleased
+# unreleased 0.3.0
+## Add
+- add `tokio-uring-xitca` feature
+
+## Remove
+- remove `tokio-uring` feature. tokio crate is adding direct support for io_uring and `tokio` feature would eventually cover all it's use case
 
 # 0.2.1
 ## Change
