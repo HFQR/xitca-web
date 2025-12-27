@@ -140,7 +140,7 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// Along with static routes, the router also supports dynamic route segments. These can either be named or catch-all parameters:
     ///
     /// ## Named Parameters
-    /// Named parameters like `/:id` match anything until the next `/` or the end of the path:
+    /// Named parameters like `/{id}` match anything until the next `/` or the end of the path:
     /// ```rust
     /// # fn main() {
     /// #   #[cfg(feature = "params")]

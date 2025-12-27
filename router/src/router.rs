@@ -56,14 +56,7 @@ impl<T> Router<T> {
     /// ```
     #[inline]
     pub fn at(&self, path: &str) -> Result<Match<&T>, MatchError> {
-        match self.root.at(path.as_bytes()) {
-            Ok((value, params)) => Ok(Match {
-                // Safety: We only expose `&mut T` through `&mut self`
-                value,
-                params,
-            }),
-            Err(e) => Err(e),
-        }
+        self.root.at(path).map(|(value, params)| Match { value, params })
     }
 
     /// Remove a given route from the router.

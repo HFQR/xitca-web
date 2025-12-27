@@ -757,7 +757,7 @@ struct Skipped<'node, 'path, T> {
     node: &'node Node<T>,
 
     /// The path at the time we skipped this node.
-    path: &'path [u8],
+    path: &'path str,
 
     // The number of parameters that were present.
     params: usize,
@@ -769,7 +769,7 @@ impl<T> Node<T> {
     // Returning an `UnsafeCell` allows us to avoid duplicating the logic between `Node::at` and
     // `Node::at_mut`, as Rust doesn't have a great way of abstracting over mutability.
     #[inline]
-    pub fn at<'s>(&'s self, mut path: &[u8]) -> Result<(&'s T, Params), MatchError> {
+    pub fn at<'s>(&'s self, mut path: &str) -> Result<(&'s T, Params), MatchError> {
         let mut node = self;
         let mut backtracking = false;
         let mut params = Params::new();
@@ -780,13 +780,11 @@ impl<T> Node<T> {
                 // Reached the end of the
                 if path.len() <= node.prefix.len() {
                     // Check for an exact match.
-                    if *path == *node.prefix {
+                    if path.as_bytes() == &*node.prefix {
                         // Found the matching value.
                         if let Some(ref value) = node.value {
                             // Remap the keys of any route parameters we accumulated during the search.
-                            params.for_each_key_mut(|(i, param)| {
-                                *param = std::str::from_utf8(&node.remapping[i]).unwrap().into()
-                            });
+                            params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
                             return Ok((value, params));
                         }
                     }
@@ -798,7 +796,7 @@ impl<T> Node<T> {
                 let (prefix, rest) = path.split_at(node.prefix.len());
 
                 // The prefix does not match.
-                if *prefix != *node.prefix {
+                if prefix.as_bytes() != &*node.prefix {
                     break 'walk;
                 }
 
@@ -808,7 +806,7 @@ impl<T> Node<T> {
                 // If we are currently backtracking, avoid searching static children
                 // that we already searched.
                 if !backtracking {
-                    let next = path[0];
+                    let next = path.as_bytes()[0];
 
                     // Find a child node that matches the next character in the path.
                     if let Some(i) = node.indices.iter().position(|&c| c == next) {
@@ -842,7 +840,7 @@ impl<T> Node<T> {
                 match node.node_type {
                     NodeType::Param { suffix: false } => {
                         // Check for more path segments.
-                        let terminator = match path.iter().position(|&c| c == b'/') {
+                        let terminator = match path.as_bytes().iter().position(|&c| c == b'/') {
                             // Double `//` implying an empty parameter, no match.
                             Some(0) => break 'walk,
 
@@ -858,12 +856,10 @@ impl<T> Node<T> {
                                 };
 
                                 // Store the parameter value.
-                                params.push("", std::str::from_utf8(path).unwrap());
+                                params.push("", path);
 
                                 // Remap the keys of any route parameters we accumulated during the search.
-                                params.for_each_key_mut(|(i, param)| {
-                                    *param = std::str::from_utf8(&node.remapping[i]).unwrap().into()
-                                });
+                                params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
 
                                 return Ok((value, params));
                             }
@@ -879,7 +875,7 @@ impl<T> Node<T> {
 
                         // Store the parameter value.
                         // Parameters are normalized so this key is irrelevant for now.
-                        params.push("", std::str::from_utf8(param).unwrap());
+                        params.push("", param);
 
                         // Continue searching.
                         path = rest;
@@ -890,7 +886,7 @@ impl<T> Node<T> {
 
                     NodeType::Param { suffix: true } => {
                         // Check for more path segments.
-                        let slash = path.iter().position(|&c| c == b'/');
+                        let slash = path.as_bytes().iter().position(|&c| c == b'/');
                         let terminator = match slash {
                             // Double `//` implying an empty parameter, no match.
                             Some(0) => break 'walk,
@@ -912,12 +908,12 @@ impl<T> Node<T> {
                             let (param, suffix) = path[..terminator].split_at(suffix_start);
 
                             // Continue searching if the suffix matches.
-                            if *suffix == *child.prefix {
+                            if suffix.as_bytes() == &*child.prefix {
                                 node = child;
                                 path = &path[suffix_start..];
                                 backtracking = false;
                                 // Parameters are normalized so this key is irrelevant for now.
-                                params.push("", std::str::from_utf8(param).unwrap());
+                                params.push("", param);
                                 continue 'walk;
                             }
                         }
@@ -931,12 +927,10 @@ impl<T> Node<T> {
                         };
 
                         // Store the parameter value.
-                        params.push("", std::str::from_utf8(path).unwrap());
+                        params.push("", path);
 
                         // Remap the keys of any route parameters we accumulated during the search.
-                        params.for_each_key_mut(|(i, param)| {
-                            *param = std::str::from_utf8(&node.remapping[i]).unwrap().into()
-                        });
+                        params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
 
                         return Ok((value, params));
                     }
@@ -953,14 +947,12 @@ impl<T> Node<T> {
                         };
 
                         // Remap the keys of any route parameters we accumulated during the search.
-                        params.for_each_key_mut(|(i, param)| {
-                            *param = std::str::from_utf8(&node.remapping[i]).unwrap().into()
-                        });
+                        params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
 
                         // Store the final catch-all parameter (`{*...}`).
                         let key = &node.prefix[2..node.prefix.len() - 1];
 
-                        params.push(std::str::from_utf8(key).unwrap(), std::str::from_utf8(path).unwrap());
+                        params.push(std::str::from_utf8(key).unwrap(), path);
 
                         return Ok((value, params));
                     }
@@ -1020,7 +1012,7 @@ impl<T> Node<T> {
 /// are normalized before being inserted into the tree. Parameter remapping are
 /// stored at nodes containing values, containing the "true" names of all route parameters
 /// for the given route.
-type ParamRemapping = Vec<Vec<u8>>;
+type ParamRemapping = Vec<String>;
 
 /// Returns `path` with normalized route parameters, and a parameter remapping
 /// to store at the node for this route.
@@ -1062,7 +1054,7 @@ fn normalize_params(mut path: UnescapedRoute) -> Result<(UnescapedRoute, ParamRe
         // Preserve the original name for remapping.
         let mut removed = removed.skip(1).collect::<Vec<_>>();
         removed.pop();
-        original.push(removed);
+        original.push(String::from_utf8(removed).unwrap());
 
         next += 1;
         if next > b'z' {
@@ -1096,9 +1088,9 @@ pub(crate) fn denormalize_params(route: &mut UnescapedRoute, params: &ParamRemap
         };
 
         // Denormalize this parameter.
-        next.insert(0, b'{');
-        next.push(b'}');
-        let _ = route.splice(wildcard.clone(), next.clone());
+        next.insert(0, '{');
+        next.push('}');
+        let _ = route.splice(wildcard.clone(), next.as_bytes().to_vec());
 
         i += 1;
         start = wildcard.start + next.len();
@@ -1185,11 +1177,7 @@ where
         {
             let indices = self.indices.iter().map(|&x| char::from_u32(x as _)).collect::<Vec<_>>();
 
-            let params = self
-                .remapping
-                .iter()
-                .map(|x| str::from_utf8(x).unwrap())
-                .collect::<Vec<_>>();
+            let params = self.remapping.iter().collect::<Vec<_>>();
 
             f.field("indices", &indices).field("params", &params);
         }
