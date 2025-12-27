@@ -1,8 +1,9 @@
-use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
+use core::{async_iter::AsyncIterator, future::poll_fn, pin::pin};
 
 use std::{io, net::Shutdown};
 
 use postgres_protocol::message::backend;
+use tokio_uring_xitca::buf::fixed::FixedBufRegistry;
 use xitca_io::{bytes::BytesMut, io_uring::write_all, net::io_uring::TcpStream};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
@@ -40,7 +41,7 @@ pub(super) enum State {
 
 impl GenericUringDriver<xitca_io::net::io_uring::TcpStream> {
     pub fn into_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> {
-        let read_buf = mem::take(&mut self.read_buf);
+        let read_buf = self.read_buf;
 
         async gen move {
             let write = || async {
@@ -57,7 +58,7 @@ impl GenericUringDriver<xitca_io::net::io_uring::TcpStream> {
             };
 
             let read = || async gen {
-                let reg = tokio_uring_xitca::buf::fixed::FixedBufRegistry::new(Some(Vec::with_capacity(4096 * 4)));
+                let reg = FixedBufRegistry::new(Some(Vec::with_capacity(4096 * 4)));
 
                 if let Err(e) = reg.register() {
                     yield Err(SelectOutput::A(e.into()));
@@ -65,6 +66,7 @@ impl GenericUringDriver<xitca_io::net::io_uring::TcpStream> {
                 }
 
                 let mut read_buf = read_buf;
+
                 loop {
                     match self.rx.try_decode(&mut read_buf) {
                         Ok(Some(msg)) => {
@@ -78,7 +80,9 @@ impl GenericUringDriver<xitca_io::net::io_uring::TcpStream> {
                         Ok(None) => {}
                     }
 
-                    let buf = reg.check_out(0).unwrap();
+                    let buf = reg
+                        .check_out(0)
+                        .expect("must have exclusive ownership to FixedBufRegistry");
 
                     let (res, b) = self.io.read_fixed(buf).await;
 
