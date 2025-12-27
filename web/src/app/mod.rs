@@ -158,7 +158,7 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// #   App
     /// # };
     /// // register named param pattern to handler service.
-    /// let app = App::new().at("/users/:id", get(handler_service(handler)));
+    /// let app = App::new().at("/users/{id}", get(handler_service(handler)));
     ///
     /// // handler function try to extract a single key/value string pair from url params.
     /// async fn handler(Params(val): Params<u32>) -> StatusCode {
@@ -206,7 +206,7 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// #   App
     /// # };
     /// // register named param pattern to handler service.
-    /// let app = App::new().at("/*path", get(handler_service(handler)));
+    /// let app = App::new().at("/{*path}", get(handler_service(handler)));
     ///
     /// // handler function try to extract a single key/value string pair from url params.
     /// async fn handler(Params(path): Params<String>) -> StatusCode {
@@ -285,7 +285,7 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// let app = App::new()
     ///     .at("/", Redirect::see_other("/index.html"))        // high priority
     ///     .at("/index.html", Html("<h1>Hello,World!</h1>"))   // high priority
-    ///     .at("/*path", get(handler_service(handler)))        // low priority
+    ///     .at("/{*path}", get(handler_service(handler)))        // low priority
     ///     .serve();
     ///
     /// async fn handler() -> &'static str {

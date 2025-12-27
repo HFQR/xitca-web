@@ -969,10 +969,6 @@ impl<T> Node<T> {
                 }
             }
 
-            println!("node path: {:?}", node.node_type);
-
-            println!("params: {:?}", params);
-
             // Try backtracking to any matching wildcard nodes that we skipped while
             // traversing the tree.
             while let Some(skipped) = skipped.pop() {
@@ -986,6 +982,7 @@ impl<T> Node<T> {
                 }
             }
 
+            // handle empty wildcard node with lowest priority.
             if let Some(child) = node.children.first() {
                 if child.prefix.unescaped() == b"{*}" {
                     if let Some(ref val) = child.value {
