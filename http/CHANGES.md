@@ -1,4 +1,6 @@
-# unreleased 0.8.1
+# unreleased
+
+# 0.8.1
 ## Change
 - update `xitca-router` to `0.4.0`. Beware this is an unstable feature breaking change
 

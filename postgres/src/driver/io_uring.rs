@@ -1,13 +1,10 @@
-use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
+use core::{async_iter::AsyncIterator, future::poll_fn, pin::pin};
 
 use std::{io, net::Shutdown};
 
 use postgres_protocol::message::backend;
-use xitca_io::{
-    bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
-    net::io_uring::TcpStream,
-};
+use tokio_uring_xitca::buf::fixed::FixedBufRegistry;
+use xitca_io::{bytes::BytesMut, io_uring::write_all, net::io_uring::TcpStream};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::error::Error;
@@ -42,12 +39,9 @@ pub(super) enum State {
     Closed(Option<io::Error>),
 }
 
-impl<Io> GenericUringDriver<Io>
-where
-    Io: AsyncBufRead + AsyncBufWrite + 'static,
-{
-    pub fn into_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> + use<Io> {
-        let mut read_buf = mem::take(&mut self.read_buf);
+impl GenericUringDriver<xitca_io::net::io_uring::TcpStream> {
+    pub fn into_iter(mut self) -> impl AsyncIterator<Item = Result<backend::Message, Error>> {
+        let read_buf = self.read_buf;
 
         async gen move {
             let write = || async {
@@ -64,6 +58,15 @@ where
             };
 
             let read = || async gen {
+                let reg = FixedBufRegistry::new(Some(Vec::with_capacity(4096 * 4)));
+
+                if let Err(e) = reg.register() {
+                    yield Err(SelectOutput::A(e.into()));
+                    return;
+                }
+
+                let mut read_buf = read_buf;
+
                 loop {
                     match self.rx.try_decode(&mut read_buf) {
                         Ok(Some(msg)) => {
@@ -77,19 +80,15 @@ where
                         Ok(None) => {}
                     }
 
-                    let len = read_buf.len();
+                    let buf = reg
+                        .check_out(0)
+                        .expect("must have exclusive ownership to FixedBufRegistry");
 
-                    if len == read_buf.capacity() {
-                        read_buf.reserve(4096);
-                    }
-
-                    let (res, b) = self.io.read(read_buf.slice(len..)).await;
-
-                    read_buf = b.into_inner();
+                    let (res, b) = self.io.read_fixed(buf).await;
 
                     match res {
                         Ok(0) => return,
-                        Ok(_) => {}
+                        Ok(n) => read_buf.extend_from_slice(&b[..n]),
                         Err(e) => {
                             yield Err(SelectOutput::B(e));
                             return;
