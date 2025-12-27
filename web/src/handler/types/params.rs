@@ -2,7 +2,7 @@
 
 use core::{marker::PhantomData, ops::Deref};
 
-use serde::{
+use serde_core::{
     Deserialize,
     de::{self, Deserializer, Error as DeError, Visitor},
     forward_to_deserialize_any,

@@ -7,7 +7,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use serde::{de::Deserialize, ser::Serialize};
+use serde_core::{de::Deserialize, ser::Serialize};
 use xitca_http::util::service::router::{PathGen, RouteGen, RouterMapErr};
 
 use crate::{

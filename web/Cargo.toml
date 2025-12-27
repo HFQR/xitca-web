@@ -1,6 +1,6 @@
 [package]
 name = "xitca-web"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "an async web framework"
@@ -8,6 +8,7 @@ repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
+rust-version.workspace = true
 
 [lints]
 workspace = true
@@ -53,7 +54,7 @@ websocket = ["http-ws/stream", "tokio/time"]
 # static file serving
 file = ["file-raw", "http-file/default"]
 # static file serving with io-uring 
-file-io-uring = ["io-uring", "file", "http-file/tokio-uring"]
+file-io-uring = ["io-uring", "file", "http-file/tokio-uring-xitca"]
 # static file serving without default file system
 file-raw = ["http-file"]
 
@@ -77,13 +78,13 @@ codegen = ["xitca-codegen"]
 tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 
 # (de)serialization shared feature.
-serde = ["dep:serde"]
+serde = ["dep:serde_core"]
 
 # private http server feature
 __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
-xitca-http = { version = "0.7.1", features = ["router"], default-features = false }
+xitca-http = { version = "0.8.0", features = ["router"], default-features = false }
 xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = "0.2.0"
 
@@ -92,13 +93,13 @@ pin-project-lite = "0.2.9"
 tokio = { version = "1", features = ["rt", "sync"] }
 
 # http server
-xitca-server = { version = "0.5.0", optional = true }
+xitca-server = { version = "0.6.1", optional = true }
 
 # tls
-xitca-tls = { version = "0.4.0", optional = true }
+xitca-tls = { version = "0.5.1", optional = true }
 
 # (de)serialization shared.
-serde = { version = "1", optional = true }
+serde_core = { version = "1", optional = true }
 
 # json
 serde_json = { version = "1", optional = true }
@@ -119,7 +120,7 @@ http-multipart = { version = "0.1", optional = true }
 http-ws = { version = "0.3", optional = true }
 
 # static file
-http-file = { version = "0.2", default-features = false ,optional = true }
+http-file = { version = "0.3", default-features = false ,optional = true }
 
 # rate limit
 http-rate = { version = "0.1", optional = true }
@@ -137,7 +138,7 @@ tower-layer = { version = "0.3", optional = true }
 http-body = { version = "1", optional = true }
 
 # http3
-xitca-io = { version = "0.4.1", optional = true }
+xitca-io = { version = "0.5.1", optional = true }
 
 [dev-dependencies]
 xitca-codegen = { version = "0.4" }

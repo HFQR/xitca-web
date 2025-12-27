@@ -2,7 +2,7 @@
 
 use core::{fmt, marker::PhantomData};
 
-use serde::de::Deserialize;
+use serde_core::de::Deserialize;
 
 use crate::{
     context::WebContext,

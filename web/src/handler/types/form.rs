@@ -4,7 +4,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use serde::{Serialize, de::Deserialize};
+use serde_core::{Serialize, de::Deserialize};
 
 use crate::{
     body::BodyStream,
