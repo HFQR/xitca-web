@@ -24,7 +24,7 @@ impl Param {
 /// ```rust
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let mut router = xitca_router::Router::new();
-/// # router.insert("/users/:id", true)?;
+/// # router.insert("/users/{id}", true)?;
 /// let matched = router.at("/users/1")?;
 ///
 /// // you can get a specific value by key
