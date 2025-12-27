@@ -1,5 +1,9 @@
 # unreleased
 
+# 0.2.1
+## Change
+- forbid unsafe code
+
 # 0.2.0
 ## Change
 - project compile on stable Rust channel with MSRV of 1.79

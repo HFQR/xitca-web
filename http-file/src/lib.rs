@@ -1,5 +1,7 @@
 //! local file serving with http.
 
+#![forbid(unsafe_code)]
+
 pub mod runtime;
 
 mod buf;
