@@ -240,7 +240,10 @@ mod test {
             let mut file = TokioUringFs::open(&TokioUringFs, "./sample/test.txt".into())
                 .await
                 .unwrap();
-            assert!(file.modified().is_some());
+
+            let mut file2 = TokioFs::open(&TokioFs, "./sample/test.txt".into()).await.unwrap();
+
+            assert_eq!(file.modified(), file2.modified());
         })
     }
 }
