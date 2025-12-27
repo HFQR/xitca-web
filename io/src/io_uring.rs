@@ -6,12 +6,19 @@ use std::{io, net::Shutdown};
 
 use tokio_uring_xitca::buf::IoBuf;
 
-pub use tokio_uring_xitca::buf::{BoundedBuf, BoundedBufMut, Slice};
+pub use tokio_uring_xitca::buf::{
+    BoundedBuf, BoundedBufMut, Slice,
+    fixed::{FixedBuf, FixedBufPool},
+};
 
 pub trait AsyncBufRead {
     fn read<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
     where
         B: BoundedBufMut;
+
+    fn read_fixed<B>(&self, buf: B) -> impl Future<Output = (io::Result<usize>, B)>
+    where
+        B: BoundedBufMut<BufMut = FixedBuf>;
 }
 
 pub trait AsyncBufWrite {

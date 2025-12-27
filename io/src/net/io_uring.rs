@@ -7,7 +7,7 @@ pub use tokio_uring_xitca::net::TcpStream;
 #[cfg(unix)]
 pub use tokio_uring_xitca::net::UnixStream;
 
-use crate::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
+use crate::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut, FixedBuf};
 
 use super::Stream;
 
@@ -38,6 +38,13 @@ impl AsyncBufRead for TcpStream {
         B: BoundedBufMut,
     {
         TcpStream::read(self, buf).await
+    }
+
+    async fn read_fixed<B>(&self, buf: B) -> (io::Result<usize>, B)
+    where
+        B: BoundedBufMut<BufMut = FixedBuf>,
+    {
+        TcpStream::read_fixed(self, buf).await
     }
 }
 
@@ -91,6 +98,13 @@ mod unix {
             B: BoundedBufMut,
         {
             UnixStream::read(self, buf).await
+        }
+
+        async fn read_fixed<B>(&self, buf: B) -> (io::Result<usize>, B)
+        where
+            B: BoundedBufMut<BufMut = FixedBuf>,
+        {
+            UnixStream::read_fixed(self, buf).await
         }
     }
 

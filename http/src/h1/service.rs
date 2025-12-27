@@ -66,6 +66,7 @@ use crate::{
 #[cfg(feature = "io-uring")]
 pub struct H1UringService<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> {
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
+    pub(crate) pool: xitca_io::io_uring::FixedBufPool<Vec<u8>>,
     pub(crate) date: DateTimeService,
     pub(crate) service: S,
     pub(crate) tls_acceptor: A,
@@ -80,8 +81,11 @@ impl<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_B
         service: S,
         tls_acceptor: A,
     ) -> Self {
+        let pool = xitca_io::io_uring::FixedBufPool::new(core::iter::repeat(Vec::with_capacity(4096)).take(128));
+        pool.register().unwrap();
         Self {
             config,
+            pool,
             date: DateTimeService::new(),
             service,
             tls_acceptor,
@@ -113,9 +117,17 @@ where
             .await
             .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-        super::dispatcher_uring::Dispatcher::run(io, addr, timer, self.config, &self.service, self.date.get())
-            .await
-            .map_err(Into::into)
+        super::dispatcher_uring::Dispatcher::run(
+            io,
+            addr,
+            timer,
+            self.config,
+            &self.service,
+            self.date.get(),
+            &self.pool,
+        )
+        .await
+        .map_err(Into::into)
     }
 }
 

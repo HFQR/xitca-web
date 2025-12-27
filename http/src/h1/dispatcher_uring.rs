@@ -12,7 +12,7 @@ use std::{io, net::Shutdown, rc::Rc};
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all};
+use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, FixedBufPool, write_all};
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
 
@@ -42,6 +42,8 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     notify: Notify,
     timer: Timer<'a>,
     ctx: Context<'a, D, H_LIMIT>,
+    read_buf: BytesMut,
+    pool: &'a FixedBufPool<Vec<u8>>,
     service: &'a S,
     _phantom: PhantomData<ReqB>,
 }
@@ -87,22 +89,23 @@ where
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
+        pool: &'a FixedBufPool<Vec<u8>>,
     ) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io,
             notify: Notify::default(),
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
             ctx: Context::with_addr(addr, date),
+            read_buf: BytesMut::new(),
+            pool,
             service,
             _phantom: PhantomData,
         };
 
-        let mut read_buf = BytesMut::new();
         let mut write_buf = BytesMut::new();
 
         loop {
-            let (res, r_buf, w_buf) = dispatcher._run(read_buf, write_buf).await;
-            read_buf = r_buf;
+            let (res, w_buf) = dispatcher._run(write_buf).await;
             write_buf = w_buf;
             if let Err(err) = res {
                 handle_error(&mut dispatcher.ctx, &mut write_buf, err)?;
@@ -119,35 +122,36 @@ where
         }
     }
 
-    async fn _run(
-        &mut self,
-        mut read_buf: BytesMut,
-        mut write_buf: BytesMut,
-    ) -> (Result<(), Error<S::Error, BE>>, BytesMut, BytesMut) {
+    async fn _run(&mut self, mut write_buf: BytesMut) -> (Result<(), Error<S::Error, BE>>, BytesMut) {
         self.timer.update(self.ctx.date().now());
 
-        match read_buf.read(&self.io).timeout(self.timer.get()).await {
-            Ok((res, r_buf)) => {
-                read_buf = r_buf;
-                match res {
-                    Ok(read) => {
-                        if read == 0 {
-                            self.ctx.set_close();
-                            return (Ok(()), read_buf, write_buf);
-                        }
+        match async {
+            let buf = self.pool.next(4096).await;
+            self.io.read_fixed(buf).await
+        }
+        .timeout(self.timer.get())
+        .await
+        {
+            Ok((res, buf)) => match res {
+                Ok(read) => {
+                    if read == 0 {
+                        self.ctx.set_close();
+                        return (Ok(()), write_buf);
                     }
-                    Err(e) => return (Err(e.into()), read_buf, write_buf),
+
+                    self.read_buf.extend_from_slice(&buf[..read]);
                 }
-            }
+                Err(e) => return (Err(e.into()), write_buf),
+            },
             // read_buf is lost during timeout cancel. make an empty new one instead
-            Err(_) => return (Err(self.timer.map_to_err()), BytesMut::new(), write_buf),
+            Err(_) => return (Err(self.timer.map_to_err()), write_buf),
         }
 
         loop {
-            let (req, decoder) = match self.ctx.decode_head::<R_LIMIT>(&mut read_buf) {
+            let (req, decoder) = match self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf) {
                 Ok(Some(req)) => req,
                 Ok(None) => break,
-                Err(e) => return (Err(e.into()), read_buf, write_buf),
+                Err(e) => return (Err(e.into()), write_buf),
             };
 
             self.timer.reset_state();
@@ -161,7 +165,7 @@ where
                     self.ctx.is_expect_header(),
                     R_LIMIT,
                     decoder,
-                    read_buf.split(),
+                    self.read_buf.split(),
                 );
 
                 (true, body)
@@ -171,12 +175,12 @@ where
 
             let (parts, body) = match self.service.call(req).await {
                 Ok(res) => res.into_parts(),
-                Err(e) => return (Err(Error::Service(e)), read_buf, write_buf),
+                Err(e) => return (Err(Error::Service(e)), write_buf),
             };
 
             let mut encoder = match self.ctx.encode_head(parts, &body, &mut write_buf) {
                 Ok(encoder) => encoder,
-                Err(e) => return (Err(e.into()), read_buf, write_buf),
+                Err(e) => return (Err(e.into()), write_buf),
             };
 
             // this block is necessary. ResB has to be dropped asap as it may hold ownership of
@@ -203,7 +207,7 @@ where
                         SelectOutput::A(Some(Err(e))) => {
                             let (res, w_buf) = self.on_body_error(e, write_buf).await;
                             write_buf = w_buf;
-                            return (res, read_buf, write_buf);
+                            return (res, write_buf);
                         }
                         SelectOutput::A(None) => break encoder.encode_eof(&mut write_buf),
                         SelectOutput::B(_) => {}
@@ -212,14 +216,14 @@ where
                     let (res, w_buf) = write_buf.write(&self.io).await;
                     write_buf = w_buf;
                     if let Err(e) = res {
-                        return (Err(e.into()), read_buf, write_buf);
+                        return (Err(e.into()), write_buf);
                     }
                 }
             }
 
             if wait_for_notify {
                 match self.notify.wait().await {
-                    Some(r_buf) => read_buf = r_buf,
+                    Some(r_buf) => self.read_buf = r_buf,
                     None => {
                         self.ctx.set_close();
                         break;
@@ -228,7 +232,7 @@ where
             }
         }
 
-        (Ok(()), read_buf, write_buf)
+        (Ok(()), write_buf)
     }
 
     #[cold]
