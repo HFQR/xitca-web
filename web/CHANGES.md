@@ -1,5 +1,6 @@
 # unreleased 0.8.0
 ## Change
+- Router rework. Named param is capatured with `{x}` instead of `:x`. Catch all is captured with `{*x}` intead of `*x`. For detail please reference `App::at` doc
 - update `xitca-http` to `0.8.2`
 - update `xitca-server` to `0.6.1`
 - update `xitca-tls` to `0.5.1`
