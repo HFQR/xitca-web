@@ -1,13 +1,22 @@
-use crate::buf::fixed::FixedBuffers;
-use crate::runtime::driver::op::{Completable, Lifecycle, MultiCQEFuture, Op, Updateable};
-use io_uring::opcode::AsyncCancel;
-use io_uring::{IoUring, cqueue, squeue};
+use core::{
+    cell::RefCell,
+    mem,
+    task::{Context, Poll},
+};
+
+use std::{
+    io,
+    os::unix::io::{AsRawFd, RawFd},
+    rc::Rc,
+};
+
+use io_uring::{IoUring, cqueue, opcode::AsyncCancel, squeue};
 use slab::Slab;
-use std::cell::RefCell;
-use std::os::unix::io::{AsRawFd, RawFd};
-use std::rc::Rc;
-use std::task::{Context, Poll};
-use std::{io, mem};
+
+use crate::{
+    buf::fixed::FixedBuffers,
+    runtime::driver::op::{Completable, Lifecycle, MultiCQEFuture, Op, Updateable},
+};
 
 pub(crate) use handle::*;
 
@@ -58,21 +67,15 @@ impl Driver {
     }
 
     pub(crate) fn submit(&mut self) -> io::Result<()> {
-        loop {
-            match self.uring.submit() {
-                Ok(_) => {
-                    self.uring.submission().sync();
-                    return Ok(());
-                }
-                Err(ref e) if e.raw_os_error() == Some(libc::EBUSY) => {
-                    self.dispatch_completions();
-                }
-                Err(e) if e.raw_os_error() != Some(libc::EINTR) => {
-                    return Err(e);
-                }
-                _ => continue,
+        while let Err(e) = self.uring.submit() {
+            match e.raw_os_error() {
+                Some(libc::EBUSY) => self.dispatch_completions(),
+                Some(libc::EINTR) => {}
+                _ => return Err(e),
             }
         }
+        self.uring.submission().sync();
+        Ok(())
     }
 
     pub(crate) fn dispatch_completions(&mut self) {

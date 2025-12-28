@@ -61,9 +61,9 @@
 
 macro_rules! syscall {
     ($fn: ident ( $($arg: expr),* $(,)* ) ) => {{
-        let res = unsafe { libc::$fn($($arg, )*) };
+        let res = unsafe { ::libc::$fn($($arg, )*) };
         if res == -1 {
-            Err(std::io::Error::last_os_error())
+            Err(::std::io::Error::last_os_error())
         } else {
             Ok(res)
         }
@@ -78,12 +78,15 @@ pub mod fs;
 pub mod net;
 
 pub use io::write::*;
-pub use runtime::Runtime;
-pub use runtime::driver::op::{InFlightOneshot, OneshotOutputTransform, UnsubmittedOneshot};
-pub use runtime::spawn;
+pub use runtime::{
+    Runtime,
+    driver::op::{InFlightOneshot, OneshotOutputTransform, UnsubmittedOneshot},
+    spawn,
+};
 
-use crate::runtime::driver::op::Op;
-use std::future::Future;
+use core::future::Future;
+
+use runtime::driver::op::Op;
 
 /// Starts an `io_uring` enabled Tokio runtime.
 ///
@@ -143,7 +146,7 @@ use std::future::Future;
 /// }
 /// ```
 pub fn start<F: Future>(future: F) -> F::Output {
-    let rt = runtime::Runtime::new(&builder()).unwrap();
+    let rt = Runtime::new(&builder()).unwrap();
     rt.block_on(future)
 }
 
