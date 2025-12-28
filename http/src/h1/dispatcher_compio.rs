@@ -11,8 +11,9 @@ use core::{
 use std::{io, rc::Rc};
 
 use compio_buf::{BufResult, IntoInner, IoBuf};
-use compio_io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use compio_io::{AsyncRead, AsyncReadManaged, AsyncWrite, AsyncWriteExt};
 use compio_net::TcpStream;
+use compio_runtime::BufferPool;
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 use xitca_service::Service;
@@ -41,6 +42,8 @@ pub struct Dispatcher<'a, S, ReqB, D, const H_LIMIT: usize, const R_LIMIT: usize
     io: SharedIo<TcpStream>,
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
+    read_buf: BytesMut,
+    pool: &'a BufferPool,
     _phantom: PhantomData<ReqB>,
 }
 
@@ -77,20 +80,26 @@ where
     ResB: Stream<Item = Result<Bytes, BE>>,
     D: DateTime,
 {
-    pub async fn run(io: TcpStream, addr: SocketAddr, service: &'a S, date: &'a D) -> Result<(), Error<S::Error, BE>> {
+    pub async fn run(
+        io: TcpStream,
+        addr: SocketAddr,
+        service: &'a S,
+        date: &'a D,
+        pool: &'a BufferPool,
+    ) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io: SharedIo::new(io),
             ctx: Context::with_addr(addr, date),
+            read_buf: BytesMut::new(),
+            pool,
             service,
             _phantom: PhantomData,
         };
 
-        let mut read_buf = BytesMut::new();
         let mut write_buf = BytesMut::new();
 
         loop {
-            let (res, r_buf, w_buf) = dispatcher._run(read_buf, write_buf).await;
-            read_buf = r_buf;
+            let (res, w_buf) = dispatcher._run(write_buf).await;
             write_buf = w_buf;
             if let Err(err) = res {
                 handle_error(&mut dispatcher.ctx, &mut write_buf, err)?;
@@ -107,28 +116,23 @@ where
         }
     }
 
-    async fn _run(
-        &mut self,
-        mut read_buf: BytesMut,
-        mut write_buf: BytesMut,
-    ) -> (Result<(), Error<S::Error, BE>>, BytesMut, BytesMut) {
-        let (res, r_buf) = read_buf.read(self.io.io()).await;
-        read_buf = r_buf;
-        match res {
+    async fn _run(&mut self, mut write_buf: BytesMut) -> (Result<(), Error<S::Error, BE>>, BytesMut) {
+        match self.io.io().read_managed(self.pool, 0).await {
             Ok(read) => {
-                if read == 0 {
+                if read.is_empty() {
                     self.ctx.set_close();
-                    return (Ok(()), read_buf, write_buf);
+                    return (Ok(()), write_buf);
                 }
+                self.read_buf.extend_from_slice(read.as_ref());
             }
-            Err(e) => return (Err(e.into()), read_buf, write_buf),
+            Err(e) => return (Err(e.into()), write_buf),
         }
 
         loop {
-            let (req, decoder) = match self.ctx.decode_head::<R_LIMIT>(&mut read_buf) {
+            let (req, decoder) = match self.ctx.decode_head::<R_LIMIT>(&mut self.read_buf) {
                 Ok(Some(req)) => req,
                 Ok(None) => break,
-                Err(e) => return (Err(e.into()), read_buf, write_buf),
+                Err(e) => return (Err(e.into()), write_buf),
             };
 
             let (wait_for_notify, body) = if decoder.is_eof() {
@@ -139,7 +143,7 @@ where
                     self.ctx.is_expect_header(),
                     R_LIMIT,
                     decoder,
-                    read_buf.split(),
+                    self.read_buf.split(),
                 );
 
                 (true, body)
@@ -149,12 +153,12 @@ where
 
             let (parts, body) = match self.service.call(req).await {
                 Ok(res) => res.into_parts(),
-                Err(e) => return (Err(Error::Service(e)), read_buf, write_buf),
+                Err(e) => return (Err(Error::Service(e)), write_buf),
             };
 
             let mut encoder = match self.ctx.encode_head(parts, &body, &mut write_buf) {
                 Ok(encoder) => encoder,
-                Err(e) => return (Err(e.into()), read_buf, write_buf),
+                Err(e) => return (Err(e.into()), write_buf),
             };
 
             // this block is necessary. ResB has to be dropped asap as it may hold ownership of
@@ -181,7 +185,7 @@ where
                         SelectOutput::A(Some(Err(e))) => {
                             let (res, w_buf) = self.on_body_error(e, write_buf).await;
                             write_buf = w_buf;
-                            return (res, read_buf, write_buf);
+                            return (res, write_buf);
                         }
                         SelectOutput::A(None) => break encoder.encode_eof(&mut write_buf),
                         SelectOutput::B(_) => {}
@@ -190,14 +194,14 @@ where
                     let (res, w_buf) = write_buf.write(self.io.io()).await;
                     write_buf = w_buf;
                     if let Err(e) = res {
-                        return (Err(e.into()), read_buf, write_buf);
+                        return (Err(e.into()), write_buf);
                     }
                 }
             }
 
             if wait_for_notify {
                 match self.io.wait().await {
-                    Some(r_buf) => read_buf = r_buf,
+                    Some(r_buf) => self.read_buf = r_buf,
                     None => {
                         self.ctx.set_close();
                         break;
@@ -206,7 +210,7 @@ where
             }
         }
 
-        (Ok(()), read_buf, write_buf)
+        (Ok(()), write_buf)
     }
 
     #[cold]
