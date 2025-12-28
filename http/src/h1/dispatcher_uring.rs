@@ -56,9 +56,7 @@ impl BufIo for BytesMut {
     async fn read(mut self, io: &impl AsyncBufRead) -> (io::Result<usize>, Self) {
         let len = self.len();
 
-        if len == self.capacity() {
-            self.reserve(4096);
-        }
+        self.reserve(4096);
 
         let (res, buf) = io.read(self.slice(len..)).await;
         (res, buf.into_inner())
