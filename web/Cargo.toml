@@ -84,7 +84,7 @@ serde = ["dep:serde_core"]
 __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
-xitca-http = { version = "0.8.1", features = ["router"], default-features = false }
+xitca-http = { version = "0.8.2", features = ["router"], default-features = false }
 xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = "0.2.0"
 
