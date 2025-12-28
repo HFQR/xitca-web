@@ -20,7 +20,7 @@ use crate::{
     bytes::{Bytes, BytesMut},
     config::HttpServiceConfig,
     date::DateTime,
-    h1::{body::RequestBody, error::Error},
+    h1::{body::RequestBody, error::Error, proto::error::ProtoError},
     http::response::Response,
     util::timer::{KeepAlive, Timeout},
 };
@@ -137,6 +137,10 @@ where
                     if read == 0 {
                         self.ctx.set_close();
                         return (Ok(()), write_buf);
+                    }
+
+                    if self.read_buf.len() + read > R_LIMIT {
+                        return (Err(ProtoError::HeaderTooLarge.into()), write_buf);
                     }
 
                     self.read_buf.extend_from_slice(&buf[..read]);
