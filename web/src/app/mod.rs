@@ -274,7 +274,11 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     /// # }
     /// ```
     ///
-    /// ## Routing Priority
+    /// ## Character literal escaping
+    /// The literal characters `{` and `}` may be included in a static route by escaping them with the same character.
+    /// For example, the `{` character is escaped with `{{`, and the `}` character is escaped with `}}`.
+    ///
+    /// ## Conflict Rules
     /// Static and dynamic route segments are allowed to overlap. If they do, static segments will be given higher priority:
     /// ```rust
     /// # use xitca_web::{
@@ -292,6 +296,23 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     ///     "todo"
     /// }
     /// ```
+    /// Formally, a route consists of a list of segments separated by `/`, with an optional leading and trailing slash: `(/)<segment_1>/.../<segment_n>(/)`.
+    ///
+    /// Given set of routes, their overlapping segments may include, in order of priority:
+    ///
+    /// - Any number of static segments (`/a`, `/b`, ...).
+    /// - *One* of the following:
+    ///   - Any number of route parameters with a suffix (`/{x}a`, `/{x}b`, ...), prioritizing the longest suffix.
+    ///   - Any number of route parameters with a prefix (`/a{x}`, `/b{x}`, ...), prioritizing the longest prefix.
+    ///   - A single route parameter with both a prefix and a suffix (`/a{x}b`).
+    /// - *One* of the following;
+    ///   - A single standalone parameter (`/{x}`).
+    ///   - A single standalone catch-all parameter (`/{*rest}`). Note this only applies to the final route segment.
+    ///
+    /// Any other combination of route segments is considered ambiguous, and attempting to insert such a route will result in an error.
+    ///
+    /// The one exception to the above set of rules is that catch-all parameters are always considered to conflict with suffixed route parameters, i.e. that `/{*rest}`
+    /// and `/{x}suffix` are overlapping. This is due to an implementation detail of the routing tree that may be relaxed in the future.
     pub fn at<F, C, B>(mut self, path: &'static str, builder: F) -> Self
     where
         F: RouteGen + Service + Send + Sync,
