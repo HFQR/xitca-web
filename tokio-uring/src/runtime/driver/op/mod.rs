@@ -24,6 +24,7 @@ use crate::runtime::{CONTEXT, driver};
 pub(crate) type Completion = SlabListEntry<CqeResult>;
 
 /// An unsubmitted oneshot operation.
+#[must_use = "Operation does nothing unless submitted to driver with UnsubmittedOneshot::submit"]
 pub struct UnsubmittedOneshot<D: 'static, T: OneshotOutputTransform<StoredData = D>> {
     stable_data: D,
     post_op: T,

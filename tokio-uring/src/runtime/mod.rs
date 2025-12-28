@@ -1,7 +1,11 @@
-use std::future::Future;
+use core::{
+    future::{Future, poll_fn},
+    pin::pin,
+};
+
 use std::io;
+
 use tokio::io::unix::AsyncFd;
-use tokio::task::LocalSet;
 
 mod context;
 pub(crate) mod driver;
@@ -30,7 +34,7 @@ pub struct Runtime {
     // field drop order matters. LocalSet must be dropped before TokioRT
     #[cfg(not(tokio_unstable))]
     /// LocalSet for !Send tasks
-    local: LocalSet,
+    local: tokio::task::LocalSet,
 
     /// Tokio runtime, always current-thread
     tokio_rt: TokioRt,
@@ -92,7 +96,7 @@ impl Runtime {
         #[cfg(not(tokio_unstable))]
         let tokio_rt = builder.build()?;
 
-        let _local = LocalSet::new();
+        let _local = tokio::task::LocalSet::new();
 
         let driver = driver::Handle::new(b)?;
 
@@ -137,9 +141,9 @@ impl Runtime {
 
         let _guard = ContextGuard;
 
-        tokio::pin!(future);
+        let mut future = pin!(future);
 
-        let task = std::future::poll_fn(|cx| {
+        let task = poll_fn(|cx| {
             // assert!(drive.as_mut().poll(cx).is_pending());
             future.as_mut().poll(cx)
         });
@@ -151,7 +155,7 @@ impl Runtime {
     }
 }
 
-fn start_uring_wakes_task(tokio_rt: &TokioRt, _local: &LocalSet, driver: driver::Handle) {
+fn start_uring_wakes_task(tokio_rt: &TokioRt, _local: &tokio::task::LocalSet, driver: driver::Handle) {
     let _guard = tokio_rt.enter();
     let async_driver_handle = AsyncFd::new(driver).unwrap();
 
