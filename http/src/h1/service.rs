@@ -81,7 +81,7 @@ impl<S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_B
         service: S,
         tls_acceptor: A,
     ) -> Self {
-        let pool = xitca_io::io_uring::FixedBufPool::new(core::iter::repeat(Vec::with_capacity(4096)).take(128));
+        let pool = xitca_io::io_uring::FixedBufPool::new(core::iter::repeat(Vec::with_capacity(4096)).take(64));
         pool.register().unwrap();
         Self {
             config,
