@@ -1,6 +1,6 @@
 # unreleased 0.8.0
 ## Change
-- update `xitca-http` to `0.8.0`
+- update `xitca-http` to `0.8.2`
 - update `xitca-server` to `0.6.1`
 - update `xitca-tls` to `0.5.1`
 = update `xitca-io` to `0.5.1`

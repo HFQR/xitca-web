@@ -79,9 +79,7 @@ where
 
                     let len = read_buf.len();
 
-                    if len == read_buf.capacity() {
-                        read_buf.reserve(4096);
-                    }
+                    read_buf.reserve(4096);
 
                     let (res, b) = self.io.read(read_buf.slice(len..)).await;
 

@@ -54,9 +54,7 @@ impl BufIo for BytesMut {
     async fn read(mut self, mut io: &TcpStream) -> (io::Result<usize>, Self) {
         let len = self.len();
 
-        if len == self.capacity() {
-            self.reserve(4096);
-        }
+        self.reserve(4096);
 
         let BufResult(res, buf) = (&mut io).read(self.slice(len..)).await;
         (res, buf.into_inner())
