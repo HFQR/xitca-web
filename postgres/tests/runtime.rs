@@ -2,7 +2,7 @@ use core::future::IntoFuture;
 
 use xitca_postgres::{
     Client, Execute, Postgres,
-    error::{Completed, DbError, SqlState},
+    error::{ClosedByDriver, DbError, SqlState},
     iter::AsyncLendingIterator,
     statement::Statement,
     transaction::{IsolationLevel, TransactionBuilder},
@@ -187,7 +187,7 @@ async fn poll_after_response_finish() {
 
     let e = stream.try_next().await.unwrap_err();
 
-    assert!(e.downcast_ref::<Completed>().is_some());
+    assert!(e.downcast_ref::<ClosedByDriver>().is_some());
 }
 
 #[tokio::test]

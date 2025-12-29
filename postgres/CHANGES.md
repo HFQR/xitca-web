@@ -1,6 +1,12 @@
 # unreleased 0.4.0
+## Add
+- add `error::ClosedByDriver` error type
+
 ## Change
 - switch to `tokio-uring-xitca` for `io-uring` feature. IO uring driver must run in it's runtime instead of original `tokio-uring`
+
+## Remove
+- remove `error::DriverDownReceiving` error type
 
 # 0.3.0
 ## Add
