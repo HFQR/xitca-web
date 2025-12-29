@@ -58,6 +58,7 @@ pub struct GenericDriver<Io> {
     pub(super) io: Io,
     pub(super) req: VecDeque<ResponseSender>,
     pub(super) read_buf: PagedBytesMut,
+    pub(super) write_buf: BytesMut,
     pub(super) rx: UnboundedReceiver<Request>,
     read_state: ReadState,
     write_state: WriteState,
@@ -65,7 +66,7 @@ pub struct GenericDriver<Io> {
 
 enum WriteState {
     Waiting,
-    WantWrite(BytesMut),
+    WantWrite,
     WantFlush,
     Closed(Option<io::Error>),
 }
@@ -88,6 +89,7 @@ where
                 rx,
                 req: VecDeque::new(),
                 read_buf: PagedBytesMut::new(),
+                write_buf: BytesMut::new(),
                 read_state: ReadState::WantRead,
                 write_state: WriteState::Waiting,
             },
@@ -96,7 +98,8 @@ where
     }
 
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
-        self.write_state = WriteState::WantWrite(msg);
+        self.write_buf.unsplit(msg);
+        self.write_state = WriteState::WantWrite;
         loop {
             self.try_write()?;
             if matches!(self.write_state, WriteState::Waiting) {
@@ -120,13 +123,13 @@ where
                 (ReadState::WantRead, WriteState::Waiting) => {
                     self.io.ready(Interest::READABLE).select(self.rx.recv()).await
                 }
-                (ReadState::WantRead, WriteState::WantWrite(_) | WriteState::WantFlush) => {
-                    SelectOutput::A(self.io.ready(INTEREST_READ_WRITE).await)
+                (ReadState::WantRead, WriteState::WantWrite | WriteState::WantFlush) => {
+                    self.io.ready(INTEREST_READ_WRITE).select(self.rx.recv()).await
                 }
                 (ReadState::WantRead, WriteState::Closed(_)) => {
                     SelectOutput::A(self.io.ready(Interest::READABLE).await)
                 }
-                (ReadState::Closed(_), WriteState::WantFlush | WriteState::WantWrite(_)) => {
+                (ReadState::Closed(_), WriteState::WantFlush | WriteState::WantWrite) => {
                     SelectOutput::A(self.io.ready(Interest::WRITABLE).await)
                 }
                 (ReadState::Closed(_), WriteState::Waiting) => SelectOutput::B(self.rx.recv().await),
@@ -157,7 +160,8 @@ where
                     }
                 }
                 SelectOutput::B(Some(msg)) => {
-                    self.write_state = WriteState::WantWrite(msg.buf);
+                    self.write_buf.unsplit(msg.buf);
+                    self.write_state = WriteState::WantWrite;
                     self.req.push_back(msg.tx);
                 }
                 SelectOutput::B(None) => self.write_state = WriteState::Closed(None),
@@ -196,28 +200,28 @@ where
 
     fn try_write(&mut self) -> io::Result<()> {
         debug_assert!(
-            matches!(self.write_state, WriteState::WantWrite(_) | WriteState::WantFlush),
+            matches!(self.write_state, WriteState::WantWrite | WriteState::WantFlush),
             "try_write must not be called when WriteState is Wait or Closed"
         );
 
-        if let WriteState::WantWrite(ref mut buf) = self.write_state {
+        if matches!(self.write_state, WriteState::WantWrite) {
             let mut written = 0;
             loop {
-                match io::Write::write(&mut self.io, &buf[written..]) {
+                match io::Write::write(&mut self.io, &self.write_buf[written..]) {
                     Ok(0) => {
-                        buf.advance(written);
+                        self.write_buf.advance(written);
                         return Err(io::ErrorKind::WriteZero.into());
                     }
                     Ok(n) => {
                         written += n;
-                        if written == buf.len() {
-                            buf.clear();
+                        if written == self.write_buf.len() {
+                            self.write_buf.clear();
                             self.write_state = WriteState::WantFlush;
                             break;
                         }
                     }
                     Err(e) => {
-                        buf.advance(written);
+                        self.write_buf.advance(written);
                         return if matches!(e.kind(), io::ErrorKind::WouldBlock) {
                             Ok(())
                         } else {
