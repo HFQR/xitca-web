@@ -15,8 +15,6 @@ use crate::{
     types::BorrowToSql,
 };
 
-use super::DriverTx;
-
 pub(super) fn request_pair() -> (ResponseSender, Response) {
     let (tx, rx) = unbounded_channel();
     (
