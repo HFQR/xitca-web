@@ -5,16 +5,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use super::{
     copy::{CopyIn, CopyOut},
     driver::{
         DriverTx,
-        codec::{
-            Response,
-            encode::{self, Encode},
-        },
+        codec::{Response, encode::Encode},
     },
     error::Error,
     query::Query,
@@ -131,6 +129,7 @@ where
 /// [`Driver`]: crate::driver::Driver
 pub struct Client {
     pub(crate) tx: DriverTx,
+    pub(crate) buf: Mutex<BytesMut>,
     pub(crate) cache: Box<ClientCache>,
 }
 
@@ -260,6 +259,7 @@ impl Client {
     pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
         Self {
             tx,
+            buf: Mutex::new(BytesMut::with_capacity(4096)),
             cache: Box::new(ClientCache {
                 session,
                 type_info: Mutex::new(CachedTypeInfo {
@@ -286,7 +286,15 @@ impl Query for Client {
     where
         S: Encode,
     {
-        encode::send_encode_query(&self.tx, stmt)
+        let (res1, buf) = {
+            let mut buf = self.buf.lock().unwrap();
+            let len = buf.len();
+            let res1 = stmt.encode(&mut buf).inspect_err(|_| buf.truncate(len))?;
+            (res1, buf.split())
+        };
+
+        let res2 = self.tx.send(buf)?;
+        Ok((res1, res2))
     }
 }
 
