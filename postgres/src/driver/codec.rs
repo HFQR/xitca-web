@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
-    error::{Completed, DriverDownReceiving, Error},
+    error::{ClosedByDriver, Error},
     types::BorrowToSql,
 };
 
@@ -24,7 +24,6 @@ pub(super) fn request_pair() -> (ResponseSender, Response) {
         Response {
             rx,
             buf: BytesMut::new(),
-            complete: false,
         },
     )
 }
@@ -33,7 +32,6 @@ pub(super) fn request_pair() -> (ResponseSender, Response) {
 pub struct Response {
     rx: ResponseReceiver,
     buf: BytesMut,
-    complete: bool,
 }
 
 impl Response {
@@ -106,20 +104,13 @@ impl Response {
         }
     }
 
-    fn on_recv(&mut self, res: Option<BytesMessage>) -> Result<(), Error> {
+    fn on_recv(&mut self, res: Option<BytesMut>) -> Result<(), Error> {
         match res {
             Some(msg) => {
-                self.complete = msg.complete;
-                self.buf = msg.buf;
+                self.buf = msg;
                 Ok(())
             }
-            None => {
-                return if self.complete {
-                    Err(Completed.into())
-                } else {
-                    Err(DriverDownReceiving.into())
-                };
-            }
+            None => Err(ClosedByDriver.into()),
         }
     }
 
@@ -138,22 +129,18 @@ pub(crate) fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Resu
         .map(|r| r.rsplit(' ').next().unwrap().parse().unwrap_or(0))
 }
 
-pub(super) type ResponseSender = UnboundedSender<BytesMessage>;
+pub(super) type ResponseSender = UnboundedSender<BytesMut>;
 
 // TODO: remove this lint.
 #[allow(dead_code)]
-pub(super) type ResponseReceiver = UnboundedReceiver<BytesMessage>;
+pub(super) type ResponseReceiver = UnboundedReceiver<BytesMut>;
 
 pub(super) struct BytesMessage {
-    buf: BytesMut,
-    complete: bool,
+    pub(super) buf: BytesMut,
+    pub(super) complete: bool,
 }
 
 impl BytesMessage {
-    pub(super) fn complete(&self) -> bool {
-        self.complete
-    }
-
     #[cold]
     #[inline(never)]
     pub(super) fn parse_error(&mut self) -> Error {

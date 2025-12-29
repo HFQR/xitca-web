@@ -39,7 +39,7 @@ pub struct Error(Box<dyn error::Error + Send + Sync>);
 
 impl Error {
     pub fn is_driver_down(&self) -> bool {
-        self.0.is::<DriverDown>() || self.0.is::<DriverDownReceiving>()
+        self.0.is::<DriverDown>() || self.0.is::<ClosedByDriver>()
     }
 
     pub(crate) fn todo() -> Self {
@@ -200,26 +200,25 @@ impl error::Error for DriverDown {}
 
 from_impl!(DriverDown);
 
-/// error indicate [Client]'s [Driver] is dropped and can't be accessed anymore when receiving response
-/// from server.
+/// error indicate [`Client`]'s [`Driver`] has dropped the response. There are two cases this error can happen:
 ///
-/// all mid flight response and unfinished response data are lost and can't be recovered. database query
-/// related to this error may or may not executed successfully and it should not be retried blindly.
+/// - database response has finished and further polling it would result in error
+/// - [`Driver`] went into shutdown and all in-flight response are closed with it
 ///
-/// [Client]: crate::client::Client
-/// [Driver]: crate::driver::Driver
+/// [`Client`]: crate::client::Client
+/// [`Driver`]: crate::driver::Driver
 #[derive(Debug)]
-pub struct DriverDownReceiving;
+pub struct ClosedByDriver;
 
-impl fmt::Display for DriverDownReceiving {
+impl fmt::Display for ClosedByDriver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Client's Driver is dropped and unaccessible. Associated query MAY have been sent to database.")
+        f.write_str("Reponse closed by Driver. No more data can be collected")
     }
 }
 
-impl error::Error for DriverDownReceiving {}
+impl error::Error for ClosedByDriver {}
 
-from_impl!(DriverDownReceiving);
+from_impl!(ClosedByDriver);
 
 /// driver shutdown outcome can contain multiple io error for detailed read/write errors.
 #[derive(Debug)]

@@ -367,10 +367,10 @@ impl DriverRx {
                 ResponseMessage::Normal(mut msg) => {
                     // lock the shared state only when needed and keep the lock around a bit for possible multiple messages
                     let inner = guard.get_or_insert_with(|| self.guarded.lock().unwrap());
-                    let complete = msg.complete();
-                    let _ = inner.res.front_mut().ok_or_else(|| msg.parse_error())?.send(msg);
-                    if complete {
-                        inner.res.pop_front();
+                    let res = inner.res.pop_front().ok_or_else(|| msg.parse_error())?;
+                    let _ = res.send(msg.buf);
+                    if !msg.complete {
+                        inner.res.push_front(res);
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
