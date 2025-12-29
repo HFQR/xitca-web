@@ -15,12 +15,15 @@ use crate::{
     types::BorrowToSql,
 };
 
-use super::DriverTx;
+pub struct Request {
+    pub(super) tx: ResponseSender,
+    pub(super) buf: BytesMut,
+}
 
-pub(super) fn request_pair() -> (ResponseSender, Response) {
+pub(super) fn request_pair(buf: BytesMut) -> (Request, Response) {
     let (tx, rx) = unbounded_channel();
     (
-        tx,
+        Request { tx, buf },
         Response {
             rx,
             buf: BytesMut::new(),

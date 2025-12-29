@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    AsParams, DriverTx, Response,
+    AsParams,
     response::{
         IntoResponse, IntoRowStreamGuard, NoOpIntoRowStream, StatementCreateResponse, StatementCreateResponseBlocking,
     },
@@ -234,13 +234,6 @@ impl<'s> Encode for PortalQuery<'s> {
         frontend::sync(buf);
         Ok(columns)
     }
-}
-
-pub(crate) fn send_encode_query<S>(tx: &DriverTx, stmt: S) -> Result<(S::Output, Response), Error>
-where
-    S: Encode,
-{
-    tx.send(|buf| stmt.encode(buf))
 }
 
 fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
