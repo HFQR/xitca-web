@@ -11,10 +11,7 @@ use super::{
     copy::{CopyIn, CopyOut},
     driver::{
         DriverTx,
-        codec::{
-            Response,
-            encode::{self, Encode},
-        },
+        codec::{Response, encode::Encode},
     },
     error::Error,
     query::Query,
@@ -286,7 +283,7 @@ impl Query for Client {
     where
         S: Encode,
     {
-        encode::send_encode_query(&self.tx, stmt)
+        self.tx.send(|buf| stmt.encode(buf))
     }
 }
 

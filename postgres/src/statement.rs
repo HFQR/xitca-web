@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::{
     column::Column,
-    driver::codec::{AsParams, encode::StatementCancel},
+    driver::codec::AsParams,
     query::Query,
     types::{ToSql, Type},
 };
@@ -51,7 +51,7 @@ where
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
-            let _ = self.cli._send_encode_query(StatementCancel { name: stmt.name() });
+            let _ = self.cli._send_encode_query(stmt.cancel());
         }
     }
 }
@@ -111,6 +111,10 @@ impl Statement {
 
     pub(crate) fn columns_owned(&self) -> Arc<[Column]> {
         self.columns.clone()
+    }
+
+    fn cancel(&self) -> StatementPreparedCancel<'_> {
+        StatementPreparedCancel { name: self.name() }
     }
 
     /// construct a new named statement.
@@ -268,6 +272,10 @@ impl<'a, 'c, C> From<(StatementNamed<'a>, &'c C)> for StatementCreateBlocking<'a
     }
 }
 
+pub(crate) struct StatementPreparedCancel<'a> {
+    pub(crate) name: &'a str,
+}
+
 /// a named and already prepared statement with it's query params
 ///
 /// after [`Execute::query`] by certain excutor it would produce [`RowStream`] as response
@@ -379,7 +387,7 @@ where
         if Arc::strong_count(&self.stmt.name) == 1 {
             debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
             debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
-            let _ = self.cli._send_encode_query(StatementCancel { name: self.stmt.name() });
+            let _ = self.cli._send_encode_query(self.stmt.cancel());
         }
     }
 }

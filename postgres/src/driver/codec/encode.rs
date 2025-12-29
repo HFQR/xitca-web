@@ -8,14 +8,14 @@ use crate::{
     error::{Error, InvalidParamCount},
     prepare::Prepare,
     statement::{
-        Statement, StatementCreate, StatementCreateBlocking, StatementPreparedQuery, StatementPreparedQueryOwned,
-        StatementQuery, StatementSingleRTTQueryWithCli,
+        Statement, StatementCreate, StatementCreateBlocking, StatementPreparedCancel, StatementPreparedQuery,
+        StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQueryWithCli,
     },
     types::{BorrowToSql, IsNull, Type},
 };
 
 use super::{
-    AsParams, DriverTx, Response,
+    AsParams,
     response::{
         IntoResponse, IntoRowStreamGuard, NoOpIntoRowStream, StatementCreateResponse, StatementCreateResponseBlocking,
     },
@@ -86,13 +86,9 @@ fn encode_statement_create(name: &str, stmt: &str, types: &[Type], buf: &mut Byt
     Ok(())
 }
 
-pub(crate) struct StatementCancel<'a> {
-    pub(crate) name: &'a str,
-}
+impl sealed::Sealed for StatementPreparedCancel<'_> {}
 
-impl sealed::Sealed for StatementCancel<'_> {}
-
-impl Encode for StatementCancel<'_> {
+impl Encode for StatementPreparedCancel<'_> {
     type Output = NoOpIntoRowStream;
 
     #[inline]
@@ -234,13 +230,6 @@ impl<'s> Encode for PortalQuery<'s> {
         frontend::sync(buf);
         Ok(columns)
     }
-}
-
-pub(crate) fn send_encode_query<S>(tx: &DriverTx, stmt: S) -> Result<(S::Output, Response), Error>
-where
-    S: Encode,
-{
-    tx.send(|buf| stmt.encode(buf))
 }
 
 fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
