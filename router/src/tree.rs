@@ -207,7 +207,7 @@ impl<T> Node<T> {
                 let mut extra_trailing_slash = false;
                 for (i, child) in state.node().children.iter().enumerate() {
                     // Find a matching suffix.
-                    if *child.prefix == **suffix {
+                    if *child.prefix == *suffix {
                         state = state.set_child(i);
                         state.node_mut().priority += 1;
                         continue 'walk;
@@ -224,7 +224,7 @@ impl<T> Node<T> {
 
                 // If we are inserting a conflicting suffix, and there is a static prefix that
                 // already leads to this route parameter, we have a prefix-suffix conflict.
-                if !extra_trailing_slash && !matches!(*suffix, b"" | b"/") {
+                if !extra_trailing_slash && !matches!(&*suffix, b"" | b"/") {
                     if let Some(parent) = state.parent() {
                         if parent.prefix_wild_child_in_segment() {
                             return Err(InsertError::conflict(&route, common_remaining, parent));
@@ -245,7 +245,7 @@ impl<T> Node<T> {
                     ..Node::default()
                 });
 
-                let has_suffix = has_suffix || !matches!(*suffix, b"" | b"/");
+                let has_suffix = has_suffix || !matches!(&*suffix, b"" | b"/");
                 state.node_mut().node_type = NodeType::Param { suffix: has_suffix };
 
                 state = state.set_child(child);
@@ -311,7 +311,7 @@ impl<T> Node<T> {
                     // Similarly, we are inserting a parameter suffix and this node already has a parameter
                     // prefix, we have a prefix-suffix conflict.
                     let suffix = remaining.slice_off(wildcard.end);
-                    if !matches!(*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
+                    if !matches!(&*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
                         return Err(InsertError::conflict(&route, remaining, node));
                     }
                 }
@@ -361,7 +361,7 @@ impl<T> Node<T> {
 
                         if let Ok(Some(wildcard)) = find_wildcard(remaining.slice_until(terminator)) {
                             let suffix = remaining.slice_off(wildcard.end);
-                            if matches!(*suffix, b"" | b"/") {
+                            if matches!(&*suffix, b"" | b"/") {
                                 return Err(InsertError::conflict(&route, remaining, parent));
                             }
                         }
@@ -378,7 +378,7 @@ impl<T> Node<T> {
 
                 // If we are inserting a suffix and there is a static prefix that already leads to this
                 // route parameter, we have a prefix-suffix conflict.
-                if !matches!(*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
+                if !matches!(&*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
                     return Err(InsertError::conflict(&route, remaining, node));
                 }
 
@@ -508,7 +508,7 @@ impl<T> Node<T> {
             }
 
             // Add the parameter as a child node.
-            let has_suffix = !matches!(*suffix, b"" | b"/");
+            let has_suffix = !matches!(&*suffix, b"" | b"/");
             let child = node.add_child(Node {
                 priority: 1,
                 node_type: NodeType::Param { suffix: has_suffix },
@@ -1073,21 +1073,15 @@ pub(crate) fn denormalize_params(route: &mut UnescapedRoute, params: &ParamRemap
     let mut start = 0;
     let mut i = 0;
 
-    loop {
-        // Find a wildcard to denormalize.
-        let mut wildcard = match find_wildcard(route.as_ref().slice_off(start)).unwrap() {
-            Some(w) => w,
-            None => return,
-        };
-
+    // Get the corresponding parameter remapping.
+    while let Some((mut wildcard, mut next)) = find_wildcard(route.as_ref().slice_off(start))
+        .unwrap()
+        .zip(params.get(i).cloned())
+    {
         wildcard.start += start;
         wildcard.end += start;
 
         // Get the corresponding parameter remapping.
-        let mut next = match params.get(i) {
-            Some(param) => param.clone(),
-            None => return,
-        };
 
         // Denormalize this parameter.
         next.insert(0, '{');

@@ -57,11 +57,8 @@ impl UnescapedRoute {
 
     /// Appends another route to the end of this one.
     pub fn append(&mut self, other: &UnescapedRoute) {
-        for i in &other.escaped {
-            self.escaped.push(self.inner.len() + i);
-        }
-
-        self.inner.extend_from_slice(&other.inner);
+        self.escaped.extend(other.escaped.iter().map(|i| self.inner.len() + i));
+        self.inner.extend(other.inner.iter());
     }
 
     /// Truncates the route to the given length.
@@ -116,15 +113,12 @@ pub struct UnescapedRef<'a> {
 impl<'a> UnescapedRef<'a> {
     /// Converts this reference into an owned route.
     pub fn to_owned(self) -> UnescapedRoute {
-        let mut escaped = Vec::new();
-        for &i in self.escaped {
-            let i = i.checked_add_signed(self.offset);
-
-            match i {
-                Some(i) if i < self.inner.len() => escaped.push(i),
-                _ => {}
-            }
-        }
+        let escaped = self
+            .escaped
+            .iter()
+            .filter_map(|i| i.checked_add_signed(self.offset))
+            .filter(|i| *i < self.inner.len())
+            .collect();
 
         UnescapedRoute {
             escaped,
@@ -134,15 +128,12 @@ impl<'a> UnescapedRef<'a> {
 
     /// Returns `true` if the character at the given index was escaped.
     pub fn is_escaped(&self, i: usize) -> bool {
-        if let Some(i) = i.checked_add_signed(-self.offset) {
-            return self.escaped.contains(&i);
-        }
-
-        false
+        i.checked_add_signed(-self.offset)
+            .is_some_and(|i| self.escaped.contains(&i))
     }
 
     /// Slices the route with `start..`.
-    pub fn slice_off(&self, start: usize) -> UnescapedRef<'a> {
+    pub fn slice_off(&mut self, start: usize) -> UnescapedRef<'a> {
         UnescapedRef {
             inner: &self.inner[start..],
             escaped: self.escaped,
@@ -165,11 +156,11 @@ impl<'a> UnescapedRef<'a> {
     }
 }
 
-impl<'a> Deref for UnescapedRef<'a> {
-    type Target = &'a [u8];
+impl Deref for UnescapedRef<'_> {
+    type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner
     }
 }
 

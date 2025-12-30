@@ -121,7 +121,7 @@ impl fmt::Display for MergeError {
 impl error::Error for MergeError {}
 
 impl Deref for MergeError {
-    type Target = Vec<InsertError>;
+    type Target = [InsertError];
 
     fn deref(&self) -> &Self::Target {
         &self.0
