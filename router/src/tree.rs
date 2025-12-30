@@ -1,10 +1,11 @@
-use crate::escape::{UnescapedRef, UnescapedRoute};
-use crate::{params::Params, InsertError, MatchError};
+use core::{cmp, fmt, mem, ops::Range};
 
-use std::cmp::min;
-use std::collections::VecDeque;
-use std::ops::Range;
-use std::{fmt, mem};
+use crate::{
+    error::{InsertError, MatchError},
+    escape::{UnescapedRef, UnescapedRoute},
+    params::Params,
+    String, Vec,
+};
 
 /// A radix tree used for URL path matching.
 ///
@@ -136,7 +137,7 @@ impl<T> Node<T> {
 
         'walk: loop {
             // Find the common prefix between the route and the current node.
-            let len = min(remaining.len(), state.node().prefix.len());
+            let len = cmp::min(remaining.len(), state.node().prefix.len());
             let common_prefix = (0..len)
                 .find(|&i| {
                     remaining[i] != state.node().prefix[i]
@@ -164,8 +165,8 @@ impl<T> Node<T> {
                 };
 
                 // The current node now only holds the common prefix.
-                node.children = vec![child];
-                node.indices = vec![node.prefix[common_prefix]];
+                node.children = Vec::from([child]);
+                node.indices = Vec::from([node.prefix[common_prefix]]);
                 node.prefix = node.prefix.as_ref().slice_until(common_prefix).to_owned();
                 node.wild_child = false;
                 continue;
@@ -206,7 +207,7 @@ impl<T> Node<T> {
                 let mut extra_trailing_slash = false;
                 for (i, child) in state.node().children.iter().enumerate() {
                     // Find a matching suffix.
-                    if *child.prefix == **suffix {
+                    if *child.prefix == *suffix {
                         state = state.set_child(i);
                         state.node_mut().priority += 1;
                         continue 'walk;
@@ -223,7 +224,7 @@ impl<T> Node<T> {
 
                 // If we are inserting a conflicting suffix, and there is a static prefix that
                 // already leads to this route parameter, we have a prefix-suffix conflict.
-                if !extra_trailing_slash && !matches!(*suffix, b"" | b"/") {
+                if !extra_trailing_slash && !matches!(&*suffix, b"" | b"/") {
                     if let Some(parent) = state.parent() {
                         if parent.prefix_wild_child_in_segment() {
                             return Err(InsertError::conflict(&route, common_remaining, parent));
@@ -244,7 +245,7 @@ impl<T> Node<T> {
                     ..Node::default()
                 });
 
-                let has_suffix = has_suffix || !matches!(*suffix, b"" | b"/");
+                let has_suffix = has_suffix || !matches!(&*suffix, b"" | b"/");
                 state.node_mut().node_type = NodeType::Param { suffix: has_suffix };
 
                 state = state.set_child(child);
@@ -310,7 +311,7 @@ impl<T> Node<T> {
                     // Similarly, we are inserting a parameter suffix and this node already has a parameter
                     // prefix, we have a prefix-suffix conflict.
                     let suffix = remaining.slice_off(wildcard.end);
-                    if !matches!(*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
+                    if !matches!(&*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
                         return Err(InsertError::conflict(&route, remaining, node));
                     }
                 }
@@ -360,7 +361,7 @@ impl<T> Node<T> {
 
                         if let Ok(Some(wildcard)) = find_wildcard(remaining.slice_until(terminator)) {
                             let suffix = remaining.slice_off(wildcard.end);
-                            if matches!(*suffix, b"" | b"/") {
+                            if matches!(&*suffix, b"" | b"/") {
                                 return Err(InsertError::conflict(&route, remaining, parent));
                             }
                         }
@@ -377,7 +378,7 @@ impl<T> Node<T> {
 
                 // If we are inserting a suffix and there is a static prefix that already leads to this
                 // route parameter, we have a prefix-suffix conflict.
-                if !matches!(*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
+                if !matches!(&*suffix, b"" | b"/") && node.prefix_wild_child_in_segment() {
                     return Err(InsertError::conflict(&route, remaining, node));
                 }
 
@@ -507,7 +508,7 @@ impl<T> Node<T> {
             }
 
             // Add the parameter as a child node.
-            let has_suffix = !matches!(*suffix, b"" | b"/");
+            let has_suffix = !matches!(&*suffix, b"" | b"/");
             let child = node.add_child(Node {
                 priority: 1,
                 node_type: NodeType::Param { suffix: has_suffix },
@@ -728,7 +729,7 @@ impl<T> Node<T> {
     /// Iterates over the tree and calls the given visitor function
     /// with fully resolved path and its value.
     pub fn for_each<V: FnMut(String, T)>(self, mut visitor: V) {
-        let mut queue = VecDeque::from([(self.prefix.clone(), self)]);
+        let mut queue = crate::VecDeque::from([(self.prefix.clone(), self)]);
 
         // Perform a BFS on the routing tree.
         while let Some((mut prefix, mut node)) = queue.pop_front() {
@@ -952,7 +953,7 @@ impl<T> Node<T> {
                         // Store the final catch-all parameter (`{*...}`).
                         let key = &node.prefix[2..node.prefix.len() - 1];
 
-                        params.push(std::str::from_utf8(key).unwrap(), path);
+                        params.push(core::str::from_utf8(key).unwrap(), path);
 
                         return Ok((value, params));
                     }
@@ -1049,7 +1050,8 @@ fn normalize_params(mut path: UnescapedRoute) -> Result<(UnescapedRoute, ParamRe
         }
 
         // Normalize the parameter.
-        let removed = path.splice(wildcard.clone(), vec![b'{', next, b'}']);
+        let replace = &[b'{', next, b'}'];
+        let removed = path.splice(wildcard.clone(), replace);
 
         // Preserve the original name for remapping.
         let mut removed = removed.skip(1).collect::<Vec<_>>();
@@ -1071,26 +1073,20 @@ pub(crate) fn denormalize_params(route: &mut UnescapedRoute, params: &ParamRemap
     let mut start = 0;
     let mut i = 0;
 
-    loop {
-        // Find a wildcard to denormalize.
-        let mut wildcard = match find_wildcard(route.as_ref().slice_off(start)).unwrap() {
-            Some(w) => w,
-            None => return,
-        };
-
+    // Get the corresponding parameter remapping.
+    while let Some((mut wildcard, mut next)) = find_wildcard(route.as_ref().slice_off(start))
+        .unwrap()
+        .zip(params.get(i).cloned())
+    {
         wildcard.start += start;
         wildcard.end += start;
 
         // Get the corresponding parameter remapping.
-        let mut next = match params.get(i) {
-            Some(param) => param.clone(),
-            None => return,
-        };
 
         // Denormalize this parameter.
         next.insert(0, '{');
         next.push('}');
-        let _ = route.splice(wildcard.clone(), next.as_bytes().to_vec());
+        let _ = route.splice(wildcard.clone(), next.as_bytes());
 
         i += 1;
         start = wildcard.start + next.len();

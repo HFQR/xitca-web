@@ -1,8 +1,10 @@
-use crate::escape::{UnescapedRef, UnescapedRoute};
-use crate::tree::{denormalize_params, Node};
+use core::{error, fmt, ops::Deref};
 
-use std::fmt;
-use std::ops::Deref;
+use crate::{
+    escape::{UnescapedRef, UnescapedRoute},
+    tree::{denormalize_params, Node},
+    String, Vec,
+};
 
 /// Represents errors that can occur when inserting a new route.
 #[non_exhaustive]
@@ -31,23 +33,22 @@ pub enum InsertError {
 
 impl fmt::Display for InsertError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
+        let fmt = match self {
             Self::Conflict { with } => {
-                write!(
+                return write!(
                     f,
                     "Insertion failed due to conflict with previously registered route: {with}"
-                )
+                );
             }
-            Self::InvalidParamSegment => {
-                write!(f, "Only one parameter is allowed per path segment")
-            }
-            Self::InvalidParam => write!(f, "Parameters must be registered with a valid name"),
-            Self::InvalidCatchAll => write!(f, "Catch-all parameters are only allowed at the end of a route"),
-        }
+            Self::InvalidParamSegment => "Only one parameter is allowed per path segment",
+            Self::InvalidParam => "Parameters must be registered with a valid name",
+            Self::InvalidCatchAll => "Catch-all parameters are only allowed at the end of a route",
+        };
+        fmt::Display::fmt(fmt, f)
     }
 }
 
-impl std::error::Error for InsertError {}
+impl error::Error for InsertError {}
 
 impl InsertError {
     /// Returns an error for a route conflict with the given node.
@@ -117,10 +118,10 @@ impl fmt::Display for MergeError {
     }
 }
 
-impl std::error::Error for MergeError {}
+impl error::Error for MergeError {}
 
 impl Deref for MergeError {
-    type Target = Vec<InsertError>;
+    type Target = [InsertError];
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -131,7 +132,7 @@ impl Deref for MergeError {
 ///
 /// ```
 /// use matchit::{MatchError, Router};
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # fn main() -> Result<(), Box<dyn core::error::Error>> {
 /// let mut router = Router::new();
 /// router.insert("/home", "Welcome!")?;
 /// router.insert("/blog", "Our blog.")?;
@@ -147,8 +148,8 @@ pub struct MatchError;
 
 impl fmt::Display for MatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Matching route not found")
+        fmt::Display::fmt("Matching route not found", f)
     }
 }
 
-impl std::error::Error for MatchError {}
+impl error::Error for MatchError {}

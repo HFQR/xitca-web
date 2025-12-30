@@ -1,4 +1,9 @@
-use std::{fmt, ops::Range};
+use core::{
+    fmt,
+    ops::{Deref, Range},
+};
+
+use crate::Vec;
 
 /// An unescaped route that keeps track of the position of
 /// escaped characters, i.e. '{{' or '}}'.
@@ -35,7 +40,7 @@ impl UnescapedRoute {
     }
 
     /// Replaces the characters in the given range.
-    pub fn splice(&mut self, range: Range<usize>, replace: Vec<u8>) -> impl Iterator<Item = u8> + '_ {
+    pub fn splice<'r>(&'r mut self, range: Range<usize>, replace: &'r [u8]) -> impl Iterator<Item = u8> + 'r {
         // Ignore any escaped characters in the range being replaced.
         self.escaped.retain(|x| !range.contains(x));
 
@@ -47,16 +52,13 @@ impl UnescapedRoute {
             }
         }
 
-        self.inner.splice(range, replace)
+        self.inner.splice(range, replace.iter().cloned())
     }
 
     /// Appends another route to the end of this one.
     pub fn append(&mut self, other: &UnescapedRoute) {
-        for i in &other.escaped {
-            self.escaped.push(self.inner.len() + i);
-        }
-
-        self.inner.extend_from_slice(&other.inner);
+        self.escaped.extend(other.escaped.iter().map(|i| self.inner.len() + i));
+        self.inner.extend(other.inner.iter());
     }
 
     /// Truncates the route to the given length.
@@ -85,7 +87,7 @@ impl UnescapedRoute {
     }
 }
 
-impl std::ops::Deref for UnescapedRoute {
+impl Deref for UnescapedRoute {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -95,7 +97,7 @@ impl std::ops::Deref for UnescapedRoute {
 
 impl fmt::Debug for UnescapedRoute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(std::str::from_utf8(&self.inner).unwrap(), f)
+        fmt::Debug::fmt(core::str::from_utf8(&self.inner).unwrap(), f)
     }
 }
 
@@ -111,33 +113,27 @@ pub struct UnescapedRef<'a> {
 impl<'a> UnescapedRef<'a> {
     /// Converts this reference into an owned route.
     pub fn to_owned(self) -> UnescapedRoute {
-        let mut escaped = Vec::new();
-        for &i in self.escaped {
-            let i = i.checked_add_signed(self.offset);
-
-            match i {
-                Some(i) if i < self.inner.len() => escaped.push(i),
-                _ => {}
-            }
-        }
+        let escaped = self
+            .escaped
+            .iter()
+            .filter_map(|i| i.checked_add_signed(self.offset))
+            .filter(|i| *i < self.inner.len())
+            .collect();
 
         UnescapedRoute {
             escaped,
-            inner: self.inner.to_owned(),
+            inner: self.inner.into(),
         }
     }
 
     /// Returns `true` if the character at the given index was escaped.
     pub fn is_escaped(&self, i: usize) -> bool {
-        if let Some(i) = i.checked_add_signed(-self.offset) {
-            return self.escaped.contains(&i);
-        }
-
-        false
+        i.checked_add_signed(-self.offset)
+            .is_some_and(|i| self.escaped.contains(&i))
     }
 
     /// Slices the route with `start..`.
-    pub fn slice_off(&self, start: usize) -> UnescapedRef<'a> {
+    pub fn slice_off(&mut self, start: usize) -> UnescapedRef<'a> {
         UnescapedRef {
             inner: &self.inner[start..],
             escaped: self.escaped,
@@ -160,18 +156,18 @@ impl<'a> UnescapedRef<'a> {
     }
 }
 
-impl<'a> std::ops::Deref for UnescapedRef<'a> {
-    type Target = &'a [u8];
+impl Deref for UnescapedRef<'_> {
+    type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner
     }
 }
 
 impl fmt::Debug for UnescapedRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnescapedRef")
-            .field("inner", &std::str::from_utf8(self.inner))
+            .field("inner", &core::str::from_utf8(self.inner).unwrap())
             .field("escaped", &self.escaped)
             .field("offset", &self.offset)
             .finish()

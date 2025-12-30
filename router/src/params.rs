@@ -1,12 +1,12 @@
 use core::slice;
 
-use xitca_unsafe_collection::small_str::SmallBoxedStr;
+use crate::{SmallStr, Vec};
 
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-struct Param {
-    key: SmallBoxedStr,
-    value: SmallBoxedStr,
+pub struct Param {
+    key: SmallStr,
+    value: SmallStr,
 }
 
 impl Param {
@@ -96,7 +96,7 @@ impl Params {
     }
 
     // Transform each key.
-    pub(crate) fn for_each_key_mut(&mut self, f: impl Fn((usize, &mut SmallBoxedStr))) {
+    pub(crate) fn for_each_key_mut(&mut self, f: impl Fn((usize, &mut SmallStr))) {
         self.inner
             .iter_mut()
             .map(|param| &mut param.key)
@@ -106,8 +106,8 @@ impl Params {
 }
 
 impl IntoIterator for Params {
-    type Item = (SmallBoxedStr, SmallBoxedStr);
-    type IntoIter = IntoIter;
+    type Item = (SmallStr, SmallStr);
+    type IntoIter = IntoIter<<Vec<Param> as IntoIterator>::IntoIter>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -135,12 +135,15 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
-pub struct IntoIter {
-    inner: std::vec::IntoIter<Param>,
+pub struct IntoIter<I> {
+    inner: I,
 }
 
-impl Iterator for IntoIter {
-    type Item = (SmallBoxedStr, SmallBoxedStr);
+impl<I> Iterator for IntoIter<I>
+where
+    I: Iterator<Item = Param>,
+{
+    type Item = (SmallStr, SmallStr);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
