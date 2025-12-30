@@ -156,14 +156,8 @@ pub mod params;
 pub use error::{InsertError, MatchError};
 pub use router::{Match, Router};
 
-#[cfg(not(feature = "no_std"))]
 extern crate alloc;
 
 // TODO: consider no alloc alternative of these types so alloc can become an optional feature
-#[cfg(not(feature = "no_std"))]
 use alloc::{collections::VecDeque, string::String, vec::Vec};
-#[cfg(not(feature = "no_std"))]
 use xitca_unsafe_collection::small_str::SmallBoxedStr as SmallStr;
-
-#[cfg(feature = "no_std")]
-compile_error!("work in progress");

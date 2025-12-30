@@ -14,7 +14,6 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-no_std = []
 
 [dependencies]
 xitca-unsafe-collection = "0.2.0"
