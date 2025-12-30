@@ -144,6 +144,7 @@
 //!and `/{x}suffix` are overlapping. This is due to an implementation detail of the routing tree that may be relaxed in the future.
 
 #![forbid(unsafe_code)]
+#![no_std]
 
 mod error;
 mod escape;
@@ -154,3 +155,7 @@ pub mod params;
 
 pub use error::{InsertError, MatchError};
 pub use router::{Match, Router};
+
+extern crate alloc;
+
+use alloc::{collections::VecDeque, string::String, vec::Vec};

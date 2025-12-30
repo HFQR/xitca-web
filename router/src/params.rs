@@ -2,9 +2,11 @@ use core::slice;
 
 use xitca_unsafe_collection::small_str::SmallBoxedStr;
 
+use crate::Vec;
+
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-struct Param {
+pub struct Param {
     key: SmallBoxedStr,
     value: SmallBoxedStr,
 }
@@ -107,7 +109,7 @@ impl Params {
 
 impl IntoIterator for Params {
     type Item = (SmallBoxedStr, SmallBoxedStr);
-    type IntoIter = IntoIter;
+    type IntoIter = IntoIter<<Vec<Param> as IntoIterator>::IntoIter>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -135,11 +137,14 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
-pub struct IntoIter {
-    inner: std::vec::IntoIter<Param>,
+pub struct IntoIter<I> {
+    inner: I,
 }
 
-impl Iterator for IntoIter {
+impl<I> Iterator for IntoIter<I>
+where
+    I: Iterator<Item = Param>,
+{
     type Item = (SmallBoxedStr, SmallBoxedStr);
 
     #[inline]

@@ -1,10 +1,11 @@
-use crate::escape::{UnescapedRef, UnescapedRoute};
-use crate::{params::Params, InsertError, MatchError};
+use core::{cmp, fmt, mem, ops::Range};
 
-use std::cmp::min;
-use std::collections::VecDeque;
-use std::ops::Range;
-use std::{fmt, mem};
+use crate::{
+    error::{InsertError, MatchError},
+    escape::{UnescapedRef, UnescapedRoute},
+    params::Params,
+    String, Vec,
+};
 
 /// A radix tree used for URL path matching.
 ///
@@ -136,7 +137,7 @@ impl<T> Node<T> {
 
         'walk: loop {
             // Find the common prefix between the route and the current node.
-            let len = min(remaining.len(), state.node().prefix.len());
+            let len = cmp::min(remaining.len(), state.node().prefix.len());
             let common_prefix = (0..len)
                 .find(|&i| {
                     remaining[i] != state.node().prefix[i]
@@ -164,8 +165,8 @@ impl<T> Node<T> {
                 };
 
                 // The current node now only holds the common prefix.
-                node.children = vec![child];
-                node.indices = vec![node.prefix[common_prefix]];
+                node.children = Vec::from([child]);
+                node.indices = Vec::from([node.prefix[common_prefix]]);
                 node.prefix = node.prefix.as_ref().slice_until(common_prefix).to_owned();
                 node.wild_child = false;
                 continue;
@@ -728,7 +729,7 @@ impl<T> Node<T> {
     /// Iterates over the tree and calls the given visitor function
     /// with fully resolved path and its value.
     pub fn for_each<V: FnMut(String, T)>(self, mut visitor: V) {
-        let mut queue = VecDeque::from([(self.prefix.clone(), self)]);
+        let mut queue = crate::VecDeque::from([(self.prefix.clone(), self)]);
 
         // Perform a BFS on the routing tree.
         while let Some((mut prefix, mut node)) = queue.pop_front() {
@@ -952,7 +953,7 @@ impl<T> Node<T> {
                         // Store the final catch-all parameter (`{*...}`).
                         let key = &node.prefix[2..node.prefix.len() - 1];
 
-                        params.push(std::str::from_utf8(key).unwrap(), path);
+                        params.push(core::str::from_utf8(key).unwrap(), path);
 
                         return Ok((value, params));
                     }
@@ -1049,7 +1050,8 @@ fn normalize_params(mut path: UnescapedRoute) -> Result<(UnescapedRoute, ParamRe
         }
 
         // Normalize the parameter.
-        let removed = path.splice(wildcard.clone(), vec![b'{', next, b'}']);
+        let replace = &[b'{', next, b'}'];
+        let removed = path.splice(wildcard.clone(), replace);
 
         // Preserve the original name for remapping.
         let mut removed = removed.skip(1).collect::<Vec<_>>();
@@ -1090,7 +1092,7 @@ pub(crate) fn denormalize_params(route: &mut UnescapedRoute, params: &ParamRemap
         // Denormalize this parameter.
         next.insert(0, '{');
         next.push('}');
-        let _ = route.splice(wildcard.clone(), next.as_bytes().to_vec());
+        let _ = route.splice(wildcard.clone(), next.as_bytes());
 
         i += 1;
         start = wildcard.start + next.len();

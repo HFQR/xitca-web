@@ -1,4 +1,9 @@
-use std::{fmt, ops::Range};
+use core::{
+    fmt,
+    ops::{Deref, Range},
+};
+
+use crate::Vec;
 
 /// An unescaped route that keeps track of the position of
 /// escaped characters, i.e. '{{' or '}}'.
@@ -35,7 +40,7 @@ impl UnescapedRoute {
     }
 
     /// Replaces the characters in the given range.
-    pub fn splice(&mut self, range: Range<usize>, replace: Vec<u8>) -> impl Iterator<Item = u8> + '_ {
+    pub fn splice<'r>(&'r mut self, range: Range<usize>, replace: &'r [u8]) -> impl Iterator<Item = u8> + 'r {
         // Ignore any escaped characters in the range being replaced.
         self.escaped.retain(|x| !range.contains(x));
 
@@ -47,7 +52,7 @@ impl UnescapedRoute {
             }
         }
 
-        self.inner.splice(range, replace)
+        self.inner.splice(range, replace.iter().cloned())
     }
 
     /// Appends another route to the end of this one.
@@ -85,7 +90,7 @@ impl UnescapedRoute {
     }
 }
 
-impl std::ops::Deref for UnescapedRoute {
+impl Deref for UnescapedRoute {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -95,7 +100,7 @@ impl std::ops::Deref for UnescapedRoute {
 
 impl fmt::Debug for UnescapedRoute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(std::str::from_utf8(&self.inner).unwrap(), f)
+        fmt::Debug::fmt(core::str::from_utf8(&self.inner).unwrap(), f)
     }
 }
 
@@ -123,7 +128,7 @@ impl<'a> UnescapedRef<'a> {
 
         UnescapedRoute {
             escaped,
-            inner: self.inner.to_owned(),
+            inner: self.inner.into(),
         }
     }
 
@@ -160,7 +165,7 @@ impl<'a> UnescapedRef<'a> {
     }
 }
 
-impl<'a> std::ops::Deref for UnescapedRef<'a> {
+impl<'a> Deref for UnescapedRef<'a> {
     type Target = &'a [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -171,7 +176,7 @@ impl<'a> std::ops::Deref for UnescapedRef<'a> {
 impl fmt::Debug for UnescapedRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnescapedRef")
-            .field("inner", &std::str::from_utf8(self.inner))
+            .field("inner", &core::str::from_utf8(self.inner))
             .field("escaped", &self.escaped)
             .field("offset", &self.offset)
             .finish()

@@ -1,6 +1,9 @@
-use crate::error::MergeError;
-use crate::tree::Node;
-use crate::{params::Params, InsertError, MatchError};
+use crate::{
+    error::{InsertError, MatchError, MergeError},
+    params::Params,
+    tree::Node,
+    String, Vec,
+};
 
 /// A zero-copy URL router.
 ///
