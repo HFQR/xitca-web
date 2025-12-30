@@ -175,7 +175,7 @@ where
 {
     fn path_gen(&mut self, path: &str) -> String {
         let mut path = String::from(path);
-        
+
         if path.ends_with("/{*}") {
             drop(path.split_off("{*}".len()));
         }
