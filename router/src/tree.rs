@@ -772,8 +772,8 @@ impl<T> Node<T> {
     pub fn at<'s>(&'s self, mut path: &str) -> Result<(&'s T, Params), MatchError> {
         let mut node = self;
         let mut backtracking = false;
-        let mut params = Params::new();
-        let mut skipped: Vec<Skipped<'_, '_, T>> = Vec::new();
+        let mut params = const { Params::new() };
+        let mut skipped = const { Vec::new() };
 
         'backtrack: loop {
             'walk: loop {

@@ -244,6 +244,8 @@ fn invalid_catchall() {
         ("/src/{*filepath}/x", Err(InsertError::InvalidCatchAll)),
         ("/src2/", Ok(())),
         ("/src2/{*filepath}/x", Err(InsertError::InvalidCatchAll)),
+        ("/relax/{*}", Ok(())),
+        ("/relax2/{*}/x", Err(InsertError::InvalidCatchAll)),
     ])
     .run()
 }
