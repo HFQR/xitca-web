@@ -167,7 +167,7 @@ impl Deref for UnescapedRef<'_> {
 impl fmt::Debug for UnescapedRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnescapedRef")
-            .field("inner", &core::str::from_utf8(self.inner))
+            .field("inner", &core::str::from_utf8(self.inner).unwrap())
             .field("escaped", &self.escaped)
             .field("offset", &self.offset)
             .finish()

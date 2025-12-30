@@ -44,7 +44,7 @@ impl fmt::Display for InsertError {
             Self::InvalidParam => "Parameters must be registered with a valid name",
             Self::InvalidCatchAll => "Catch-all parameters are only allowed at the end of a route",
         };
-        f.write_str(fmt)
+        fmt::Display::fmt(fmt, f)
     }
 }
 
@@ -148,7 +148,7 @@ pub struct MatchError;
 
 impl fmt::Display for MatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Matching route not found")
+        fmt::Display::fmt("Matching route not found", f)
     }
 }
 
