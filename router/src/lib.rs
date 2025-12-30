@@ -3,7 +3,7 @@
 //!```rust
 //!use xitca_router::Router;
 //!
-//!fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!fn main() -> Result<(), Box<dyn core::error::Error>> {
 //!    let mut router = Router::new();
 //!    router.insert("/home", "Welcome!")?;
 //!    router.insert("/users/{id}", "A User")?;
@@ -24,7 +24,7 @@
 //!
 //!```rust
 //!# use xitca_router::Router;
-//!# fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!# fn main() -> Result<(), Box<dyn core::error::Error>> {
 //!let mut router = Router::new();
 //!router.insert("/users/{id}", 42)?;
 //!
@@ -42,7 +42,7 @@
 //!Prefixes and suffixes within a segment are also supported. However, there may only be a single named parameter per route segment.
 //!```rust
 //!# use xitca_router::Router;
-//!# fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!# fn main() -> Result<(), Box<dyn core::error::Error>> {
 //!let mut router = Router::new();
 //!router.insert("/images/img-{id}.png", true)?;
 //!
@@ -58,7 +58,7 @@
 //!
 //!```rust
 //!# use xitca_router::Router;
-//!# fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!# fn main() -> Result<(), Box<dyn core::error::Error>> {
 //!let mut router = Router::new();
 //!router.insert("/{*rest}", true)?;
 //!
@@ -79,7 +79,7 @@
 //!
 //! ```rust
 //!# use xitca_router::Router;
-//!# fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!# fn main() -> Result<(), Box<dyn core::error::Error>> {
 //! let mut m = Router::new();
 //! m.insert("/{*}", true)?;
 //!
@@ -94,7 +94,7 @@
 //!
 //!```rust
 //!# use xitca_router::Router;
-//!# fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!# fn main() -> Result<(), Box<dyn core::error::Error>> {
 //!let mut router = Router::new();
 //!router.insert("/{{hello}}", true)?;
 //!router.insert("/{hello}", true)?;
@@ -116,7 +116,7 @@
 //!
 //!```rust
 //!# use xitca_router::Router;
-//!# fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!# fn main() -> Result<(), Box<dyn core::error::Error>> {
 //!let mut router = Router::new();
 //!router.insert("/", "Welcome!").unwrap();       // Priority: 1
 //!router.insert("/about", "About Me").unwrap();  // Priority: 1
@@ -156,6 +156,14 @@ pub mod params;
 pub use error::{InsertError, MatchError};
 pub use router::{Match, Router};
 
+#[cfg(not(feature = "no_std"))]
 extern crate alloc;
 
+// TODO: consider no alloc alternative of these types so alloc can become an optional feature
+#[cfg(not(feature = "no_std"))]
 use alloc::{collections::VecDeque, string::String, vec::Vec};
+#[cfg(not(feature = "no_std"))]
+use xitca_unsafe_collection::small_str::SmallBoxedStr as SmallStr;
+
+#[cfg(feature = "no_std")]
+compile_error!("work in progress");
