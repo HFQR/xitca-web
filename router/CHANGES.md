@@ -1,4 +1,6 @@
-# unreleased 0.4.0
+# unreleased
+
+# 0.4.0
 - sync with matchit 0.9
 
 # 0.3.0
