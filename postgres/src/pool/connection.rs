@@ -149,11 +149,11 @@ impl PoolConnection<'_> {
         self.conn().client.cancel_token()
     }
 
-    fn insert_cache(&mut self, named: &str, stmt: Statement) {
-        let conn = self.conn_mut();
-        if let Some((_, stmt)) = conn.statements.push(Box::from(named), CachedStatement { stmt }) {
-            drop(stmt.stmt.into_guarded(&conn.client));
+    fn insert_cache<'c>(cache: &'c mut Cache, cli: &Client, named: &str, stmt: Statement) -> &'c CachedStatement {
+        if let Some((_, stmt)) = cache.push(Box::from(named), CachedStatement { stmt }) {
+            drop(stmt.stmt.into_guarded(&cli));
         }
+        cache.peek_mru().unwrap().1
     }
 
     fn conn(&self) -> &PoolClient {
@@ -237,8 +237,10 @@ impl Deref for CachedStatement {
 
 pub(super) struct PoolClient {
     pub(super) client: Client,
-    pub(super) statements: LruCache<Box<str>, CachedStatement>,
+    pub(super) statements: Cache,
 }
+
+type Cache = LruCache<Box<str>, CachedStatement>;
 
 impl PoolClient {
     pub(super) fn new(client: Client, cap: NonZeroUsize) -> Self {
@@ -260,10 +262,10 @@ where
         match cli.conn_mut().statements.get(self.stmt) {
             Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
             None => StatementCacheFuture::Prepared(Box::pin(async move {
+                let conn = cli.conn_mut();
                 let name = self.stmt;
-                let stmt = self.execute(&*cli).await?.leak();
-                cli.insert_cache(name, stmt);
-                Ok(cli.conn().statements.peek_mru().unwrap().1.clone())
+                let stmt = self.execute(&conn.client).await?.leak();
+                Ok(PoolConnection::insert_cache(&mut conn.statements, &conn.client, name, stmt).clone())
             })),
         }
     }
@@ -312,14 +314,17 @@ where
         Box::pin(async move {
             let StatementQuery { stmt, types, params } = self;
 
-            if conn.conn_mut().statements.get(stmt).is_none() {
-                let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-                conn.insert_cache(stmt, prepared_stmt);
-            }
+            let conn = conn.conn_mut();
 
-            let stmt = conn.conn().statements.peek_mru().unwrap().1;
+            let stmt = match conn.statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
+                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                }
+            };
 
-            stmt.bind(params).query(conn).await.map(RowAffected::from)
+            stmt.bind(params).query(&conn.client).await.map(RowAffected::from)
         })
     }
 
@@ -327,14 +332,17 @@ where
         Box::pin(async move {
             let StatementQuery { stmt, types, params } = self;
 
-            if conn.conn_mut().statements.get(stmt).is_none() {
-                let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-                conn.insert_cache(stmt, prepared_stmt);
-            }
+            let conn = conn.conn_mut();
 
-            let stmt = conn.conn().statements.peek_mru().unwrap().1;
+            let stmt = match conn.statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
+                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                }
+            };
 
-            stmt.bind(params).into_owned().query(conn).await
+            stmt.bind(params).into_owned().query(&conn.client).await
         })
     }
 }
@@ -353,14 +361,17 @@ where
         async move {
             let StatementQuery { stmt, types, params } = self;
 
-            if conn.conn_mut().statements.get(stmt).is_none() {
-                let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-                conn.insert_cache(stmt, prepared_stmt);
-            }
+            let conn = conn.conn_mut();
 
-            let stmt = conn.conn().statements.peek_mru().unwrap().1;
+            let stmt = match conn.statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
+                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                }
+            };
 
-            stmt.bind(params).query(conn).await.map(RowAffected::from)
+            stmt.bind(params).query(&conn.client).await.map(RowAffected::from)
         }
     }
 
@@ -368,14 +379,17 @@ where
         async move {
             let StatementQuery { stmt, types, params } = self;
 
-            if conn.conn_mut().statements.get(stmt).is_none() {
-                let prepared_stmt = Statement::named(stmt, types).execute(&conn).await?.leak();
-                conn.insert_cache(stmt, prepared_stmt);
-            }
+            let conn = conn.conn_mut();
 
-            let stmt = conn.conn().statements.peek_mru().unwrap().1;
+            let stmt = match conn.statements.get(stmt) {
+                Some(stmt) => stmt,
+                None => {
+                    let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
+                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                }
+            };
 
-            stmt.bind(params).into_owned().query(conn).await
+            stmt.bind(params).into_owned().query(&conn.client).await
         }
     }
 }
