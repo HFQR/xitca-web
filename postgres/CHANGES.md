@@ -1,6 +1,7 @@
 # unreleased 0.4.0
 ## Add
 - add `error::ClosedByDriver` error type
+- add `pool::PoolBuilder::cache_size` for configuring the max size of statement cache of connection pool
 
 ## Change
 - switch to `tokio-uring-xitca` for `io-uring` feature. IO uring driver must run in it's runtime instead of original `tokio-uring`
