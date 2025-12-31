@@ -4,6 +4,8 @@ mod connection;
 pub use self::connect::Connect;
 pub use self::connection::{CachedStatement, PoolConnection};
 
+use core::num::NonZeroUsize;
+
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -25,6 +27,7 @@ use self::{
 pub struct PoolBuilder {
     config: Result<Config, Error>,
     capacity: usize,
+    cache_size: usize,
     connector: Box<dyn ConnectorDyn>,
 }
 
@@ -35,6 +38,16 @@ impl PoolBuilder {
     /// capacity default to 1
     pub fn capacity(mut self, cap: usize) -> Self {
         self.capacity = cap;
+        self
+    }
+
+    /// set statment cache size. every connection in pool would keep a set of prepared statement cache to
+    /// speed up repeated query
+    ///
+    /// # Default
+    /// cache_size default to 16
+    pub fn cache_size(mut self, size: usize) -> Self {
+        self.cache_size = size;
         self
     }
 
@@ -50,6 +63,7 @@ impl PoolBuilder {
     /// try convert builder to a connection pool instance.
     pub fn build(self) -> Result<Pool, Error> {
         let cfg = self.config?;
+        let cache_size = NonZeroUsize::new(self.cache_size).ok_or_else(Error::todo)?;
 
         Ok(Pool {
             conn: Mutex::new(VecDeque::with_capacity(self.capacity)),
@@ -57,6 +71,7 @@ impl PoolBuilder {
             config: Box::new(PoolConfig {
                 connector: self.connector,
                 cfg,
+                cache_size,
             }),
         })
     }
@@ -86,6 +101,7 @@ pub struct Pool {
 struct PoolConfig {
     connector: Box<dyn ConnectorDyn>,
     cfg: Config,
+    cache_size: NonZeroUsize,
 }
 
 impl Pool {
@@ -98,6 +114,7 @@ impl Pool {
         PoolBuilder {
             config: cfg.try_into().map_err(Into::into),
             capacity: 1,
+            cache_size: 16,
             connector: Box::new(DefaultConnector),
         }
     }
@@ -139,7 +156,7 @@ impl Pool {
             .connector
             .connect_dyn(self.config.cfg.clone())
             .await
-            .map(PoolClient::new)
+            .map(|cli| PoolClient::new(cli, self.config.cache_size))
     }
 }
 
