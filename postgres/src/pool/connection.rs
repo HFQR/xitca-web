@@ -28,16 +28,17 @@ use crate::{
 
 use super::Pool;
 
-/// a RAII type for connection. it manages the lifetime of connection and it's [`Statement`] cache.
+/// a RAII type for connection. it manages the lifetime of connection and it's [`CachedStatement`] cache.
 /// a set of public is exposed to interact with them.
 ///
 /// # Caching
-/// PoolConnection contains cache set of [`Statement`] to speed up regular used sql queries. when calling
+/// PoolConnection contains cache set of [`CachedStatement`] to speed up regular used sql queries. when calling
 /// [`Execute::execute`] on a [`StatementNamed`] with &[`PoolConnection`] the pool connection does nothing
 /// special and function the same as a regular [`Client`]. In order to utilize the cache caller must execute
 /// the named statement with &mut [`PoolConnection`]. With a mutable reference of pool connection it will do
-/// local cache look up for statement and hand out one in the type of [`Statement`] if any found. If no
+/// local cache look up for statement and hand out one in the type of [`CachedStatement`] if any found. If no
 /// copy is found in the cache pool connection will prepare a new statement and insert it into the cache.
+///
 /// ## Examples
 /// ```
 /// # use xitca_postgres::{pool::Pool, Execute, Error, Statement};
@@ -236,8 +237,14 @@ impl Deref for CachedStatement {
 }
 
 pub(super) struct PoolClient {
-    pub(super) client: Client,
-    pub(super) statements: Cache,
+    client: Client,
+    cache: Cache,
+}
+
+impl PoolClient {
+    pub(super) fn closed(&self) -> bool {
+        self.client.closed()
+    }
 }
 
 type Cache = LruCache<Box<str>, CachedStatement>;
@@ -246,7 +253,7 @@ impl PoolClient {
     pub(super) fn new(client: Client, cap: NonZeroUsize) -> Self {
         Self {
             client,
-            statements: LruCache::new(cap),
+            cache: LruCache::new(cap),
         }
     }
 }
@@ -259,13 +266,13 @@ where
     type QueryOutput = Self::ExecuteOutput;
 
     fn execute(self, cli: &'c mut PoolConnection) -> Self::ExecuteOutput {
-        match cli.conn_mut().statements.get(self.stmt) {
+        match cli.conn_mut().cache.get(self.stmt) {
             Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
             None => StatementCacheFuture::Prepared(Box::pin(async move {
                 let conn = cli.conn_mut();
                 let name = self.stmt;
                 let stmt = self.execute(&conn.client).await?.leak();
-                Ok(PoolConnection::insert_cache(&mut conn.statements, &conn.client, name, stmt).clone())
+                Ok(PoolConnection::insert_cache(&mut conn.cache, &conn.client, name, stmt).clone())
             })),
         }
     }
@@ -316,11 +323,11 @@ where
 
             let conn = conn.conn_mut();
 
-            let stmt = match conn.statements.get(stmt) {
+            let stmt = match conn.cache.get(stmt) {
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                    PoolConnection::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 
@@ -334,11 +341,11 @@ where
 
             let conn = conn.conn_mut();
 
-            let stmt = match conn.statements.get(stmt) {
+            let stmt = match conn.cache.get(stmt) {
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                    PoolConnection::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 
@@ -363,11 +370,11 @@ where
 
             let conn = conn.conn_mut();
 
-            let stmt = match conn.statements.get(stmt) {
+            let stmt = match conn.cache.get(stmt) {
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                    PoolConnection::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 
@@ -381,11 +388,11 @@ where
 
             let conn = conn.conn_mut();
 
-            let stmt = match conn.statements.get(stmt) {
+            let stmt = match conn.cache.get(stmt) {
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::insert_cache(&mut conn.statements, &conn.client, stmt, prepared_stmt)
+                    PoolConnection::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 

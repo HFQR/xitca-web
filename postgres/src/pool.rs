@@ -141,7 +141,7 @@ impl Pool {
         let mut inner = self.conn.lock().unwrap();
 
         while let Some(conn) = inner.pop_front() {
-            if !conn.client.closed() {
+            if !conn.closed() {
                 return Some(conn);
             }
         }
