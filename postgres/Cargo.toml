@@ -40,6 +40,7 @@ xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
 fallible-iterator = "0.2"
 futures-core = { version = "0.3", default-features = false }
+lru = { version = "0.16", default-features = false }
 percent-encoding = "2"
 postgres-protocol = "0.6.5"
 postgres-types = "0.2"
