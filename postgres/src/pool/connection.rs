@@ -38,7 +38,7 @@ use super::Pool;
 /// the named statement with &mut [`PoolConnection`]. With a mutable reference of pool connection it will do
 /// local cache look up for statement and hand out one in the type of [`CachedStatement`] if any found. If no
 /// copy is found in the cache pool connection will prepare a new statement and insert it into the cache.
-/// 
+///
 /// ## Examples
 /// ```
 /// # use xitca_postgres::{pool::Pool, Execute, Error, Statement};
