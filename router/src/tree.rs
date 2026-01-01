@@ -857,7 +857,7 @@ impl<T> Node<T> {
                                 };
 
                                 // Store the parameter value.
-                                params.push("", path);
+                                params.push_val(path);
 
                                 // Remap the keys of any route parameters we accumulated during the search.
                                 params.for_each_key_mut(|(i, param)| *param = node.remapping[i].clone());
@@ -876,7 +876,7 @@ impl<T> Node<T> {
 
                         // Store the parameter value.
                         // Parameters are normalized so this key is irrelevant for now.
-                        params.push("", param);
+                        params.push_val(param);
 
                         // Continue searching.
                         path = rest;
@@ -914,7 +914,7 @@ impl<T> Node<T> {
                                 path = &path[suffix_start..];
                                 backtracking = false;
                                 // Parameters are normalized so this key is irrelevant for now.
-                                params.push("", param);
+                                params.push_val(param);
                                 continue 'walk;
                             }
                         }
@@ -928,7 +928,7 @@ impl<T> Node<T> {
                         };
 
                         // Store the parameter value.
-                        params.push("", path);
+                        params.push_val(path);
 
                         // Remap the keys of any route parameters we accumulated during the search.
                         params.for_each_key_mut(|(i, param)| *param = node.remapping[i].clone());
