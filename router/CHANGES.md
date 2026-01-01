@@ -1,4 +1,5 @@
-# unreleased
+# unreleased 0.4.1
+- perf improvement
 
 # 0.4.0
 - sync with matchit 0.9

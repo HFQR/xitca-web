@@ -4,7 +4,7 @@ use crate::{
     error::{InsertError, MatchError},
     escape::{UnescapedRef, UnescapedRoute},
     params::Params,
-    String, Vec,
+    SmallStr, String, Vec,
 };
 
 /// A radix tree used for URL path matching.
@@ -785,7 +785,7 @@ impl<T> Node<T> {
                         // Found the matching value.
                         if let Some(ref value) = node.value {
                             // Remap the keys of any route parameters we accumulated during the search.
-                            params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
+                            params.for_each_key_mut(|(i, param)| *param = node.remapping[i].clone());
                             return Ok((value, params));
                         }
                     }
@@ -860,7 +860,7 @@ impl<T> Node<T> {
                                 params.push("", path);
 
                                 // Remap the keys of any route parameters we accumulated during the search.
-                                params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
+                                params.for_each_key_mut(|(i, param)| *param = node.remapping[i].clone());
 
                                 return Ok((value, params));
                             }
@@ -931,7 +931,7 @@ impl<T> Node<T> {
                         params.push("", path);
 
                         // Remap the keys of any route parameters we accumulated during the search.
-                        params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
+                        params.for_each_key_mut(|(i, param)| *param = node.remapping[i].clone());
 
                         return Ok((value, params));
                     }
@@ -948,7 +948,7 @@ impl<T> Node<T> {
                         };
 
                         // Remap the keys of any route parameters we accumulated during the search.
-                        params.for_each_key_mut(|(i, param)| *param = node.remapping[i].as_str().into());
+                        params.for_each_key_mut(|(i, param)| *param = node.remapping[i].clone());
 
                         // Store the final catch-all parameter (`{*...}`).
                         let key = &node.prefix[2..node.prefix.len() - 1];
@@ -1013,7 +1013,7 @@ impl<T> Node<T> {
 /// are normalized before being inserted into the tree. Parameter remapping are
 /// stored at nodes containing values, containing the "true" names of all route parameters
 /// for the given route.
-type ParamRemapping = Vec<String>;
+type ParamRemapping = Vec<SmallStr>;
 
 /// Returns `path` with normalized route parameters, and a parameter remapping
 /// to store at the node for this route.
@@ -1056,7 +1056,7 @@ fn normalize_params(mut path: UnescapedRoute) -> Result<(UnescapedRoute, ParamRe
         // Preserve the original name for remapping.
         let mut removed = removed.skip(1).collect::<Vec<_>>();
         removed.pop();
-        original.push(String::from_utf8(removed).unwrap());
+        original.push(SmallStr::from(core::str::from_utf8(&removed).unwrap()));
 
         next += 1;
         if next > b'z' {
@@ -1074,7 +1074,7 @@ pub(crate) fn denormalize_params(route: &mut UnescapedRoute, params: &ParamRemap
     let mut i = 0;
 
     // Get the corresponding parameter remapping.
-    while let Some((mut wildcard, mut next)) = find_wildcard(route.as_ref().slice_off(start))
+    while let Some((mut wildcard, next)) = find_wildcard(route.as_ref().slice_off(start))
         .unwrap()
         .zip(params.get(i).cloned())
     {
@@ -1084,8 +1084,11 @@ pub(crate) fn denormalize_params(route: &mut UnescapedRoute, params: &ParamRemap
         // Get the corresponding parameter remapping.
 
         // Denormalize this parameter.
+
+        let mut next = String::from(next.as_ref());
         next.insert(0, '{');
         next.push('}');
+
         let _ = route.splice(wildcard.clone(), next.as_bytes());
 
         i += 1;
