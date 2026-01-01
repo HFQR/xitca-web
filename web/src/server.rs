@@ -166,6 +166,16 @@ where
         self
     }
 
+    #[doc(hidden)]
+    pub fn on_worker_stop<FS, Fut>(mut self, on_stop: FS) -> Self
+    where
+        FS: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future + Send + 'static,
+    {
+        self.builder = self.builder.on_worker_stop(on_stop);
+        self
+    }
+
     #[cfg(not(target_family = "wasm"))]
     pub fn bind<A, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
     where
