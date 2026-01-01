@@ -88,6 +88,13 @@ impl Params {
         self.inner.truncate(n)
     }
 
+    pub(super) fn push_val(&mut self, value: &str) {
+        self.inner.push(Param {
+            key: const { SmallStr::new() },
+            value: value.into(),
+        });
+    }
+
     pub(super) fn push(&mut self, key: &str, value: &str) {
         self.inner.push(Param {
             key: key.into(),
