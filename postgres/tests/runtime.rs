@@ -316,3 +316,49 @@ async fn query_unnamed_with_transaction() {
         .unwrap();
     assert!(stream.try_next().await.unwrap().is_none());
 }
+
+#[cfg(not(feature = "io-uring"))]
+#[tokio::test]
+async fn transaction_pool_connection() {
+    let pool = xitca_postgres::pool::Pool::builder("postgres://postgres:postgres@localhost:5432")
+        .build()
+        .unwrap();
+
+    let client = pool.get().await.unwrap();
+
+    std::path::Path::new("samples/test.sql").execute(&client).await.unwrap();
+
+    {
+        let mut transaction = TransactionBuilder::new()
+            .isolation_level(IsolationLevel::Serializable)
+            .read_only(true)
+            .deferrable(true)
+            .begin(client)
+            .await
+            .unwrap();
+
+        let mut res = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
+            .bind_none()
+            .query(&mut transaction)
+            .await
+            .unwrap();
+
+        let row = res.try_next().await.unwrap().unwrap();
+        assert_eq!(row.get::<i32>(0), 1);
+        assert_eq!(row.get::<&str>(1), "alice");
+    }
+
+    let mut client = pool.get().await.unwrap();
+
+    let mut transaction = TransactionBuilder::new().begin(&mut client).await.unwrap();
+
+    let mut res = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
+        .bind_none()
+        .query(&mut transaction)
+        .await
+        .unwrap();
+
+    let row = res.try_next().await.unwrap().unwrap();
+    assert_eq!(row.get::<i32>(0), 1);
+    assert_eq!(row.get::<&str>(1), "alice");
+}

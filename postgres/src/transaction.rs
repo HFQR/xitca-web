@@ -8,6 +8,7 @@ use super::{
     driver::codec::{AsParams, Response, encode::Encode},
     error::Error,
     execute::Execute,
+    pool::PoolConnection,
     prepare::Prepare,
     query::Query,
     statement::Statement,
@@ -155,7 +156,7 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<&mut C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        save_point.save_point_query().execute(self).await?;
+        save_point.save_point_query().execute(&self.client).await?;
 
         Ok(Transaction {
             client: &mut self.client,
@@ -165,7 +166,7 @@ where
     }
 
     fn do_rollback(&mut self) {
-        drop(self.save_point.rollback_query().execute(self));
+        drop(self.save_point.rollback_query().execute(&self.client));
     }
 }
 
@@ -194,5 +195,43 @@ where
         S: Encode,
     {
         self.client._send_encode_query(stmt)
+    }
+}
+
+// special treatment for pool connection for it's internal caching logic that are not accessible through Query trait
+
+impl<'c, 'p, Q, EO, QO> Execute<&'c mut Transaction<PoolConnection<'p>>> for Q
+where
+    Q: Execute<&'c mut PoolConnection<'p>, ExecuteOutput = EO, QueryOutput = QO>,
+{
+    type ExecuteOutput = EO;
+    type QueryOutput = QO;
+
+    #[inline]
+    fn execute(self, cli: &'c mut Transaction<PoolConnection<'p>>) -> Self::ExecuteOutput {
+        Q::execute(self, &mut cli.client)
+    }
+
+    #[inline]
+    fn query(self, cli: &'c mut Transaction<PoolConnection<'p>>) -> Self::QueryOutput {
+        Q::query(self, &mut cli.client)
+    }
+}
+
+impl<'c, 'p, Q, EO, QO> Execute<&'c mut Transaction<&mut PoolConnection<'p>>> for Q
+where
+    Q: Execute<&'c mut PoolConnection<'p>, ExecuteOutput = EO, QueryOutput = QO>,
+{
+    type ExecuteOutput = EO;
+    type QueryOutput = QO;
+
+    #[inline]
+    fn execute(self, cli: &'c mut Transaction<&mut PoolConnection<'p>>) -> Self::ExecuteOutput {
+        Q::execute(self, &mut cli.client)
+    }
+
+    #[inline]
+    fn query(self, cli: &'c mut Transaction<&mut PoolConnection<'p>>) -> Self::QueryOutput {
+        Q::query(self, &mut cli.client)
     }
 }

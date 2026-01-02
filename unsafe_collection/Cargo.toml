@@ -1,13 +1,14 @@
 [package]
 name = "xitca-unsafe-collection"
-version = "0.2.0"
-edition = "2021"
+version = "0.2.1"
+edition = "2024"
 license = "Apache-2.0"
 description = "unsafe keyword enabled utilities for xitca"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
+rust-version.workspace = true
 
 [lints]
 workspace = true

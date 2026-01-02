@@ -1,7 +1,7 @@
 use core::{
     any::Any,
     fmt,
-    future::{pending, Future},
+    future::{Future, pending},
     mem::{self, ManuallyDrop},
     panic::{AssertUnwindSafe, UnwindSafe},
     pin::Pin,

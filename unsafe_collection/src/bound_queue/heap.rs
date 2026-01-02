@@ -61,7 +61,7 @@ impl<T, const CAP: usize> HeapQueue<T, CAP> {
     /// caller must make sure self is not full.
     #[inline]
     pub unsafe fn push_back_unchecked(&mut self, item: T) {
-        self.inner.push_back_unchecked(item)
+        unsafe { self.inner.push_back_unchecked(item) }
     }
 
     #[inline]
@@ -74,7 +74,7 @@ impl<T, const CAP: usize> HeapQueue<T, CAP> {
     /// caller must make sure self is not empty.
     #[inline]
     pub unsafe fn pop_front_unchecked(&mut self) -> T {
-        self.inner.pop_front_unchecked()
+        unsafe { self.inner.pop_front_unchecked() }
     }
 
     #[inline]
@@ -117,25 +117,25 @@ impl<T, const CAP: usize> Queueable for HeapQueueInner<T, CAP> {
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _get_unchecked(&self, idx: usize) -> &Self::Item {
-        &*self.ptr.add(idx)
+        unsafe { &*self.ptr.add(idx) }
     }
 
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _get_mut_unchecked(&mut self, idx: usize) -> &mut Self::Item {
-        &mut *self.ptr.add(idx)
+        unsafe { &mut *self.ptr.add(idx) }
     }
 
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _read_unchecked(&mut self, idx: usize) -> Self::Item {
-        self.ptr.add(idx).read()
+        unsafe { self.ptr.add(idx).read() }
     }
 
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _write_unchecked(&mut self, idx: usize, item: Self::Item) {
-        self.ptr.add(idx).write(item)
+        unsafe { self.ptr.add(idx).write(item) }
     }
 }
 

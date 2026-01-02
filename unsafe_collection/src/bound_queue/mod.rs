@@ -74,7 +74,7 @@ where
     // caller must make sure self is not empty
     unsafe fn front_unchecked(&self) -> &Q::Item {
         let idx = self.front_idx();
-        self.queue._get_unchecked(idx)
+        unsafe { self.queue._get_unchecked(idx) }
     }
 
     fn truncate(&mut self, n: usize) {
@@ -101,7 +101,7 @@ where
     // caller must make sure self is not empty
     unsafe fn front_mut_unchecked(&mut self) -> &mut Q::Item {
         let idx = self.front_idx();
-        self.queue._get_mut_unchecked(idx)
+        unsafe { self.queue._get_mut_unchecked(idx) }
     }
 
     fn clear(&mut self) {
@@ -123,7 +123,7 @@ where
     unsafe fn pop_front_unchecked(&mut self) -> Q::Item {
         let idx = self.front_idx();
         self.len -= 1;
-        self.queue._read_unchecked(idx)
+        unsafe { self.queue._read_unchecked(idx) }
     }
 
     fn push_back(&mut self, item: Q::Item) -> Result<(), PushError<Q::Item>> {
@@ -140,7 +140,9 @@ where
     // SAFETY:
     // caller must make sure self is not full.
     unsafe fn push_back_unchecked(&mut self, item: Q::Item) {
-        self.queue._write_unchecked(self.next, item);
+        unsafe {
+            self.queue._write_unchecked(self.next, item);
+        }
         self.incr_tail_len();
     }
 

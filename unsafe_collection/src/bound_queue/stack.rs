@@ -82,25 +82,27 @@ impl<T, const N: usize> Queueable for [MaybeUninit<T>; N] {
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _get_unchecked(&self, idx: usize) -> &Self::Item {
-        self.get_unchecked(idx).assume_init_ref()
+        unsafe { self.get_unchecked(idx).assume_init_ref() }
     }
 
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _get_mut_unchecked(&mut self, idx: usize) -> &mut Self::Item {
-        self.get_unchecked_mut(idx).assume_init_mut()
+        unsafe { self.get_unchecked_mut(idx).assume_init_mut() }
     }
 
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _read_unchecked(&mut self, idx: usize) -> Self::Item {
-        self.get_unchecked_mut(idx).assume_init_read()
+        unsafe { self.get_unchecked_mut(idx).assume_init_read() }
     }
 
     // SAFETY: see trait definition.
     #[inline]
     unsafe fn _write_unchecked(&mut self, idx: usize, item: Self::Item) {
-        self.get_unchecked_mut(idx).write(item);
+        unsafe {
+            self.get_unchecked_mut(idx).write(item);
+        }
     }
 }
 
