@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.2.1
+## Change
+- bump to Rust 2024 edition and MSRV to `1.85`
 
 # 0.2.0
 ## Add

@@ -4,8 +4,8 @@ use core::{
 };
 
 use bytes_crate::{
-    buf::{Buf, BufMut, UninitSlice},
     Bytes, BytesMut,
+    buf::{Buf, BufMut, UninitSlice},
 };
 
 /// const generic guarded BytesMut with page size in byte unit at compile time.
@@ -103,7 +103,7 @@ unsafe impl<const PAGE_SIZE: usize> BufMut for PagedBytesMut<PAGE_SIZE> {
     // forward to BytesMut.
     #[inline]
     unsafe fn advance_mut(&mut self, cnt: usize) {
-        self.0.advance_mut(cnt)
+        unsafe { self.0.advance_mut(cnt) }
     }
 
     #[inline]

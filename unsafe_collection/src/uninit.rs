@@ -8,14 +8,14 @@ use core::mem::MaybeUninit;
 // really are in an initialized state.
 // Calling this when the content is not yet fully initialized causes undefined behavior.
 pub(crate) unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &mut [T] {
-    &mut *(slice as *mut [MaybeUninit<T>] as *mut [T])
+    unsafe { &mut *(slice as *mut [MaybeUninit<T>] as *mut [T]) }
 }
 
 // SAFETY:
 //
 // The same rule as slice_assume_init_mut function
 pub(crate) const unsafe fn slice_assume_init<T>(slice: &[MaybeUninit<T>]) -> &[T] {
-    &*(slice as *const [MaybeUninit<T>] as *const [T])
+    unsafe { &*(slice as *const [MaybeUninit<T>] as *const [T]) }
 }
 
 mod sealed {

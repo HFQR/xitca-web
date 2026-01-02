@@ -38,7 +38,9 @@ mod inner {
 
             let len = slice.len();
 
-            ptr::copy_nonoverlapping(slice.as_ptr(), arr.as_mut_ptr().cast(), len);
+            unsafe {
+                ptr::copy_nonoverlapping(slice.as_ptr(), arr.as_mut_ptr().cast(), len);
+            }
             let len = TAG | (len as u8);
 
             Inline { arr, len }
@@ -49,7 +51,7 @@ mod inner {
         unsafe fn as_slice(&self) -> &[u8] {
             let len = (self.len & !TAG) as usize;
             let s = &self.arr[..len];
-            slice_assume_init(s)
+            unsafe { slice_assume_init(s) }
         }
     }
 
@@ -60,11 +62,9 @@ mod inner {
 
     impl Heap {
         fn clone(&self) -> ManuallyDrop<Self> {
-            let ptr = self.ptr.as_ptr();
-            let len = self.len;
             // SAFETY:
-            // Heap is constructed from &[u8] and uphold all safety requirement.
-            let slice = unsafe { slice::from_raw_parts(ptr, len) };
+            // Heap is intialized before cloning
+            let slice = unsafe { self.as_slice() };
             Self::from_slice(slice)
         }
 
@@ -97,7 +97,7 @@ mod inner {
             }
 
             let ptr = self.ptr.as_ptr();
-            slice::from_raw_parts(ptr, self.len)
+            unsafe { slice::from_raw_parts(ptr, self.len) }
         }
     }
 

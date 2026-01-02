@@ -1,6 +1,6 @@
 use std::{io::IoSlice, mem::MaybeUninit};
 
-use bytes_crate::{buf::Chain, Buf, Bytes};
+use bytes_crate::{Buf, Bytes, buf::Chain};
 
 use crate::uninit;
 
@@ -37,9 +37,11 @@ where
     // SAFETY:
     // T, U must follow the safety rule of chunks_vectored_uninit method.
     unsafe fn chunks_vectored_uninit<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> usize {
-        let mut n = self.first_ref().chunks_vectored_uninit(dst);
-        n += self.last_ref().chunks_vectored_uninit(&mut dst[n..]);
-        n
+        unsafe {
+            let mut n = self.first_ref().chunks_vectored_uninit(dst);
+            n += self.last_ref().chunks_vectored_uninit(&mut dst[n..]);
+            n
+        }
     }
 }
 
@@ -53,7 +55,7 @@ impl<B: ChunkVectoredUninit, const LEN: usize> ChunkVectoredUninit for BufList<B
         assert!(!dst.is_empty());
         let mut vecs = 0;
         for buf in self.bufs.iter() {
-            vecs += buf.chunks_vectored_uninit(&mut dst[vecs..]);
+            vecs += unsafe { buf.chunks_vectored_uninit(&mut dst[vecs..]) };
             if vecs == dst.len() {
                 break;
             }
@@ -109,9 +111,11 @@ where
     //
     // See ChunkVectoredUninit trait for safety rule.
     unsafe fn chunks_vectored_uninit<'a>(&'a self, dst: &mut [MaybeUninit<IoSlice<'a>>]) -> usize {
-        match *self {
-            Self::Left(ref buf) => buf.chunks_vectored_uninit(dst),
-            Self::Right(ref buf) => buf.chunks_vectored_uninit(dst),
+        unsafe {
+            match *self {
+                Self::Left(ref buf) => buf.chunks_vectored_uninit(dst),
+                Self::Right(ref buf) => buf.chunks_vectored_uninit(dst),
+            }
         }
     }
 }
