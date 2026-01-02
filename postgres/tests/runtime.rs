@@ -4,7 +4,6 @@ use xitca_postgres::{
     Client, Execute, Postgres,
     error::{ClosedByDriver, DbError, SqlState},
     iter::AsyncLendingIterator,
-    pool::Pool,
     statement::Statement,
     transaction::{IsolationLevel, TransactionBuilder},
     types::Type,
@@ -318,9 +317,10 @@ async fn query_unnamed_with_transaction() {
     assert!(stream.try_next().await.unwrap().is_none());
 }
 
+#[cfg(not(feature = "io-uring"))]
 #[tokio::test]
 async fn transaction_pool_connection() {
-    let pool = Pool::builder("postgres://postgres:postgres@localhost:5432")
+    let pool = xitca_postgres::pool::Pool::builder("postgres://postgres:postgres@localhost:5432")
         .build()
         .unwrap();
 
