@@ -20,7 +20,7 @@ pub use portal::Portal;
 
 pub struct Transaction<C>
 where
-    C: Prepare + ClientBorrowMut,
+    C: Query + ClientBorrowMut,
 {
     client: C,
     save_point: SavePoint,
@@ -79,7 +79,7 @@ enum State {
 
 impl<C> Drop for Transaction<C>
 where
-    C: Prepare + ClientBorrowMut,
+    C: Query + ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -91,7 +91,7 @@ where
 
 impl<C> Transaction<C>
 where
-    C: Prepare + ClientBorrowMut,
+    C: Query + ClientBorrowMut,
 {
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
     ///
@@ -156,7 +156,7 @@ where
 
     async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<&mut C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        save_point.save_point_query().execute(&self.client).await?;
+        save_point.save_point_query().execute(&self).await?;
 
         Ok(Transaction {
             client: &mut self.client,
@@ -166,7 +166,7 @@ where
     }
 
     fn do_rollback(&mut self) {
-        drop(self.save_point.rollback_query().execute(&self.client));
+        drop(self.save_point.rollback_query().execute(&self));
     }
 }
 
@@ -187,7 +187,7 @@ where
 
 impl<C> Query for Transaction<C>
 where
-    C: Prepare + ClientBorrowMut,
+    C: Query + ClientBorrowMut,
 {
     #[inline]
     fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
