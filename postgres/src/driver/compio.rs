@@ -13,7 +13,7 @@ use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::error::Error;
 
-use super::generic::{DriverRx, GenericDriver, WaitState};
+use super::generic::{DriverRx, GenericDriver, WriteState};
 
 /// postgres driver with compio support enabled
 ///
@@ -102,13 +102,13 @@ impl CompIoDriver {
             let write = || async {
                 loop {
                     match self.rx.wait().await {
-                        WaitState::WantWrite => {
+                        WriteState::WantWrite => {
                             let buf = self.rx.guarded.lock().unwrap().buf.split();
                             let BufResult(res, _) = (&self.io).write_all(buf).await;
                             res?;
                             (&self.io).flush().await?;
                         }
-                        WaitState::WantClose => return Ok::<_, io::Error>(()),
+                        _ => return Ok::<_, io::Error>(()),
                     }
                 }
             };

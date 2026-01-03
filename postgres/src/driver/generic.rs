@@ -108,24 +108,19 @@ pub(crate) struct SharedState {
 }
 
 impl SharedState {
-    pub(super) fn wait(&self) -> impl Future<Output = WaitState> + use<'_> {
+    pub(super) fn wait(&self) -> impl Future<Output = WriteState> + use<'_> {
         poll_fn(|cx| {
             let mut inner = self.guarded.lock().unwrap();
             if !inner.buf.is_empty() {
-                Poll::Ready(WaitState::WantWrite)
+                Poll::Ready(WriteState::WantWrite)
             } else if inner.closed {
-                Poll::Ready(WaitState::WantClose)
+                Poll::Ready(WriteState::Closed(None))
             } else {
                 inner.register(cx.waker());
                 Poll::Pending
             }
         })
     }
-}
-
-pub(super) enum WaitState {
-    WantWrite,
-    WantClose,
 }
 
 pub(super) struct State {
@@ -155,7 +150,7 @@ pub struct GenericDriver<Io> {
     write_state: WriteState,
 }
 
-enum WriteState {
+pub(super) enum WriteState {
     Waiting,
     WantWrite,
     WantFlush,
@@ -205,8 +200,16 @@ where
         }
     }
 
-    pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
-        self.recv_with(|buf| backend::Message::parse(buf).map_err(Error::from).transpose())
+    pub(crate) async fn recv(&mut self) -> Result<backend::Message, Error> {
+        loop {
+            if let Some(msg) = backend::Message::parse(self.read_buf.get_mut())? {
+                return Ok(msg);
+            }
+            self.io.ready(Interest::READABLE).await?;
+            if let Some(0) = self.try_read()? {
+                return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
+            }
+        }
     }
 
     async fn _try_next(&mut self) -> Result<Option<backend::Message>, Error> {
@@ -255,23 +258,7 @@ where
                         }
                     }
                 }
-                SelectOutput::B(WaitState::WantWrite) => self.write_state = WriteState::WantWrite,
-                SelectOutput::B(WaitState::WantClose) => self.write_state = WriteState::Closed(None),
-            }
-        }
-    }
-
-    async fn recv_with<F, O>(&mut self, mut func: F) -> Result<O, Error>
-    where
-        F: FnMut(&mut BytesMut) -> Option<Result<O, Error>>,
-    {
-        loop {
-            if let Some(o) = func(self.read_buf.get_mut()) {
-                return o;
-            }
-            self.io.ready(Interest::READABLE).await?;
-            if let Some(0) = self.try_read()? {
-                return Err(Error::from(io::Error::from(io::ErrorKind::UnexpectedEof)));
+                SelectOutput::B(write_state) => self.write_state = write_state,
             }
         }
     }

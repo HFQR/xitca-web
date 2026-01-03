@@ -12,7 +12,7 @@ use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::error::Error;
 
-use super::generic::{DriverRx, GenericDriver, WaitState};
+use super::generic::{DriverRx, GenericDriver, WriteState};
 
 pub type UringDriver = GenericUringDriver<TcpStream>;
 
@@ -53,12 +53,12 @@ where
             let write = || async {
                 loop {
                     match self.rx.wait().await {
-                        WaitState::WantWrite => {
+                        WriteState::WantWrite => {
                             let buf = self.rx.guarded.lock().unwrap().buf.split();
                             let (res, _) = write_all(&self.io, buf).await;
                             res?;
                         }
-                        WaitState::WantClose => return Ok::<_, io::Error>(()),
+                        _ => return Ok::<_, io::Error>(()),
                     }
                 }
             };
