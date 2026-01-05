@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "auth",
     "cloudflare-worker",
     "compression",
     "cookie",
