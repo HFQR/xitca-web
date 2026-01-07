@@ -1,6 +1,6 @@
 use crate::{
     AppState,
-    utils::{response_builder::json_response, validator::flatten_errors},
+    utils::{error::DbError, structs::ApiResponse, validator::flatten_errors},
 };
 use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
@@ -8,18 +8,19 @@ use validator::Validate;
 use xitca_postgres::{Execute, Statement, iter::AsyncLendingIterator, types::Type};
 use xitca_web::{
     error::Error,
-    handler::{json::LazyJson, state::StateRef},
-    http::{StatusCode, WebResponse},
+    handler::{json::Json, state::StateRef},
 };
 
+/// Login request payload with validation rules.
 #[derive(Deserialize, Validate)]
-pub struct Login<'a> {
+pub struct Login {
     #[validate(email(message = "Invalid email format"))]
-    email: &'a str,
+    email: String,
     #[validate(length(min = 8, message = "Password must be at least 8 characters"))]
-    password: &'a str,
+    password: String,
 }
 
+/// Successful login response containing user data.
 #[derive(Serialize)]
 pub struct UserData {
     id: String,
@@ -27,100 +28,87 @@ pub struct UserData {
     email: String,
 }
 
+/// Login endpoint handler.
+/// Validates credentials and returns user data on success.
 pub async fn login(
     StateRef(state): StateRef<'_, AppState>,
-    lazy: LazyJson<Login<'_>>,
-) -> Result<WebResponse, Error> {
-    // 1. Attempt to deserialize the incoming JSON body
-    let req = match lazy.deserialize() {
-        Ok(data) => data,
-        Err(e) => {
-            println!(">>> JSON ERROR: Invalid format or struct mismatch: {:?}", e);
-
-            return Ok(json_response::<()>(
-                StatusCode::BAD_REQUEST,
-                false,
-                format!("Invalid request body: {}", e.to_string()),
-                None,
-            ));
-        }
-    };
-
-    // 2. Run structural validation (email format, password length, etc.)
-    if let Err(e) = req.validate() {
+    Json(req): Json<Login>,
+) -> Result<Json<ApiResponse<UserData>>, Error> {
+    // Validate input structure (email format, password length).
+    // Using inspect_err for logging while preserving error handling.
+    if let Err(e) = req
+        .validate()
+        .inspect_err(|e| eprintln!("Validation error: {:?}", e))
+    {
         let error_body = flatten_errors(e);
-
-        return Ok(json_response(
-            StatusCode::BAD_REQUEST,
-            false,
-            "Validation Failed",
-            Some(error_body),
-        ));
+        let response = ApiResponse {
+            success: false,
+            message: format!("Validation Failed: {:?}", error_body),
+            data: None::<UserData>,
+        };
+        return Err(Error::from(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            serde_json::to_string(&response).unwrap(),
+        )));
     }
 
     let Login { email, password } = req;
 
-    // 3. Prepare the SQL statement for secure execution (prevents SQL injection)
+    // Get connection from pool - follows TechEmpower benchmark pattern.
+    let mut conn = state.db_client.pool().get().await.map_err(DbError)?;
+
+    // Prepare statement on the connection (prevents SQL injection).
     let stmt = Statement::named(
         "SELECT id, name, email, password FROM users WHERE email = $1",
         &[Type::TEXT],
     )
-    .execute(state.db_client.client())
+    .execute(&mut conn)
     .await
-    .map_err(|e| Error::from(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    .map_err(DbError)?;
 
-    // 4. Execute the query with the provided email
-    let mut rows = stmt
-        .bind([email])
-        .query(state.db_client.client())
-        .await
-        .map_err(|e| Error::from(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    // Bind parameters and execute query.
+    let mut rows = stmt.bind([&email]).query(&conn).await.map_err(DbError)?;
 
-    // 5. Check if a user exists with that email
-    if let Some(row) = rows
-        .try_next()
-        .await
-        .map_err(|e| Error::from(std::io::Error::new(std::io::ErrorKind::Other, e)))?
-    {
-        // Extract data from the database row by index
+    if let Some(row) = rows.try_next().await.map_err(DbError)? {
         let user_id: String = row.get(0);
         let user_name: String = row.get(1);
         let user_email: String = row.get(2);
         let password_hash: String = row.get(3);
 
-        // 6. Verify if the provided password matches the hashed password in the DB
+        // Verify password against stored hash using password_auth crate.
         match verify_password(password, &password_hash) {
-            Ok(_) => {
-                let response = UserData {
+            Ok(_) => Ok(Json(ApiResponse {
+                success: true,
+                message: "Login successful".to_string(),
+                data: Some(UserData {
                     id: user_id,
                     name: user_name,
                     email: user_email,
-                };
-
-                return Ok(json_response(
-                    StatusCode::OK,
-                    true,
-                    "Login successful",
-                    Some(response),
-                ));
-            }
+                }),
+            })),
             Err(_) => {
-                // Password mismatch
-                return Ok(json_response::<()>(
-                    StatusCode::UNAUTHORIZED,
-                    false,
-                    "Invalid email or password",
-                    None,
-                ));
+                // Return generic error message to prevent user enumeration.
+                let response = ApiResponse {
+                    success: false,
+                    message: "Invalid email or password".to_string(),
+                    data: None::<UserData>,
+                };
+                Err(Error::from(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    serde_json::to_string(&response).unwrap(),
+                )))
             }
         }
     } else {
-        // 7. No user found with that email
-        return Ok(json_response::<()>(
-            StatusCode::UNAUTHORIZED,
-            false,
-            "Invalid email or password",
-            None,
-        ));
+        // User not found - return same error message as invalid password.
+        let response = ApiResponse {
+            success: false,
+            message: "Invalid email or password".to_string(),
+            data: None::<UserData>,
+        };
+        Err(Error::from(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            serde_json::to_string(&response).unwrap(),
+        )))
     }
 }

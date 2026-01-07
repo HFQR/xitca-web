@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+/// Standard API response structure for all endpoints.
+/// Provides consistent response format across the application.
 #[derive(Serialize)]
 pub struct ApiResponse<T> {
     pub success: bool,
