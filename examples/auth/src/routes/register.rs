@@ -66,22 +66,17 @@ pub async fn register(
     let hashed_password = generate_hash(password);
 
     // Get connection from pool.
-    let mut conn = state.db_client.pool().get().await.map_err(DbError)?;
+    let conn = state.db_client.pool().get().await.map_err(DbError)?;
 
     // Prepare INSERT statement.
-    let stmt = Statement::named(
+    // Bind parameters and execute query.
+    let res = Statement::named(
         "INSERT INTO users (id, name, email, password) VALUES ($1, $2, $3, $4) RETURNING id",
         &[Type::TEXT, Type::TEXT, Type::TEXT, Type::TEXT],
     )
-    .execute(&mut conn)
-    .await
-    .map_err(DbError)?;
-
-    // Bind parameters and execute query.
-    let res = stmt
-        .bind([&user_id, &name, &email, &hashed_password])
-        .query(&conn)
-        .await;
+    .bind([&user_id, &name, &email, &hashed_password])
+    .query(&conn)
+    .await;
 
     match res {
         Ok(mut rows) => {

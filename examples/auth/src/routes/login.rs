@@ -55,19 +55,17 @@ pub async fn login(
     let Login { email, password } = req;
 
     // Get connection from pool - follows TechEmpower benchmark pattern.
-    let mut conn = state.db_client.pool().get().await.map_err(DbError)?;
+    let conn = state.db_client.pool().get().await.map_err(DbError)?;
 
     // Prepare statement on the connection (prevents SQL injection).
-    let stmt = Statement::named(
+    let mut rows = Statement::named(
         "SELECT id, name, email, password FROM users WHERE email = $1",
         &[Type::TEXT],
     )
-    .execute(&mut conn)
+    .bind([&email])
+    .query(&conn)
     .await
     .map_err(DbError)?;
-
-    // Bind parameters and execute query.
-    let mut rows = stmt.bind([&email]).query(&conn).await.map_err(DbError)?;
 
     if let Some(row) = rows.try_next().await.map_err(DbError)? {
         let user_id: String = row.get(0);
