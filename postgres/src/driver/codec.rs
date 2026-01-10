@@ -35,8 +35,7 @@ pub struct Response {
 impl Response {
     pub(crate) fn blocking_recv(&mut self) -> Result<backend::Message, Error> {
         if self.buf.is_empty() {
-            let res = self.rx.blocking_recv();
-            self.on_recv(res)?;
+            self.buf = self.rx.blocking_recv().ok_or_else(|| Error::from(ClosedByDriver))?;
         }
         self.parse_message()
     }
@@ -47,8 +46,7 @@ impl Response {
 
     pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
         if self.buf.is_empty() {
-            let res = ready!(self.rx.poll_recv(cx));
-            self.on_recv(res)?;
+            self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| Error::from(ClosedByDriver))?;
         }
         Poll::Ready(self.parse_message())
     }
@@ -99,16 +97,6 @@ impl Response {
                 backend::Message::ReadyForQuery(_) => return Poll::Ready(Ok(())),
                 _ => return Poll::Ready(Err(Error::unexpected())),
             }
-        }
-    }
-
-    fn on_recv(&mut self, res: Option<BytesMut>) -> Result<(), Error> {
-        match res {
-            Some(msg) => {
-                self.buf = msg;
-                Ok(())
-            }
-            None => Err(ClosedByDriver.into()),
         }
     }
 

@@ -6,10 +6,11 @@ edition = "2024"
 [dependencies]
 dotenvy = "0.15.7"
 password-auth = "1.0.0"
-serde = {version="1.0.228", features=["derive"]}
+serde = {version="1.0.228", features=["derive"] }
 serde_json = "1.0.148"
 validator = { version = "0.20.0", features = ["derive"] }
 xitca-postgres = "0.3.0"
-xitca-web = {version="0.7.1", features=["json","rate-limit", "compress-br", "compress-de", "compress-gz"]}
+xitca-web = { version="0.7.1", features=["json", "rate-limit", "compress-br", "compress-de", "compress-gz"]}
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 cuid2 = "0.1.4"

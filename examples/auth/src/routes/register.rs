@@ -1,6 +1,9 @@
 use crate::{
     AppState,
-    utils::{error::DbError, structs::ApiResponse, validator::flatten_errors},
+    utils::{
+        error::{DbError, ValidationError},
+        structs::ApiResponse,
+    },
 };
 use cuid2;
 use password_auth::generate_hash;
@@ -36,28 +39,9 @@ pub async fn register(
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<ApiResponse<RegisterResponse>>, Error> {
     // Validate input structure.
-    // Using inspect_err for logging while preserving error handling.
-    if let Err(e) = req
-        .validate()
-        .inspect_err(|e| eprintln!("Validation error: {:?}", e))
-    {
-        let error_body = flatten_errors(e);
-        let response = ApiResponse {
-            success: false,
-            message: format!("Validation Failed: {:?}", error_body),
-            data: None::<RegisterResponse>,
-        };
-        return Err(Error::from(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            serde_json::to_string(&response).unwrap(),
-        )));
-    }
+    req.validate().map_err(ValidationError)?;
 
-    let RegisterRequest {
-        name,
-        email,
-        password,
-    } = req;
+    let RegisterRequest { name, email, password } = req;
 
     // Generate collision-resistant ID using CUID2.
     let user_id = cuid2::create_id();
@@ -65,57 +49,23 @@ pub async fn register(
     // Hash password using password_auth (Argon2 by default).
     let hashed_password = generate_hash(password);
 
-    // Get connection from pool.
-    let conn = state.db_client.pool().get().await.map_err(DbError)?;
-
     // Prepare INSERT statement.
     // Bind parameters and execute query.
-    let res = Statement::named(
+    let mut rows = Statement::named(
         "INSERT INTO users (id, name, email, password) VALUES ($1, $2, $3, $4) RETURNING id",
         &[Type::TEXT, Type::TEXT, Type::TEXT, Type::TEXT],
     )
     .bind([&user_id, &name, &email, &hashed_password])
-    .query(&conn)
-    .await;
+    .query(state.db_client.pool())
+    .await
+    .map_err(DbError)?;
 
-    match res {
-        Ok(mut rows) => {
-            let mut registered_id = String::new();
-            if let Some(row) = rows.try_next().await.map_err(DbError)? {
-                registered_id = row.get(0);
-            }
+    let row = rows.try_next().await.map_err(DbError)?.expect("sql must return id");
+    let user_id = row.get("id");
 
-            Ok(Json(ApiResponse {
-                success: true,
-                message: "Registration successful".to_string(),
-                data: Some(RegisterResponse {
-                    user_id: registered_id,
-                }),
-            }))
-        }
-        Err(e) => {
-            let db_error = e.to_string();
-
-            // Check for unique constraint violation (duplicate email).
-            let (message, kind) = if db_error.contains("unique constraint") {
-                (
-                    "Email is already registered",
-                    std::io::ErrorKind::AlreadyExists,
-                )
-            } else {
-                ("Internal server error", std::io::ErrorKind::Other)
-            };
-
-            let response = ApiResponse {
-                success: false,
-                message: message.to_string(),
-                data: None::<RegisterResponse>,
-            };
-
-            Err(Error::from(std::io::Error::new(
-                kind,
-                serde_json::to_string(&response).unwrap(),
-            )))
-        }
-    }
+    Ok(Json(ApiResponse {
+        success: true,
+        message: "Registration successful".to_string(),
+        data: Some(RegisterResponse { user_id }),
+    }))
 }
