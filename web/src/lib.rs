@@ -1,4 +1,4 @@
-//! a web framework focus on memory efficiency, composability, and fast compile time.
+//! a web framework focused on memory efficiency, composability, and fast compile time.
 //!
 //! # Quick start
 //! ```no_run
