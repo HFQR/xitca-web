@@ -21,7 +21,7 @@ use crate::{
     query::{RowAffected, RowStreamOwned},
     session::Session,
     statement::{Statement, StatementNamed, StatementQuery},
-    transaction::{Transaction, TransactionBuilder},
+    transaction::{Transaction, TransactionBuilder, TransactionOwned},
 };
 
 use super::Pool;
@@ -70,7 +70,7 @@ impl<'a> PoolConnection<'a> {
 
     /// owned version of [`PoolConnection::transaction`]
     #[inline]
-    pub fn transaction_owned(self) -> impl Future<Output = Result<Transaction<'a, Self>, Error>> + Send {
+    pub fn transaction_owned(self) -> impl Future<Output = Result<TransactionOwned<Self>, Error>> + Send {
         TransactionBuilder::new().begin_owned(self)
     }
 
