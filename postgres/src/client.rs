@@ -36,14 +36,14 @@ use super::{
 ///
 /// // boilerplate impl required by ClientBorrowMut trait
 /// impl ClientBorrow for SharedClient {
-///     fn _borrow(&self) -> &Client {
+///     fn borrow_cli_ref(&self) -> &Client {
 ///         &self.0
 ///     }
 /// }
 ///
 /// // client new type has to impl this trait to mark they can truly offer a mutable reference to Client
 /// impl ClientBorrowMut for SharedClient {
-///     fn _borrow_mut(&mut self) -> &mut Client {
+///     fn borrow_cli_mut(&mut self) -> &mut Client {
 ///         Arc::get_mut(&mut self.0).expect("you can't safely implement this trait with SharedClient.")
 ///     }
 /// }
