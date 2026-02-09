@@ -15,7 +15,7 @@ use super::{
 /// the guard can be dereferenced or borrowed as [`Statement`] which can be used for query apis.
 ///
 /// the guard would cancel it's statement when dropped. generic C type must be a client type impl
-/// [`Query`] trait to instruct the cancellation.
+/// [`ClientBorrow`] trait to instruct the cancellation.
 pub struct StatementGuarded<'a, C>
 where
     C: ClientBorrow,
