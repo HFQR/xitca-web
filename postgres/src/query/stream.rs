@@ -12,11 +12,11 @@ use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::backend;
 
 use crate::{
+    client::ClientBorrow,
     column::Column,
     driver::codec::Response,
     error::Error,
     iter::AsyncLendingIterator,
-    prepare::Prepare,
     row::{Row, RowOwned, RowSimple, RowSimpleOwned, marker},
     types::Type,
 };
@@ -278,7 +278,7 @@ impl<'a, C> RowStreamGuarded<'a, C> {
 
 impl<C> AsyncLendingIterator for RowStreamGuarded<'_, C>
 where
-    C: Prepare + Sync,
+    C: ClientBorrow + Sync,
 {
     type Ok<'i>
         = Row<'i>
@@ -292,7 +292,7 @@ where
                 backend::Message::RowDescription(body) => {
                     let mut it = body.fields();
                     while let Some(field) = it.next()? {
-                        let ty = self.cli._get_type(field.type_oid()).await?;
+                        let ty = self.cli.borrow_cli_ref()._get_type(field.type_oid()).await?;
                         self.col.push(Column::new(field.name(), ty));
                     }
                 }
@@ -329,7 +329,7 @@ impl<'a, C> From<RowStreamGuarded<'a, C>> for RowStreamGuardedOwned<'a, C> {
 
 impl<'a, C> IntoIterator for RowStreamGuarded<'a, C>
 where
-    C: Prepare,
+    C: ClientBorrow,
 {
     type Item = Result<RowOwned, Error>;
     type IntoIter = RowStreamGuardedOwned<'a, C>;
@@ -341,7 +341,7 @@ where
 
 impl<C> Iterator for RowStreamGuardedOwned<'_, C>
 where
-    C: Prepare,
+    C: ClientBorrow,
 {
     type Item = Result<RowOwned, Error>;
 
@@ -354,7 +354,7 @@ where
                             .fields()
                             .map_err(Error::from)
                             .map(|f| {
-                                let ty = self.cli._get_type_blocking(f.type_oid())?;
+                                let ty = self.cli.borrow_cli_ref()._get_type_blocking(f.type_oid())?;
                                 Ok(Column::new(f.name(), ty))
                             })
                             .collect::<Vec<_>>()

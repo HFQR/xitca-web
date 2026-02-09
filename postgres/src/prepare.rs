@@ -1,7 +1,3 @@
-use core::future::Future;
-
-use std::sync::Arc;
-
 use postgres_types::{Field, Kind, Oid};
 
 use super::{
@@ -10,56 +6,12 @@ use super::{
     error::{DbError, Error, SqlState},
     execute::{Execute, ExecuteBlocking},
     iter::AsyncLendingIterator,
-    query::Query,
     statement::{Statement, StatementNamed},
     types::Type,
 };
 
-/// trait generic over preparing statement and canceling of prepared statement
-pub trait Prepare: Query + Sync {
-    fn _get_type(&self, oid: Oid) -> impl Future<Output = Result<Type, Error>> + Send;
-
-    #[doc(hidden)]
-    fn _get_type_boxed(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
-        Box::pin(self._get_type(oid))
-    }
-
-    // blocking version of [`Prepare::_get_type`].
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error>;
-}
-
-impl<T> Prepare for &T
-where
-    T: Prepare,
-{
-    #[inline]
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        T::_get_type(*self, oid).await
-    }
-
-    #[inline]
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        T::_get_type_blocking(*self, oid)
-    }
-}
-
-impl<T> Prepare for &mut T
-where
-    T: Prepare,
-{
-    #[inline]
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        T::_get_type(&**self, oid).await
-    }
-
-    #[inline]
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        T::_get_type_blocking(&**self, oid)
-    }
-}
-
-impl Prepare for Client {
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
+impl Client {
+    pub(crate) async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
         if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
             return Ok(ty);
         }
@@ -104,7 +56,11 @@ impl Prepare for Client {
         Ok(type_)
     }
 
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
+    pub(crate) fn _get_type_boxed(&self, oid: Oid) -> BoxedFuture<'_, Result<Type, Error>> {
+        Box::pin(self._get_type(oid))
+    }
+
+    pub(crate) fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
         if let Some(ty) = Type::from_oid(oid).or_else(|| self.type_(oid)) {
             return Ok(ty);
         }
@@ -147,18 +103,6 @@ impl Prepare for Client {
         self.set_type(oid, &type_);
 
         Ok(type_)
-    }
-}
-
-impl Prepare for Arc<Client> {
-    #[inline]
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        Client::_get_type(&**self, oid).await
-    }
-
-    #[inline]
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        Client::_get_type_blocking(&**self, oid)
     }
 }
 

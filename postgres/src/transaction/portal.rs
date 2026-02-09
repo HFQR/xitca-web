@@ -3,13 +3,13 @@ use core::sync::atomic::Ordering;
 use postgres_protocol::message::backend;
 
 use crate::{
+    client::ClientBorrow,
     driver::codec::{
         AsParams,
         encode::{Encode, PortalCancel, PortalCreate, PortalQuery},
         response::IntoResponse,
     },
     error::Error,
-    query::Query,
     statement::Statement,
 };
 
@@ -19,7 +19,7 @@ use crate::{
 /// in which they were created.
 pub struct Portal<'a, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     cli: &'a C,
     name: String,
@@ -28,16 +28,16 @@ where
 
 impl<C> Drop for Portal<'_, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     fn drop(&mut self) {
-        let _ = self.cli._send_encode_query(PortalCancel { name: &self.name });
+        let _ = self.cli.borrow_cli_ref().query_raw(PortalCancel { name: &self.name });
     }
 }
 
 impl<C> Portal<'_, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     pub(crate) async fn new<'p, I>(cli: &'p C, stmt: &'p Statement, params: I) -> Result<Portal<'p, C>, Error>
     where
@@ -45,7 +45,7 @@ where
     {
         let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
-        let (_, mut res) = cli._send_encode_query(PortalCreate {
+        let (_, mut res) = cli.borrow_cli_ref().query_raw(PortalCreate {
             name: &name,
             stmt: stmt.name(),
             types: stmt.params(),
@@ -64,7 +64,7 @@ where
         &self,
         max_rows: i32,
     ) -> Result<<<PortalQuery<'_> as Encode>::Output as IntoResponse>::Response, Error> {
-        self.cli._query(PortalQuery {
+        self.cli.borrow_cli_ref().query(PortalQuery {
             name: &self.name,
             columns: self.stmt.columns(),
             max_rows,

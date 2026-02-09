@@ -1,4 +1,8 @@
-use crate::{client::ClientBorrowMut, error::Error, execute::Execute, prepare::Prepare, query::Query};
+use crate::{
+    client::{Client, ClientBorrowMut},
+    error::Error,
+    execute::Execute,
+};
 
 use super::Transaction;
 
@@ -75,16 +79,37 @@ impl TransactionBuilder {
         self
     }
 
-    /// Begins the transaction.
+    /// Begins the transaction with a borrowned client.
     ///
-    /// The transaction will roll back by default - use the `commit` method to commit it.
-    pub async fn begin<C>(self, mut cli: C) -> Result<Transaction<C>, Error>
+    /// The transaction will roll back by default - use [`Transaction::commit`] method to commit it.
+    pub async fn begin<C>(self, cli: &mut C) -> Result<Transaction<'_, C>, Error>
     where
-        C: Prepare + Query + ClientBorrowMut,
+        C: ClientBorrowMut,
     {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
-        let _c = cli._borrow_mut();
+        self._begin(cli.borrow_cli_mut())
+            .await
+            .map(|_| Transaction::new_ref(cli))
+    }
 
+    /// Begins the transaction with an owned client.
+    ///
+    /// The transaction will roll back by default - use [`Transaction::commit`] method to commit it.
+    pub async fn begin_owned<'a, C>(self, mut cli: C) -> Result<Transaction<'a, C>, Error>
+    where
+        C: ClientBorrowMut + 'a,
+    {
+        // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
+        self._begin(cli.borrow_cli_mut())
+            .await
+            .map(|_| Transaction::new_owned(cli))
+    }
+
+    async fn _begin<F>(self, cli: &mut Client) -> Result<u64, Error>
+    where
+        for<'s, 'c> &'s str: Execute<&'s Client, ExecuteOutput = F>,
+        F: Future<Output = Result<u64, Error>> + Send,
+    {
         let mut query = String::from("START TRANSACTION");
 
         let Self {
@@ -111,7 +136,7 @@ impl TransactionBuilder {
             query.pop();
         }
 
-        query.as_str().execute(&cli).await.map(|_| Transaction::new(cli))
+        query.as_str().execute(cli).await
     }
 }
 
@@ -120,9 +145,8 @@ mod test {
     use std::sync::Arc;
 
     use crate::{
-        Client, Error, Postgres,
-        dev::{ClientBorrowMut, Encode, Prepare, Query, Response},
-        types::{Oid, Type},
+        Client, Postgres,
+        client::{ClientBorrow, ClientBorrowMut},
     };
 
     use super::TransactionBuilder;
@@ -138,26 +162,14 @@ mod test {
             }
         }
 
-        impl Query for PanicCli {
-            fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), crate::Error>
-            where
-                S: Encode,
-            {
-                self.0._send_encode_query(stmt)
-            }
-        }
-
-        impl Prepare for PanicCli {
-            async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-                self.0._get_type(oid).await
-            }
-            fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-                self.0._get_type_blocking(oid)
+        impl ClientBorrow for PanicCli {
+            fn borrow_cli_ref(&self) -> &Client {
+                &self.0
             }
         }
 
         impl ClientBorrowMut for PanicCli {
-            fn _borrow_mut(&mut self) -> &mut Client {
+            fn borrow_cli_mut(&mut self) -> &mut Client {
                 Arc::get_mut(&mut self.0).unwrap()
             }
         }
@@ -177,7 +189,7 @@ mod test {
 
         let res = tokio::spawn(async move {
             let _cli2 = cli.clone();
-            let _tx = TransactionBuilder::new().begin(cli).await.unwrap();
+            let _tx = TransactionBuilder::new().begin_owned(cli).await.unwrap();
         })
         .await
         .err()

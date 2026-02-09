@@ -1,30 +1,64 @@
 mod builder;
 mod portal;
 
+use core::ops::{Deref, DerefMut};
+
 use std::borrow::Cow;
 
 use super::{
-    client::ClientBorrowMut,
-    driver::codec::{AsParams, Response, encode::Encode},
+    client::{Client, ClientBorrowMut},
+    driver::codec::AsParams,
     error::Error,
     execute::Execute,
     pool::PoolConnection,
-    prepare::Prepare,
-    query::Query,
     statement::Statement,
-    types::{Oid, ToSql, Type},
+    types::ToSql,
 };
 
 pub use builder::{IsolationLevel, TransactionBuilder};
 pub use portal::Portal;
 
-pub struct Transaction<C>
+pub struct Transaction<'a, C>
 where
-    C: Query + ClientBorrowMut,
+    C: ClientBorrowMut,
 {
-    client: C,
+    client: MaybeOwnedClient<'a, C>,
     save_point: SavePoint,
     state: State,
+}
+
+enum MaybeOwnedClient<'a, C> {
+    Owned(C),
+    Borrowed(&'a mut C),
+}
+
+impl<C> MaybeOwnedClient<'_, C> {
+    fn reborrow<'a>(&'a mut self) -> MaybeOwnedClient<'a, C> {
+        match self {
+            Self::Borrowed(cli) => MaybeOwnedClient::Borrowed(cli),
+            Self::Owned(cli) => MaybeOwnedClient::Borrowed(cli),
+        }
+    }
+}
+
+impl<C> Deref for MaybeOwnedClient<'_, C> {
+    type Target = C;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(cli) => cli,
+            Self::Borrowed(cli) => cli,
+        }
+    }
+}
+
+impl<C> DerefMut for MaybeOwnedClient<'_, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Owned(cli) => cli,
+            Self::Borrowed(cli) => cli,
+        }
+    }
 }
 
 enum SavePoint {
@@ -77,9 +111,9 @@ enum State {
     Finish,
 }
 
-impl<C> Drop for Transaction<C>
+impl<C> Drop for Transaction<'_, C>
 where
-    C: Query + ClientBorrowMut,
+    C: ClientBorrowMut,
 {
     fn drop(&mut self) {
         match self.state {
@@ -89,9 +123,9 @@ where
     }
 }
 
-impl<C> Transaction<C>
+impl<C> Transaction<'_, C>
 where
-    C: Query + ClientBorrowMut,
+    C: ClientBorrowMut,
 {
     /// Binds a statement to a set of parameters, creating a [`Portal`] which can be incrementally queried.
     ///
@@ -110,20 +144,20 @@ where
     where
         I: AsParams,
     {
-        Portal::new(&self.client, statement, params).await
+        Portal::new(&*self.client, statement, params).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint.
     ///     
     /// [`Client::transaction`]: crate::client::Client::transaction
-    pub async fn transaction(&mut self) -> Result<Transaction<&mut C>, Error> {
+    pub async fn transaction(&mut self) -> Result<Transaction<'_, C>, Error> {
         self._save_point(None).await
     }
 
     /// Like [`Client::transaction`], but creates a nested transaction via a savepoint with the specified name.
     ///
     /// [`Client::transaction`]: crate::client::Client::transaction
-    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<&mut C>, Error>
+    pub async fn save_point<I>(&mut self, name: I) -> Result<Transaction<'_, C>, Error>
     where
         I: Into<String>,
     {
@@ -133,7 +167,10 @@ where
     /// Consumes the transaction, committing all changes made within it.
     pub async fn commit(mut self) -> Result<(), Error> {
         self.state = State::Finish;
-        self.save_point.commit_query().execute(&self).await?;
+        self.save_point
+            .commit_query()
+            .execute(self.client.borrow_cli_ref())
+            .await?;
         Ok(())
     }
 
@@ -142,65 +179,72 @@ where
     /// This is equivalent to [`Transaction`]'s [`Drop`] implementation, but provides any error encountered to the caller.
     pub async fn rollback(mut self) -> Result<(), Error> {
         self.state = State::Finish;
-        self.save_point.rollback_query().execute(&self).await?;
+        self.save_point
+            .rollback_query()
+            .execute(self.client.borrow_cli_ref())
+            .await?;
         Ok(())
     }
 
-    fn new(client: C) -> Transaction<C> {
+    fn new_owned<'a>(client: C) -> Transaction<'a, C>
+    where
+        C: 'a,
+    {
         Transaction {
-            client,
+            client: MaybeOwnedClient::Owned(client),
             save_point: SavePoint::None,
             state: State::WantRollback,
         }
     }
 
-    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<&mut C>, Error> {
+    fn new_ref(client: &mut C) -> Transaction<'_, C> {
+        Transaction {
+            client: MaybeOwnedClient::Borrowed(client),
+            save_point: SavePoint::None,
+            state: State::WantRollback,
+        }
+    }
+
+    async fn _save_point(&mut self, name: Option<String>) -> Result<Transaction<'_, C>, Error> {
         let save_point = self.save_point.nest_save_point(name);
-        save_point.save_point_query().execute(&self).await?;
+        save_point
+            .save_point_query()
+            .execute(self.client.borrow_cli_ref())
+            .await?;
 
         Ok(Transaction {
-            client: &mut self.client,
+            client: self.client.reborrow(),
             save_point,
             state: State::WantRollback,
         })
     }
 
     fn do_rollback(&mut self) {
-        drop(self.save_point.rollback_query().execute(&self));
+        drop(self.save_point.rollback_query().execute(self.client.borrow_cli_ref()));
     }
 }
 
-impl<C> Prepare for Transaction<C>
+impl<'c, C, Q, EO, QO> Execute<&'c Transaction<'_, C>> for Q
 where
-    C: Prepare + ClientBorrowMut,
+    C: ClientBorrowMut,
+    Q: Execute<&'c Client, ExecuteOutput = EO, QueryOutput = QO>,
 {
+    type ExecuteOutput = EO;
+    type QueryOutput = QO;
+
     #[inline]
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        self.client._get_type(oid).await
+    fn execute(self, cli: &'c Transaction<'_, C>) -> Self::ExecuteOutput {
+        Q::execute(self, cli.client.borrow_cli_ref())
     }
 
     #[inline]
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        self.client._get_type_blocking(oid)
-    }
-}
-
-impl<C> Query for Transaction<C>
-where
-    C: Query + ClientBorrowMut,
-{
-    #[inline]
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        self.client._send_encode_query(stmt)
+    fn query(self, cli: &'c Transaction<C>) -> Self::QueryOutput {
+        Q::query(self, cli.client.borrow_cli_ref())
     }
 }
 
 // special treatment for pool connection for it's internal caching logic that are not accessible through Query trait
-
-impl<'c, 'p, Q, EO, QO> Execute<&'c mut Transaction<PoolConnection<'p>>> for Q
+impl<'c, 'p, Q, EO, QO> Execute<&'c mut Transaction<'_, PoolConnection<'p>>> for Q
 where
     Q: Execute<&'c mut PoolConnection<'p>, ExecuteOutput = EO, QueryOutput = QO>,
 {
@@ -208,30 +252,12 @@ where
     type QueryOutput = QO;
 
     #[inline]
-    fn execute(self, cli: &'c mut Transaction<PoolConnection<'p>>) -> Self::ExecuteOutput {
-        Q::execute(self, &mut cli.client)
+    fn execute(self, cli: &'c mut Transaction<'_, PoolConnection<'p>>) -> Self::ExecuteOutput {
+        Q::execute(self, &mut *cli.client)
     }
 
     #[inline]
     fn query(self, cli: &'c mut Transaction<PoolConnection<'p>>) -> Self::QueryOutput {
-        Q::query(self, &mut cli.client)
-    }
-}
-
-impl<'c, 'p, Q, EO, QO> Execute<&'c mut Transaction<&mut PoolConnection<'p>>> for Q
-where
-    Q: Execute<&'c mut PoolConnection<'p>, ExecuteOutput = EO, QueryOutput = QO>,
-{
-    type ExecuteOutput = EO;
-    type QueryOutput = QO;
-
-    #[inline]
-    fn execute(self, cli: &'c mut Transaction<&mut PoolConnection<'p>>) -> Self::ExecuteOutput {
-        Q::execute(self, &mut cli.client)
-    }
-
-    #[inline]
-    fn query(self, cli: &'c mut Transaction<&mut PoolConnection<'p>>) -> Self::QueryOutput {
-        Q::query(self, &mut cli.client)
+        Q::query(self, &mut *cli.client)
     }
 }

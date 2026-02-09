@@ -2,12 +2,15 @@
 ## Add
 - add `error::ClosedByDriver` error type
 - add `pool::PoolBuilder::cache_size` for configuring the max size of statement cache of connection pool
+- add `dev::ClientBorrow` trait for extending client type. It's used as a super trait of `ClientBorrowMut`
+- add `transaction::TransactionBuilder::begin_owned` method for specialized handling of transaction with owned client type 
 
 ## Change
 - switch to `tokio-uring-xitca` for `io-uring` feature. IO uring driver must run in it's runtime instead of original `tokio-uring`
 
 ## Remove
 - remove `error::DriverDownReceiving` error type
+- remove `dev::Query` and `dev::Prepare` traits. They are replaced by alternative `dev::ClientBorrow` trait
 
 # 0.3.0
 ## Add

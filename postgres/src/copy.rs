@@ -4,15 +4,14 @@ use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
-    client::{Client, ClientBorrowMut},
+    client::{Client, ClientBorrow, ClientBorrowMut},
     driver::codec::Response,
     error::Error,
     iter::AsyncLendingIterator,
-    query::Query,
     statement::Statement,
 };
 
-pub trait r#Copy: Query + ClientBorrowMut {
+pub trait r#Copy: ClientBorrowMut {
     fn send_one_way<F>(&self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>;
@@ -55,9 +54,7 @@ where
 {
     pub fn new(client: &'a mut C, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
-        let _cli = client._borrow_mut();
-
-        let res = client._send_encode_query(stmt.bind_none()).map(|(_, res)| res);
+        let res = client.borrow_cli_mut().query_raw(stmt.bind_none()).map(|(_, res)| res);
 
         async {
             let mut res = res?;
@@ -114,8 +111,8 @@ pub struct CopyOut {
 }
 
 impl CopyOut {
-    pub fn new(cli: &impl Query, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
-        let res = cli._send_encode_query(stmt.bind_none()).map(|(_, res)| res);
+    pub fn new(cli: &impl ClientBorrow, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
+        let res = cli.borrow_cli_ref().query_raw(stmt.bind_none()).map(|(_, res)| res);
 
         async {
             let mut res = res?;

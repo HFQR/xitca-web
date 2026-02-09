@@ -4,9 +4,9 @@ use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
 use crate::{
+    client::ClientBorrow,
     column::Column,
     error::{Error, InvalidParamCount},
-    prepare::Prepare,
     statement::{
         Statement, StatementCreate, StatementCreateBlocking, StatementPreparedCancel, StatementPreparedQuery,
         StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQueryWithCli,
@@ -53,7 +53,7 @@ impl<C> sealed::Sealed for StatementCreate<'_, '_, C> {}
 
 impl<'c, C> Encode for StatementCreate<'_, 'c, C>
 where
-    C: Prepare,
+    C: ClientBorrow + Sync,
 {
     type Output = StatementCreateResponse<'c, C>;
 
@@ -68,7 +68,7 @@ impl<C> sealed::Sealed for StatementCreateBlocking<'_, '_, C> {}
 
 impl<'c, C> Encode for StatementCreateBlocking<'_, 'c, C>
 where
-    C: Prepare,
+    C: ClientBorrow,
 {
     type Output = StatementCreateResponseBlocking<'c, C>;
 
@@ -144,7 +144,7 @@ impl<C, P> sealed::Sealed for StatementSingleRTTQueryWithCli<'_, '_, P, C> {}
 
 impl<'c, C, P> Encode for StatementSingleRTTQueryWithCli<'_, 'c, P, C>
 where
-    C: Prepare,
+    C: ClientBorrow,
     P: AsParams,
 {
     type Output = IntoRowStreamGuard<'c, C>;
