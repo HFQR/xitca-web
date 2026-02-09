@@ -1,9 +1,8 @@
 use crate::{
-    RowStreamOwned,
+    client::ClientBorrow,
     driver::codec::AsParams,
     error::Error,
-    prepare::Prepare,
-    query::{Query, RowAffected, RowSimpleStream, RowStream, RowStreamGuarded},
+    query::{RowAffected, RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned},
     statement::{
         Statement, StatementCreateBlocking, StatementGuarded, StatementNamed, StatementPreparedQuery,
         StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQuery,
@@ -14,7 +13,7 @@ use super::ExecuteBlocking;
 
 impl<'s, C> ExecuteBlocking<&C> for &'s Statement
 where
-    C: Query,
+    C: ClientBorrow,
 {
     type ExecuteOutput = Result<u64, Error>;
     type QueryOutput = Result<RowStream<'s>, Error>;
@@ -33,7 +32,7 @@ where
 
 impl<C> ExecuteBlocking<&C> for &str
 where
-    C: Query,
+    C: ClientBorrow,
 {
     type ExecuteOutput = Result<u64, Error>;
     type QueryOutput = Result<RowSimpleStream, Error>;
@@ -46,20 +45,22 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
+        cli.borrow_cli_ref().query(self)
     }
 }
 
 impl<'c, C> ExecuteBlocking<&'c C> for StatementNamed<'_>
 where
-    C: Prepare,
+    C: ClientBorrow,
 {
     type ExecuteOutput = Result<StatementGuarded<'c, C>, Error>;
     type QueryOutput = Self::ExecuteOutput;
 
     #[inline]
     fn execute_blocking(self, cli: &'c C) -> Self::ExecuteOutput {
-        let stmt = cli._query(StatementCreateBlocking::from((self, cli)))??;
+        let stmt = cli
+            .borrow_cli_ref()
+            .query(StatementCreateBlocking::from((self, cli)))??;
         Ok(stmt.into_guarded(cli))
     }
 
@@ -71,7 +72,7 @@ where
 
 impl<'s, C, P> ExecuteBlocking<&C> for StatementPreparedQuery<'s, P>
 where
-    C: Query,
+    C: ClientBorrow,
     P: AsParams,
 {
     type ExecuteOutput = Result<u64, Error>;
@@ -85,13 +86,13 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
+        cli.borrow_cli_ref().query(self)
     }
 }
 
 impl<'s, C, P> ExecuteBlocking<&C> for StatementPreparedQueryOwned<'s, P>
 where
-    C: Query,
+    C: ClientBorrow,
     P: AsParams,
 {
     type ExecuteOutput = Result<u64, Error>;
@@ -105,13 +106,13 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli._query(self)
+        cli.borrow_cli_ref().query(self)
     }
 }
 
 impl<'c, C, P> ExecuteBlocking<&'c C> for StatementQuery<'_, P>
 where
-    C: Prepare,
+    C: ClientBorrow,
     P: AsParams,
 {
     type ExecuteOutput = Result<u64, Error>;
@@ -130,7 +131,7 @@ where
 
 impl<'c, C, P> ExecuteBlocking<&'c C> for StatementSingleRTTQuery<'_, P>
 where
-    C: Prepare,
+    C: ClientBorrow,
     P: AsParams,
 {
     type ExecuteOutput = Result<u64, Error>;
@@ -144,13 +145,13 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
-        cli._query(self.into_with_cli(cli))
+        cli.borrow_cli_ref().query(self.into_with_cli(cli))
     }
 }
 
 impl<C> ExecuteBlocking<&C> for &std::path::Path
 where
-    C: Query,
+    C: ClientBorrow,
 {
     type ExecuteOutput = Result<u64, Error>;
     type QueryOutput = Result<RowSimpleStream, Error>;

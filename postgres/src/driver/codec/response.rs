@@ -5,9 +5,9 @@ use postgres_protocol::message::backend;
 
 use crate::{
     BoxedFuture,
+    client::ClientBorrow,
     column::Column,
     error::Error,
-    prepare::Prepare,
     query::{RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned},
     statement::Statement,
 };
@@ -60,7 +60,7 @@ impl<C> sealed::Sealed for IntoRowStreamGuard<'_, C> {}
 
 impl<'c, C> IntoResponse for IntoRowStreamGuard<'c, C>
 where
-    C: Prepare,
+    C: ClientBorrow,
 {
     type Response = RowStreamGuarded<'c, C>;
 
@@ -93,7 +93,7 @@ impl<C> sealed::Sealed for StatementCreateResponse<'_, C> {}
 
 impl<'s, C> IntoResponse for StatementCreateResponse<'s, C>
 where
-    C: Prepare,
+    C: ClientBorrow + Sync,
 {
     type Response = BoxedFuture<'s, Result<Statement, Error>>;
 
@@ -121,7 +121,7 @@ where
             let mut params = Vec::with_capacity(it.size_hint().0);
 
             while let Some(oid) = it.next()? {
-                let ty = cli._get_type(oid).await?;
+                let ty = cli.borrow_cli_ref()._get_type(oid).await?;
                 params.push(ty);
             }
 
@@ -130,7 +130,7 @@ where
                 let mut it = row_description.fields();
                 columns.reserve(it.size_hint().0);
                 while let Some(field) = it.next()? {
-                    let type_ = cli._get_type(field.type_oid()).await?;
+                    let type_ = cli.borrow_cli_ref()._get_type(field.type_oid()).await?;
                     let column = Column::new(field.name(), type_);
                     columns.push(column);
                 }
@@ -150,7 +150,7 @@ impl<C> sealed::Sealed for StatementCreateResponseBlocking<'_, C> {}
 
 impl<C> IntoResponse for StatementCreateResponseBlocking<'_, C>
 where
-    C: Prepare,
+    C: ClientBorrow,
 {
     type Response = Result<Statement, Error>;
 
@@ -177,7 +177,7 @@ where
         let mut params = Vec::with_capacity(it.size_hint().0);
 
         while let Some(oid) = it.next()? {
-            let ty = cli._get_type_blocking(oid)?;
+            let ty = cli.borrow_cli_ref()._get_type_blocking(oid)?;
             params.push(ty);
         }
 
@@ -186,7 +186,7 @@ where
             let mut it = row_description.fields();
             columns.reserve(it.size_hint().0);
             while let Some(field) = it.next()? {
-                let type_ = cli._get_type_blocking(field.type_oid())?;
+                let type_ = cli.borrow_cli_ref()._get_type_blocking(field.type_oid())?;
                 let column = Column::new(field.name(), type_);
                 columns.push(column);
             }

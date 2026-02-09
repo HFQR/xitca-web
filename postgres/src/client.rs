@@ -1,9 +1,6 @@
 use core::future::Future;
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Mutex};
 
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
@@ -11,13 +8,12 @@ use super::{
     copy::{CopyIn, CopyOut},
     driver::{
         DriverTx,
-        codec::{Response, encode::Encode},
+        codec::{Response, encode::Encode, response::IntoResponse},
     },
     error::Error,
-    query::Query,
     session::Session,
     statement::Statement,
-    transaction::{Transaction, TransactionBuilder},
+    transaction::{Transaction, TransactionBuilder, TransactionOwned},
     types::{Oid, Type},
 };
 
@@ -30,9 +26,7 @@ use super::{
 /// ```rust
 /// use std::sync::Arc;
 ///
-/// use xitca_postgres::{dev::ClientBorrowMut, transaction::TransactionBuilder, Client, Error};
-/// # use xitca_postgres::dev::{Encode, Prepare, Query, Response};
-/// # use xitca_postgres::types::{Oid, Type};
+/// use xitca_postgres::{dev::{ClientBorrow, ClientBorrowMut}, transaction::TransactionBuilder, Client, Error};
 ///
 /// // a client wrapper use reference counted smart pointer.
 /// // it's easy to create multiple instance of &mut SharedClient with help of cloning of smart pointer
@@ -40,27 +34,16 @@ use super::{
 /// #[derive(Clone)]
 /// struct SharedClient(Arc<Client>);
 ///
-/// # impl Query for SharedClient {
-/// #     fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-/// #     where
-/// #         S: Encode,
-/// #     {
-/// #         self.0._send_encode_query(stmt)
-/// #     }
-/// # }
-/// # impl Prepare for SharedClient {
-/// #     async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-/// #         self.0._get_type(oid).await
-/// #     }
-/// #     fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-/// #         self.0._get_type_blocking(oid)
-/// #     }
-/// # }
+/// // boilerplate impl required by ClientBorrowMut trait
+/// impl ClientBorrow for SharedClient {
+///     fn borrow_cli_ref(&self) -> &Client {
+///         &self.0
+///     }
+/// }
 ///
 /// // client new type has to impl this trait to mark they can truly offer a mutable reference to Client
-/// //
 /// impl ClientBorrowMut for SharedClient {
-///     fn _borrow_mut(&mut self) -> &mut Client {
+///     fn borrow_cli_mut(&mut self) -> &mut Client {
 ///         Arc::get_mut(&mut self.0).expect("you can't safely implement this trait with SharedClient.")
 ///     }
 /// }
@@ -83,8 +66,8 @@ use super::{
 ///
 /// [Transaction]: crate::transaction::Transaction
 /// [CopyIn]: crate::copy::CopyIn
-pub trait ClientBorrowMut {
-    fn _borrow_mut(&mut self) -> &mut Client;
+pub trait ClientBorrowMut: ClientBorrow {
+    fn borrow_cli_mut(&mut self) -> &mut Client;
 }
 
 impl<T> ClientBorrowMut for &mut T
@@ -92,11 +75,35 @@ where
     T: ClientBorrowMut,
 {
     #[inline]
-    fn _borrow_mut(&mut self) -> &mut Client {
-        T::_borrow_mut(*self)
+    fn borrow_cli_mut(&mut self) -> &mut Client {
+        T::borrow_cli_mut(*self)
     }
 }
 
+/// super set of [`ClientBorrowMut`] trait
+pub trait ClientBorrow {
+    fn borrow_cli_ref(&self) -> &Client;
+}
+
+impl<T> ClientBorrow for &T
+where
+    T: ClientBorrow,
+{
+    #[inline]
+    fn borrow_cli_ref(&self) -> &Client {
+        T::borrow_cli_ref(*self)
+    }
+}
+
+impl<T> ClientBorrow for &mut T
+where
+    T: ClientBorrow,
+{
+    #[inline]
+    fn borrow_cli_ref(&self) -> &Client {
+        T::borrow_cli_ref(&**self)
+    }
+}
 /// Client is a handler type for [`Driver`]. it interacts with latter using channel and message for IO operation
 /// and de/encoding of postgres protocol in byte format.
 ///
@@ -157,14 +164,14 @@ struct CachedTypeInfo {
 impl Client {
     /// start a transaction
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<&mut Self>, Error>> + Send {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
         TransactionBuilder::new().begin(self)
     }
 
     /// owned version of [`Client::transaction`]
     #[inline]
-    pub fn transaction_owned(self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
-        TransactionBuilder::new().begin(self)
+    pub fn transaction_owned(self) -> impl Future<Output = Result<TransactionOwned<Self>, Error>> + Send {
+        TransactionBuilder::new().begin_owned(self)
     }
 
     /// Executes a `COPY FROM STDIN` statement, returning a sink used to write the copy data.
@@ -254,6 +261,22 @@ impl Client {
         self.cache.type_info.lock().unwrap().types.clear();
     }
 
+    #[inline]
+    pub(crate) fn query<S>(&self, stmt: S) -> Result<<S::Output as IntoResponse>::Response, Error>
+    where
+        S: Encode,
+    {
+        self.query_raw(stmt).map(|(opt, res)| opt.into_response(res))
+    }
+
+    #[inline]
+    pub(crate) fn query_raw<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        self.tx.send(|buf| stmt.encode(buf))
+    }
+
     pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
         Self {
             tx,
@@ -272,28 +295,15 @@ impl Client {
 
 impl ClientBorrowMut for Client {
     #[inline]
-    fn _borrow_mut(&mut self) -> &mut Client {
+    fn borrow_cli_mut(&mut self) -> &mut Client {
         self
     }
 }
 
-impl Query for Client {
+impl ClientBorrow for Client {
     #[inline]
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        self.tx.send(|buf| stmt.encode(buf))
-    }
-}
-
-impl Query for Arc<Client> {
-    #[inline]
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        Client::_send_encode_query(&**self, stmt)
+    fn borrow_cli_ref(&self) -> &Client {
+        self
     }
 }
 

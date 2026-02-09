@@ -333,7 +333,7 @@ async fn transaction_pool_connection() {
             .isolation_level(IsolationLevel::Serializable)
             .read_only(true)
             .deferrable(true)
-            .begin(client)
+            .begin_owned(client)
             .await
             .unwrap();
 
@@ -350,7 +350,21 @@ async fn transaction_pool_connection() {
 
     let mut client = pool.get().await.unwrap();
 
-    let mut transaction = TransactionBuilder::new().begin(&mut client).await.unwrap();
+    {
+        let mut transaction = TransactionBuilder::new().begin(&mut client).await.unwrap();
+
+        let mut res = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
+            .bind_none()
+            .query(&mut transaction)
+            .await
+            .unwrap();
+
+        let row = res.try_next().await.unwrap().unwrap();
+        assert_eq!(row.get::<i32>(0), 1);
+        assert_eq!(row.get::<&str>(1), "alice");
+    }
+
+    let mut transaction = TransactionBuilder::new().begin_owned(client).await.unwrap();
 
     let mut res = Statement::named("SELECT id, name FROM foo ORDER BY id", &[])
         .bind_none()

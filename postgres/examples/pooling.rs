@@ -6,11 +6,10 @@ use std::future::IntoFuture;
 use bb8::{ManageConnection, Pool};
 use xitca_postgres::{
     Client, Config, Execute, Postgres,
-    dev::{ClientBorrowMut, Encode, Prepare, Query, Response},
+    dev::{ClientBorrow, ClientBorrowMut},
     error::{DriverDown, Error},
     iter::AsyncLendingIterator,
     transaction::{Transaction, TransactionBuilder},
-    types::{Oid, Type},
 };
 
 // a pool manager type containing necessary information for constructing a xitca-postgres connection
@@ -54,41 +53,23 @@ pub struct PoolConnection {
     conn: Client,
 }
 
-// implementing following traits would enable the Client new type to be used as a generic client type
-// with xitca_postgres::Transaction for transaction functionalities:
-
-// trait for how a statement is prepared.
-impl Prepare for PoolConnection {
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        self.conn._get_type(oid).await
-    }
-
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        self.conn._get_type_blocking(oid)
-    }
-}
-
-// trait for how a query is sent.
-impl Query for PoolConnection {
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        self.conn._send_encode_query(stmt)
-    }
-}
-
 // trait for confirming a mutable reference of Client can be obtained.
 // transaction must have exclusive reference to Client through out it's lifecycle.
 impl ClientBorrowMut for PoolConnection {
-    fn _borrow_mut(&mut self) -> &mut Client {
+    fn borrow_cli_mut(&mut self) -> &mut Client {
         &mut self.conn
+    }
+}
+
+impl ClientBorrow for PoolConnection {
+    fn borrow_cli_ref(&self) -> &Client {
+        &self.conn
     }
 }
 
 impl PoolConnection {
     // with above traits implements you can begin a transaction with your client new type
-    pub async fn transaction(&mut self) -> Result<Transaction<&mut Self>, Error> {
+    pub async fn transaction(&mut self) -> Result<Transaction<'_, Self>, Error> {
         TransactionBuilder::new().begin(self).await
     }
 }

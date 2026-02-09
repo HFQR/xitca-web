@@ -5,9 +5,9 @@ use core::{ops::Deref, sync::atomic::Ordering};
 use std::sync::Arc;
 
 use super::{
+    client::ClientBorrow,
     column::Column,
     driver::codec::AsParams,
-    query::Query,
     types::{ToSql, Type},
 };
 
@@ -15,10 +15,10 @@ use super::{
 /// the guard can be dereferenced or borrowed as [`Statement`] which can be used for query apis.
 ///
 /// the guard would cancel it's statement when dropped. generic C type must be a client type impl
-/// [`Query`] trait to instruct the cancellation.
+/// [`ClientBorrow`] trait to instruct the cancellation.
 pub struct StatementGuarded<'a, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     stmt: Option<Statement>,
     cli: &'a C,
@@ -26,7 +26,7 @@ where
 
 impl<C> AsRef<Statement> for StatementGuarded<'_, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     #[inline]
     fn as_ref(&self) -> &Statement {
@@ -36,7 +36,7 @@ where
 
 impl<C> Deref for StatementGuarded<'_, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     type Target = Statement;
 
@@ -47,18 +47,18 @@ where
 
 impl<C> Drop for StatementGuarded<'_, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
-            let _ = self.cli._send_encode_query(stmt.cancel());
+            let _ = self.cli.borrow_cli_ref().query_raw(stmt.cancel());
         }
     }
 }
 
 impl<C> StatementGuarded<'_, C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     /// leak the statement and it will lose automatic management
     /// **DOES NOT** cause memory leak
@@ -188,7 +188,7 @@ impl Statement {
     #[inline]
     pub fn into_guarded<C>(self, cli: &C) -> StatementGuarded<'_, C>
     where
-        C: Query,
+        C: ClientBorrow,
     {
         StatementGuarded { stmt: Some(self), cli }
     }
@@ -360,7 +360,7 @@ pub(crate) struct StatementSingleRTTQueryWithCli<'a, 'c, P, C> {
 /// instead of work with a reference this guard offers ownership without named lifetime constraint
 pub struct StatementGuardedOwned<C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     stmt: Statement,
     cli: C,
@@ -368,7 +368,7 @@ where
 
 impl<C> Clone for StatementGuardedOwned<C>
 where
-    C: Query + Clone,
+    C: ClientBorrow + Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -380,21 +380,21 @@ where
 
 impl<C> Drop for StatementGuardedOwned<C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     fn drop(&mut self) {
         // cancel statement when the last copy is about to be dropped.
         if Arc::strong_count(&self.stmt.name) == 1 {
             debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
             debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
-            let _ = self.cli._send_encode_query(self.stmt.cancel());
+            let _ = self.cli.borrow_cli_ref().query_raw(self.stmt.cancel());
         }
     }
 }
 
 impl<C> Deref for StatementGuardedOwned<C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     type Target = Statement;
 
@@ -405,7 +405,7 @@ where
 
 impl<C> AsRef<Statement> for StatementGuardedOwned<C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     fn as_ref(&self) -> &Statement {
         &self.stmt
@@ -414,7 +414,7 @@ where
 
 impl<C> StatementGuardedOwned<C>
 where
-    C: Query,
+    C: ClientBorrow,
 {
     /// construct a new statement guard with raw statement and client
     pub fn new(stmt: Statement, cli: C) -> Self {

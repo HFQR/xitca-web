@@ -87,6 +87,9 @@ impl PoolBuilder {
 /// # Caching
 /// When connection pool is used as executor through [`Execute::query`] and [`Execute::execute`] methods
 /// it would prepare and cache statement for reuse. For selective caching consider use [`PoolConnection`]
+///
+/// [`Execute::query`]: crate::Execute::query
+/// [`Execute::execute`]: crate::Execute::execute
 pub struct Pool {
     conn: Mutex<VecDeque<PoolClient>>,
     permits: Semaphore,

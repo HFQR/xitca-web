@@ -13,17 +13,15 @@ use xitca_io::bytes::BytesMut;
 
 use crate::{
     BoxedFuture,
-    client::{Client, ClientBorrowMut},
+    client::{Client, ClientBorrow, ClientBorrowMut},
     copy::{r#Copy, CopyIn, CopyOut},
-    driver::codec::{AsParams, Response, encode::Encode},
+    driver::codec::AsParams,
     error::Error,
     execute::Execute,
-    prepare::Prepare,
-    query::{Query, RowAffected, RowStreamOwned},
+    query::{RowAffected, RowStreamOwned},
     session::Session,
     statement::{Statement, StatementNamed, StatementQuery},
-    transaction::{Transaction, TransactionBuilder},
-    types::{Oid, Type},
+    transaction::{Transaction, TransactionBuilder, TransactionOwned},
 };
 
 use super::Pool;
@@ -63,17 +61,17 @@ pub struct PoolConnection<'a> {
     pub(super) _permit: SemaphorePermit<'a>,
 }
 
-impl PoolConnection<'_> {
+impl<'a> PoolConnection<'a> {
     /// function the same as [`Client::transaction`]
     #[inline]
-    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<&mut Self>, Error>> + Send {
+    pub fn transaction(&mut self) -> impl Future<Output = Result<Transaction<'_, Self>, Error>> + Send {
         TransactionBuilder::new().begin(self)
     }
 
     /// owned version of [`PoolConnection::transaction`]
     #[inline]
-    pub fn transaction_owned(self) -> impl Future<Output = Result<Transaction<Self>, Error>> + Send {
-        TransactionBuilder::new().begin(self)
+    pub fn transaction_owned(self) -> impl Future<Output = Result<TransactionOwned<Self>, Error>> + Send {
+        TransactionBuilder::new().begin_owned(self)
     }
 
     /// function the same as [`Client::copy_in`]
@@ -166,32 +164,17 @@ impl PoolConnection<'_> {
     }
 }
 
+impl ClientBorrow for PoolConnection<'_> {
+    #[inline]
+    fn borrow_cli_ref(&self) -> &Client {
+        &self.conn().client
+    }
+}
+
 impl ClientBorrowMut for PoolConnection<'_> {
     #[inline]
-    fn _borrow_mut(&mut self) -> &mut Client {
+    fn borrow_cli_mut(&mut self) -> &mut Client {
         &mut self.conn_mut().client
-    }
-}
-
-impl Prepare for PoolConnection<'_> {
-    #[inline]
-    async fn _get_type(&self, oid: Oid) -> Result<Type, Error> {
-        self.conn().client._get_type(oid).await
-    }
-
-    #[inline]
-    fn _get_type_blocking(&self, oid: Oid) -> Result<Type, Error> {
-        self.conn().client._get_type_blocking(oid)
-    }
-}
-
-impl Query for PoolConnection<'_> {
-    #[inline]
-    fn _send_encode_query<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        self.conn().client._send_encode_query(stmt)
     }
 }
 
@@ -255,6 +238,24 @@ impl PoolClient {
             client,
             cache: LruCache::new(cap),
         }
+    }
+}
+
+impl<'c, E> Execute<&'c PoolConnection<'_>> for E
+where
+    E: Execute<&'c Client>,
+{
+    type ExecuteOutput = E::ExecuteOutput;
+    type QueryOutput = E::QueryOutput;
+
+    #[inline]
+    fn execute(self, cli: &'c PoolConnection<'_>) -> Self::ExecuteOutput {
+        E::execute(self, cli.borrow_cli_ref())
+    }
+
+    #[inline]
+    fn query(self, cli: &'c PoolConnection<'_>) -> Self::QueryOutput {
+        E::query(self, cli.borrow_cli_ref())
     }
 }
 
