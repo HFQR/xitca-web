@@ -22,15 +22,14 @@ struct SavePoint {
 }
 
 enum Name {
-    None,
-    Auto { depth: u32 },
-    Custom { name: String, depth: u32 },
+    Root,
+    Nest { name: Option<String>, depth: u32 },
 }
 
 impl Default for SavePoint {
     fn default() -> Self {
         Self {
-            name: Name::None,
+            name: Name::Root,
             state: State::WantRollback,
         }
     }
@@ -42,9 +41,11 @@ impl SavePoint {
         self.state = State::Finish;
 
         let fut = match self.name {
-            Name::None => Cow::Borrowed("ROLLBACK"),
-            Name::Auto { depth } => Cow::Owned(format!("ROLLBACK TO sp_{depth}")),
-            Name::Custom { ref name, .. } => Cow::Owned(format!("ROLLBACK TO {name}")),
+            Name::Root => Cow::Borrowed("ROLLBACK"),
+            Name::Nest { ref name, depth } => match name {
+                None => Cow::Owned(format!("ROLLBACK TO sp_{depth}")),
+                Some(name) => Cow::Owned(format!("ROLLBACK TO {name}")),
+            },
         }
         .execute(cli.borrow_cli_ref());
 
@@ -55,37 +56,45 @@ impl SavePoint {
         self.state = State::Finish;
 
         match self.name {
-            Name::None => Cow::Borrowed("COMMIT"),
-            Name::Auto { depth } => Cow::Owned(format!("RELEASE sp_{depth}")),
-            Name::Custom { ref name, .. } => Cow::Owned(format!("RELEASE {name}")),
+            Name::Root => Cow::Borrowed("COMMIT"),
+            Name::Nest { ref name, depth } => match name {
+                None => Cow::Owned(format!("RELEASE sp_{depth}")),
+                Some(name) => Cow::Owned(format!("RELEASE {name}")),
+            },
         }
         .execute(cli.borrow_cli_ref())
-        .await?;
-
-        Ok(())
+        .await
+        .map(|_| ())
     }
 
     async fn nest_save_point(&self, cli: impl ClientBorrowMut, name: Option<String>) -> Result<Self, Error> {
-        let name = match self.name {
-            Name::None => match name {
-                Some(name) => Name::Custom { name, depth: 1 },
-                None => Name::Auto { depth: 1 },
-            },
-            Name::Auto { depth } | Name::Custom { depth, .. } => match name {
-                Some(name) => Name::Custom { name, depth },
-                None => Name::Auto { depth: depth + 1 },
+        let (query, name) = match self.name {
+            Name::Root => {
+                let query = match name {
+                    Some(ref name) => Cow::Owned(format!("SAVEPOINT {name}")),
+                    None => Cow::Borrowed("SAVEPOINT sp_1"),
+                };
+                (query, Name::Nest { name, depth: 1 })
+            }
+            Name::Nest { depth, .. } => match name {
+                Some(name) => (
+                    Cow::Owned(format!("SAVEPOINT {name}")),
+                    Name::Nest {
+                        name: Some(name),
+                        depth,
+                    },
+                ),
+                None => {
+                    let depth = depth + 1;
+                    (
+                        Cow::Owned(format!("SAVEPOINT sp_{depth}")),
+                        Name::Nest { name: None, depth },
+                    )
+                }
             },
         };
 
-        match self.name {
-            Name::None => Cow::Borrowed("SAVEPOINT"),
-            Name::Auto { depth } => Cow::Owned(format!("SAVEPOINT sp_{depth}")),
-            Name::Custom { ref name, .. } => Cow::Owned(format!("SAVEPOINT {name}")),
-        }
-        .execute(cli.borrow_cli_ref())
-        .await?;
-
-        Ok(SavePoint {
+        query.execute(cli.borrow_cli_ref()).await.map(|_| SavePoint {
             name,
             state: State::WantRollback,
         })
