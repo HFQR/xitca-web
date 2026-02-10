@@ -17,19 +17,21 @@ pub use builder::{IsolationLevel, TransactionBuilder};
 pub use portal::Portal;
 
 struct SavePoint {
-    name: Name,
+    name: Option<String>,
+    depth: u32,
     state: State,
 }
 
-enum Name {
-    Root,
-    Nest { name: Option<String>, depth: u32 },
+enum State {
+    WantRollback,
+    Finish,
 }
 
 impl Default for SavePoint {
     fn default() -> Self {
         Self {
-            name: Name::Root,
+            name: None,
+            depth: 0,
             state: State::WantRollback,
         }
     }
@@ -40,11 +42,11 @@ impl SavePoint {
     fn rollback(&mut self, cli: impl ClientBorrowMut) -> impl Future<Output = Result<(), Error>> + Send {
         self.state = State::Finish;
 
-        let fut = match self.name {
-            Name::Root => Cow::Borrowed("ROLLBACK"),
-            Name::Nest { ref name, depth } => match name {
+        let fut = match self.depth {
+            0 => Cow::Borrowed("ROLLBACK"),
+            depth => match self.name {
                 None => Cow::Owned(format!("ROLLBACK TO sp_{depth}")),
-                Some(name) => Cow::Owned(format!("ROLLBACK TO {name}")),
+                Some(ref name) => Cow::Owned(format!("ROLLBACK TO {name}")),
             },
         }
         .execute(cli.borrow_cli_ref());
@@ -55,11 +57,11 @@ impl SavePoint {
     async fn commit(&mut self, cli: impl ClientBorrowMut) -> Result<(), Error> {
         self.state = State::Finish;
 
-        match self.name {
-            Name::Root => Cow::Borrowed("COMMIT"),
-            Name::Nest { ref name, depth } => match name {
+        match self.depth {
+            0 => Cow::Borrowed("COMMIT"),
+            depth => match self.name {
                 None => Cow::Owned(format!("RELEASE sp_{depth}")),
-                Some(name) => Cow::Owned(format!("RELEASE {name}")),
+                Some(ref name) => Cow::Owned(format!("RELEASE {name}")),
             },
         }
         .execute(cli.borrow_cli_ref())
@@ -68,34 +70,23 @@ impl SavePoint {
     }
 
     async fn nest_save_point(&self, cli: impl ClientBorrowMut, name: Option<String>) -> Result<Self, Error> {
-        let (query, name) = match self.name {
-            Name::Root => {
-                let query = match name {
-                    Some(ref name) => Cow::Owned(format!("SAVEPOINT {name}")),
-                    None => Cow::Borrowed("SAVEPOINT sp_1"),
-                };
-                (query, Name::Nest { name, depth: 1 })
-            }
-            Name::Nest { depth, .. } => match name {
-                Some(name) => (
-                    Cow::Owned(format!("SAVEPOINT {name}")),
-                    Name::Nest {
-                        name: Some(name),
-                        depth,
-                    },
-                ),
-                None => {
-                    let depth = depth + 1;
-                    (
-                        Cow::Owned(format!("SAVEPOINT sp_{depth}")),
-                        Name::Nest { name: None, depth },
-                    )
-                }
-            },
-        };
+        let depth = self.depth + 1;
 
-        query.execute(cli.borrow_cli_ref()).await.map(|_| SavePoint {
+        match self.depth {
+            0 => match name {
+                Some(ref name) => Cow::Owned(format!("SAVEPOINT {name}")),
+                None => Cow::Borrowed("SAVEPOINT sp_1"),
+            },
+            depth => match name {
+                Some(ref name) => Cow::Owned(format!("SAVEPOINT {name}")),
+                None => Cow::Owned(format!("SAVEPOINT sp_{depth}")),
+            },
+        }
+        .execute(cli.borrow_cli_ref())
+        .await
+        .map(|_| SavePoint {
             name,
+            depth,
             state: State::WantRollback,
         })
     }
@@ -105,11 +96,6 @@ impl SavePoint {
             drop(self.rollback(cli));
         }
     }
-}
-
-enum State {
-    WantRollback,
-    Finish,
 }
 
 pub struct Transaction<'a, C>
