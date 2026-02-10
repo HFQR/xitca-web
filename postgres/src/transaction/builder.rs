@@ -148,7 +148,7 @@ impl StackStr {
 
         let str = str.as_bytes();
 
-        while cursor < 17 {
+        while cursor < str.len() {
             buf[cursor] = str[cursor];
             cursor += 1;
         }
