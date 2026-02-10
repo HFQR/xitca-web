@@ -107,7 +107,7 @@ impl TransactionBuilder {
         for<'s, 'c> &'s str: Execute<&'s Client, ExecuteOutput = F>,
         F: Future<Output = Result<u64, Error>> + Send,
     {
-        let mut query = StackStr::new("START TRANSACTION");
+        let mut query = const { StackStr::new("START TRANSACTION") };
 
         let Self {
             isolation_level,
@@ -141,12 +141,19 @@ struct StackStr {
 }
 
 impl StackStr {
-    fn new(str: &str) -> Self {
+    const fn new(str: &str) -> Self {
         let mut buf = [0; 120];
 
-        buf[..str.len()].copy_from_slice(str.as_bytes());
+        let mut cursor = 0;
 
-        Self { cursor: str.len(), buf }
+        let str = str.as_bytes();
+
+        while cursor < 17 {
+            buf[cursor] = str[cursor];
+            cursor += 1;
+        }
+
+        Self { buf, cursor }
     }
 
     fn push_str(&mut self, str: &str) {
