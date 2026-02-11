@@ -1,10 +1,10 @@
 //! module for canceling ongoing queries
 
-use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
 use super::{
     error::{Error, RuntimeError},
+    protocol::message::frontend,
     session::Session,
 };
 

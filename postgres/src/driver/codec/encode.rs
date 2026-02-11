@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use postgres_protocol::message::frontend;
 use xitca_io::bytes::BytesMut;
 
 use crate::{
     client::ClientBorrow,
     column::Column,
     error::{Error, InvalidParamCount},
+    protocol::{self, message::frontend},
     statement::{
         Statement, StatementCreate, StatementCreateBlocking, StatementPreparedCancel, StatementPreparedQuery,
         StatementPreparedQueryOwned, StatementQuery, StatementSingleRTTQueryWithCli,
@@ -253,8 +253,8 @@ where
         params,
         |(p, ty), buf| {
             p.borrow_to_sql().to_sql_checked(ty, buf).map(|is_null| match is_null {
-                IsNull::No => postgres_protocol::IsNull::No,
-                IsNull::Yes => postgres_protocol::IsNull::Yes,
+                IsNull::No => protocol::IsNull::No,
+                IsNull::Yes => protocol::IsNull::Yes,
             })
         },
         Some(1),

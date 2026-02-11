@@ -11,7 +11,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use postgres_protocol::message::{backend, frontend};
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io::{AsyncIo, Interest},
@@ -21,6 +20,7 @@ use xitca_unsafe_collection::futures::{Select as _, SelectOutput};
 use crate::{
     error::{DriverDown, Error},
     iter::AsyncLendingIterator,
+    protocol::message::{backend, frontend},
 };
 
 use super::codec::{Response, ResponseMessage, ResponseSender};

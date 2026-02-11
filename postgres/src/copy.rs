@@ -1,6 +1,5 @@
 use core::future::Future;
 
-use postgres_protocol::message::{backend, frontend};
 use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
@@ -8,6 +7,7 @@ use super::{
     driver::codec::Response,
     error::Error,
     iter::AsyncLendingIterator,
+    protocol::message::{backend, frontend},
     statement::Statement,
 };
 

@@ -4,7 +4,7 @@ use crate::{
     execute::Execute,
 };
 
-use super::{Transaction, TransactionOwned};
+use super::Transaction;
 
 /// The isolation level of a database transaction.
 #[derive(Debug, Copy, Clone)]
@@ -92,21 +92,17 @@ impl TransactionBuilder {
     /// Begins the transaction with an owned client.
     ///
     /// The transaction will roll back by default - use [`Transaction::commit`] method to commit it.
-    pub async fn begin_owned<C>(self, mut cli: C) -> Result<TransactionOwned<C>, Error>
+    pub async fn begin_owned<'a, C>(self, mut cli: C) -> Result<Transaction<'a, C>, Error>
     where
-        C: ClientBorrowMut,
+        C: ClientBorrowMut + 'a,
     {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
         self._begin(cli.borrow_cli_mut())
             .await
-            .map(|_| TransactionOwned::new(cli))
+            .map(|_| Transaction::new_owned(cli))
     }
 
-    async fn _begin<F>(self, cli: &mut Client) -> Result<u64, Error>
-    where
-        for<'s, 'c> &'s str: Execute<&'s Client, ExecuteOutput = F>,
-        F: Future<Output = Result<u64, Error>> + Send,
-    {
+    async fn _begin(self, cli: &Client) -> Result<u64, Error> {
         let mut query = const { StackStr::new("START TRANSACTION") };
 
         let Self {

@@ -6,12 +6,12 @@ use core::{
     task::{Context, Poll, ready},
 };
 
-use postgres_protocol::message::backend;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use xitca_io::bytes::BytesMut;
 
 use crate::{
     error::{ClosedByDriver, Error},
+    protocol::message::backend,
     types::BorrowToSql,
 };
 

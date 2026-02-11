@@ -15,9 +15,8 @@ use core::{
 use std::{backtrace::Backtrace, error, io};
 
 use fallible_iterator::FallibleIterator;
-use postgres_protocol::message::backend::ErrorFields;
 
-use super::from_sql::FromSqlError;
+use super::{from_sql::FromSqlError, protocol::message::backend::ErrorFields};
 
 pub use self::sql_state::SqlState;
 

@@ -3,16 +3,16 @@
 use core::net::SocketAddr;
 
 use fallible_iterator::FallibleIterator;
-use postgres_protocol::{
-    authentication::{self, sasl},
-    message::{backend, frontend},
-};
 use xitca_io::{bytes::BytesMut, io::AsyncIo};
 
 use super::{
     config::{Config, SslMode, SslNegotiation},
     driver::generic::GenericDriver,
     error::{ConfigError, Error},
+    protocol::{
+        authentication::{self, sasl},
+        message::{backend, frontend},
+    },
 };
 
 /// Properties required of a session.

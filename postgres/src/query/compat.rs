@@ -4,9 +4,8 @@ use core::{
 };
 
 use futures_core::Stream;
-use postgres_protocol::message::backend;
 
-use crate::{error::Error, row::RowOwned};
+use crate::{error::Error, protocol::message::backend, row::RowOwned};
 
 use super::RowStreamOwned;
 

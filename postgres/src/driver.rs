@@ -27,7 +27,6 @@ use core::{
 
 use std::io;
 
-use postgres_protocol::message::{backend, frontend};
 use xitca_io::{
     bytes::{Buf, BytesMut},
     io::{AsyncIo, AsyncIoDyn, Interest},
@@ -39,6 +38,7 @@ use super::{
     config::{Config, SslMode, SslNegotiation},
     error::{ConfigError, Error, unexpected_eof_err},
     iter::AsyncLendingIterator,
+    protocol::message::{backend, frontend},
     session::{ConnectInfo, Session},
 };
 
