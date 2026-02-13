@@ -1,4 +1,7 @@
 # unreleased 0.4.0
+## Fix
+- fix transaction save point when depth is 1
+
 ## Add
 - add `error::ClosedByDriver` error type
 - add `pool::PoolBuilder::cache_size` for configuring the max size of statement cache of connection pool
