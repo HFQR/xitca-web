@@ -5,6 +5,7 @@
 ## Add
 - add `error::ClosedByDriver` error type
 - add `pool::PoolBuilder::cache_size` for configuring the max size of statement cache of connection pool
+- add `pool::Pool::config` method for obtaining postgres configuration of connection pool
 - add `dev::ClientBorrow` trait for extending client type. It's used as super trait of `ClientBorrowMut`
 - add `transaction::TransactionBuilder::begin_owned` method for specialized handling of transaction with owned client type
 
