@@ -1,4 +1,6 @@
-# unreleased 0.4.0
+# unreleased
+
+# 0.4.0
 ## Fix
 - fix transaction save point when depth is 1
 
