@@ -1,7 +1,5 @@
 use core::sync::atomic::Ordering;
 
-use postgres_protocol::message::backend;
-
 use crate::{
     client::ClientBorrow,
     driver::codec::{
@@ -10,6 +8,7 @@ use crate::{
         response::IntoResponse,
     },
     error::Error,
+    protocol::message::backend,
     statement::Statement,
 };
 

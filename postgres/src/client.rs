@@ -13,7 +13,7 @@ use super::{
     error::Error,
     session::Session,
     statement::Statement,
-    transaction::{Transaction, TransactionBuilder, TransactionOwned},
+    transaction::{Transaction, TransactionBuilder},
     types::{Oid, Type},
 };
 
@@ -170,7 +170,7 @@ impl Client {
 
     /// owned version of [`Client::transaction`]
     #[inline]
-    pub fn transaction_owned(self) -> impl Future<Output = Result<TransactionOwned<Self>, Error>> + Send {
+    pub fn transaction_owned(self) -> impl Future<Output = Result<Transaction<'static, Self>, Error>> + Send {
         TransactionBuilder::new().begin_owned(self)
     }
 

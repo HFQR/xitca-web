@@ -7,11 +7,10 @@ use compio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
-use postgres_protocol::message::backend;
 use xitca_io::bytes::BytesMut;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use crate::error::Error;
+use crate::{error::Error, protocol::message::backend};
 
 use super::generic::{DriverRx, GenericDriver, WriteState};
 

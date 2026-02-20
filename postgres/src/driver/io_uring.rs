@@ -2,7 +2,6 @@ use core::{async_iter::AsyncIterator, future::poll_fn, mem, pin::pin};
 
 use std::{io, net::Shutdown};
 
-use postgres_protocol::message::backend;
 use xitca_io::{
     bytes::BytesMut,
     io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
@@ -10,7 +9,7 @@ use xitca_io::{
 };
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
-use crate::error::Error;
+use crate::{error::Error, protocol::message::backend};
 
 use super::generic::{DriverRx, GenericDriver, WriteState};
 

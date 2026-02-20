@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use fallible_iterator::FallibleIterator;
-use postgres_protocol::message::backend;
 
 use crate::{
     BoxedFuture,
     client::ClientBorrow,
     column::Column,
     error::Error,
+    protocol::message::backend,
     query::{RowSimpleStream, RowStream, RowStreamGuarded, RowStreamOwned},
     statement::Statement,
 };

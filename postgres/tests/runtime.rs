@@ -203,7 +203,7 @@ async fn query_portal() {
         .await
         .unwrap();
 
-    let portal = transaction.bind(&stmt, &[]).await.unwrap();
+    let portal = transaction.bind_dyn(&stmt, &[]).await.unwrap();
     let mut stream1 = portal.query_portal(2).unwrap();
     let mut stream2 = portal.query_portal(2).unwrap();
     let mut stream3 = portal.query_portal(2).unwrap();

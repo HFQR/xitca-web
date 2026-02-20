@@ -9,7 +9,6 @@ use core::{
 use std::sync::Arc;
 
 use fallible_iterator::FallibleIterator;
-use postgres_protocol::message::backend;
 
 use crate::{
     client::ClientBorrow,
@@ -17,6 +16,7 @@ use crate::{
     driver::codec::Response,
     error::Error,
     iter::AsyncLendingIterator,
+    protocol::message::backend,
     row::{Row, RowOwned, RowSimple, RowSimpleOwned, marker},
     types::Type,
 };

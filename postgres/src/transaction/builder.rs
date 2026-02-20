@@ -4,7 +4,7 @@ use crate::{
     execute::Execute,
 };
 
-use super::{Transaction, TransactionOwned};
+use super::Transaction;
 
 /// The isolation level of a database transaction.
 #[derive(Debug, Copy, Clone)]
@@ -29,8 +29,7 @@ impl IsolationLevel {
     const REPEATABLE_READ: &str = "REPEATABLE READ,";
     const SERIALIZABLE: &str = "SERIALIZABLE,";
 
-    fn write(self, str: &mut String) {
-        str.reserve(const { Self::PREFIX.len() + Self::READ_UNCOMMITTED.len() });
+    fn write(self, str: &mut StackStr) {
         str.push_str(Self::PREFIX);
         str.push_str(match self {
             IsolationLevel::ReadUncommitted => Self::READ_UNCOMMITTED,
@@ -93,22 +92,18 @@ impl TransactionBuilder {
     /// Begins the transaction with an owned client.
     ///
     /// The transaction will roll back by default - use [`Transaction::commit`] method to commit it.
-    pub async fn begin_owned<C>(self, mut cli: C) -> Result<TransactionOwned<C>, Error>
+    pub async fn begin_owned<'a, C>(self, mut cli: C) -> Result<Transaction<'a, C>, Error>
     where
-        C: ClientBorrowMut,
+        C: ClientBorrowMut + 'a,
     {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
         self._begin(cli.borrow_cli_mut())
             .await
-            .map(|_| TransactionOwned::new(cli))
+            .map(|_| Transaction::new_owned(cli))
     }
 
-    async fn _begin<F>(self, cli: &mut Client) -> Result<u64, Error>
-    where
-        for<'s, 'c> &'s str: Execute<&'s Client, ExecuteOutput = F>,
-        F: Future<Output = Result<u64, Error>> + Send,
-    {
-        let mut query = String::from("START TRANSACTION");
+    async fn _begin(self, cli: &Client) -> Result<u64, Error> {
+        let mut query = const { StackStr::new("START TRANSACTION") };
 
         let Self {
             isolation_level,
@@ -130,11 +125,48 @@ impl TransactionBuilder {
             query.push_str(s);
         }
 
-        if query.ends_with(',') {
-            query.pop();
-        }
+        query.pop_if_ends_with(",");
 
         query.as_str().execute(cli).await
+    }
+}
+
+struct StackStr {
+    buf: [u8; 120],
+    cursor: usize,
+}
+
+impl StackStr {
+    const fn new(str: &str) -> Self {
+        let mut buf = [0; 120];
+
+        let mut cursor = 0;
+
+        let str = str.as_bytes();
+
+        while cursor < str.len() {
+            buf[cursor] = str[cursor];
+            cursor += 1;
+        }
+
+        Self { buf, cursor }
+    }
+
+    fn push_str(&mut self, str: &str) {
+        let start = self.cursor;
+        self.cursor += str.len();
+        self.buf[start..self.cursor].copy_from_slice(str.as_bytes());
+    }
+
+    fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.buf[..self.cursor]).unwrap()
+    }
+
+    fn pop_if_ends_with(&mut self, needle: &str) {
+        let needle = needle.as_bytes();
+        if self.buf[..self.cursor].ends_with(needle) {
+            self.cursor -= needle.len();
+        }
     }
 }
 
@@ -147,7 +179,7 @@ mod test {
         client::{ClientBorrow, ClientBorrowMut},
     };
 
-    use super::TransactionBuilder;
+    use super::{IsolationLevel, TransactionBuilder};
 
     #[tokio::test]
     async fn client_borrow_mut() {
@@ -194,5 +226,23 @@ mod test {
         .unwrap();
 
         assert!(res.is_panic());
+    }
+
+    #[tokio::test]
+    async fn transaction_builder() {
+        let (mut cli, drv) = Postgres::new("postgres://postgres:postgres@localhost:5432")
+            .connect()
+            .await
+            .unwrap();
+
+        tokio::spawn(drv.into_future());
+
+        let _ = TransactionBuilder::new()
+            .isolation_level(IsolationLevel::ReadUncommitted)
+            .read_only(false)
+            .deferrable(false)
+            .begin(&mut cli)
+            .await
+            .unwrap();
     }
 }

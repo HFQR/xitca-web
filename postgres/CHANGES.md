@@ -1,12 +1,17 @@
 # unreleased 0.4.0
+## Fix
+- fix transaction save point when depth is 1
+
 ## Add
 - add `error::ClosedByDriver` error type
 - add `pool::PoolBuilder::cache_size` for configuring the max size of statement cache of connection pool
-- add `dev::ClientBorrow` trait for extending client type. It's used as a super trait of `ClientBorrowMut`
+- add `pool::Pool::config` method for obtaining postgres configuration of connection pool
+- add `dev::ClientBorrow` trait for extending client type. It's used as super trait of `ClientBorrowMut`
 - add `transaction::TransactionBuilder::begin_owned` method for specialized handling of transaction with owned client type
-- add `transaction::TransactionOwned` type to complement `TransactionBulder::begin_owned` method
 
 ## Change
+- rename `transaction::Transaction::bind` method to `Transaction::bind_dyn`
+- rename `transaction::Transaction::bind_raw` method to `Transaction::bind` 
 - switch to `tokio-uring-xitca` for `io-uring` feature. IO uring driver must run in it's runtime instead of original `tokio-uring`
 
 ## Remove

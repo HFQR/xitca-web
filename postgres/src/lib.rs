@@ -11,6 +11,7 @@ mod driver;
 mod execute;
 mod from_sql;
 mod prepare;
+mod protocol;
 mod query;
 mod session;
 

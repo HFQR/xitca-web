@@ -135,6 +135,11 @@ impl Pool {
         })
     }
 
+    /// get configration of current connection pool.
+    pub fn config(&self) -> &Config {
+        &self.config.cfg
+    }
+
     fn try_get(&self) -> Option<PoolClient> {
         let mut inner = self.conn.lock().unwrap();
 

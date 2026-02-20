@@ -3,7 +3,6 @@ use core::{fmt, marker::PhantomData, ops::Range};
 use std::sync::Arc;
 
 use fallible_iterator::FallibleIterator;
-use postgres_protocol::message::backend::DataRowBody;
 use postgres_types::FromSql;
 use xitca_io::bytes::{Bytes, BytesStr};
 
@@ -11,6 +10,7 @@ use crate::{
     column::Column,
     error::{Error, InvalidColumnIndex, WrongType},
     from_sql::FromSqlExt,
+    protocol::message::backend::DataRowBody,
     types::Type,
 };
 
