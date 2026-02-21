@@ -31,7 +31,7 @@ impl DateTime for DT {
 fn decode(c: &mut Criterion) {
     let dt = DT::dummy_date_time();
 
-    let mut ctx = Context::<_, 8>::new(&dt);
+    let mut ctx = Context::<_, 8>::new(&dt, false);
 
     let req = b"\
     GET /HFQR/xitca-web HTTP/1.1\r\n\

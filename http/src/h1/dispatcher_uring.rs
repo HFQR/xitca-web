@@ -85,12 +85,13 @@ where
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
+        is_tls: bool,
     ) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io,
             notify: Notify::default(),
             timer: Timer::new(timer, config.keep_alive_timeout, config.request_head_timeout),
-            ctx: Context::with_addr(addr, date),
+            ctx: Context::with_addr(addr, date, is_tls),
             service,
             _phantom: PhantomData,
         };

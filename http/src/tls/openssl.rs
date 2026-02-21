@@ -8,7 +8,7 @@ use xitca_tls::openssl::ssl;
 
 use crate::{http::Version, version::AsVersion};
 
-use super::error::TlsError;
+use super::{IsTls, error::TlsError};
 
 pub type TlsStream<Io> = xitca_tls::openssl::TlsStream<Io>;
 
@@ -69,6 +69,8 @@ impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
         self.accept(io).await
     }
 }
+
+impl IsTls for TlsAcceptorService {}
 
 /// Collection of 'openssl' error types.
 pub type OpensslError = xitca_tls::openssl::Error;
