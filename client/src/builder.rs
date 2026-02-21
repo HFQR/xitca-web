@@ -29,6 +29,8 @@ pub struct ClientBuilder {
     local_addr: Option<SocketAddr>,
     max_http_version: Version,
     service: HttpService,
+    #[cfg(feature = "dangerous")]
+    allow_invalid_certificate: bool,
 }
 
 impl Default for ClientBuilder {
@@ -49,6 +51,8 @@ impl ClientBuilder {
             local_addr: None,
             max_http_version: max_http_version(),
             service: base_service(),
+            #[cfg(feature = "dangerous")]
+            allow_invalid_certificate: false,
         }
     }
 
@@ -155,14 +159,22 @@ impl ClientBuilder {
     #[cfg(feature = "openssl")]
     /// enable openssl as tls connector.
     pub fn openssl(mut self) -> Self {
-        self.connector = connector::openssl::connect(self.alpn_from_version());
+        self.connector = connector::openssl::connect(
+            self.alpn_from_version(),
+            #[cfg(feature = "dangerous")]
+            self.allow_invalid_certificate,
+        );
         self
     }
 
     #[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
     /// enable rustls as tls connector.
     pub fn rustls(mut self) -> Self {
-        self.connector = connector::rustls::connect(self.alpn_from_version());
+        self.connector = connector::rustls::connect(
+            self.alpn_from_version(),
+            #[cfg(feature = "dangerous")]
+            self.allow_invalid_certificate,
+        );
         self
     }
 
@@ -381,6 +393,13 @@ impl ClientBuilder {
         self
     }
 
+    #[cfg(feature = "dangerous")]
+    /// Allow invalid certificate for tls connection.
+    pub fn allow_invalid_certificate(mut self) -> Self {
+        self.allow_invalid_certificate = true;
+        self
+    }
+
     /// Finish the builder and construct [Client] instance.
     pub fn finish(self) -> Client {
         #[cfg(feature = "http3")]
@@ -403,70 +422,10 @@ impl ClientBuilder {
 
             #[cfg(feature = "dangerous")]
             {
-                use xitca_tls::rustls::{
-                    self, DigitallySignedStruct,
-                    client::danger::HandshakeSignatureValid,
-                    crypto::{verify_tls12_signature, verify_tls13_signature},
-                    pki_types::{CertificateDer, ServerName, UnixTime},
-                };
-
-                #[derive(Debug)]
-                pub(crate) struct SkipServerVerification;
-
-                impl SkipServerVerification {
-                    fn new() -> Arc<Self> {
-                        Arc::new(Self)
-                    }
+                if self.allow_invalid_certificate {
+                    cfg.dangerous()
+                        .set_certificate_verifier(crate::tls::dangerous::rustls::SkipServerVerification::new());
                 }
-
-                impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
-                    fn verify_server_cert(
-                        &self,
-                        _end_entity: &CertificateDer<'_>,
-                        _intermediates: &[CertificateDer<'_>],
-                        _server_name: &ServerName<'_>,
-                        _ocsp: &[u8],
-                        _now: UnixTime,
-                    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-                        Ok(rustls::client::danger::ServerCertVerified::assertion())
-                    }
-
-                    fn verify_tls12_signature(
-                        &self,
-                        message: &[u8],
-                        cert: &CertificateDer<'_>,
-                        dss: &DigitallySignedStruct,
-                    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-                        verify_tls12_signature(
-                            message,
-                            cert,
-                            dss,
-                            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-                        )
-                    }
-
-                    fn verify_tls13_signature(
-                        &self,
-                        message: &[u8],
-                        cert: &CertificateDer<'_>,
-                        dss: &DigitallySignedStruct,
-                    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-                        verify_tls13_signature(
-                            message,
-                            cert,
-                            dss,
-                            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-                        )
-                    }
-
-                    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-                        rustls::crypto::ring::default_provider()
-                            .signature_verification_algorithms
-                            .supported_schemes()
-                    }
-                }
-
-                cfg.dangerous().set_certificate_verifier(SkipServerVerification::new());
             }
 
             let mut endpoint = match self.local_addr {

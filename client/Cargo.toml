@@ -30,7 +30,7 @@ json = ["serde", "serde_json"]
 websocket = ["http-ws"]
 # feature for trusted local network:
 # - http/2 clear text over plain tcp connection
-# - http/3 connection to server with self signed certificates
+# - allow invalid certificates for client in http/1, http/2 and/or http/3
 dangerous = []
 
 [dependencies]
