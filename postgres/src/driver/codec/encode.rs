@@ -232,7 +232,13 @@ impl<'s> Encode for PortalQuery<'s> {
     }
 }
 
-fn encode_bind<P>(stmt: &str, types: &[Type], params: P, portal: &str, buf: &mut BytesMut) -> Result<(), Error>
+fn encode_bind<P>(
+    stmt_name: &str,
+    types: &[Type],
+    params: P,
+    portal_name: &str,
+    buf: &mut BytesMut,
+) -> Result<(), Error>
 where
     P: AsParams,
 {
@@ -246,13 +252,14 @@ where
 
     let params = params.zip(types);
 
-    frontend::bind(
-        portal,
-        stmt,
+    crate::protocol::bind(
+        portal_name,
+        stmt_name,
         params.clone().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
         params,
         |(p, ty), buf| {
-            p.borrow_to_sql().to_sql_checked(ty, buf).map(|is_null| match is_null {
+            let is_null = p.borrow_to_sql().to_sql_checked(ty, buf)?;
+            Ok(match is_null {
                 IsNull::No => protocol::IsNull::No,
                 IsNull::Yes => protocol::IsNull::Yes,
             })
@@ -260,8 +267,4 @@ where
         Some(1),
         buf,
     )
-    .map_err(|e| match e {
-        frontend::BindError::Conversion(e) => Error::from(e),
-        frontend::BindError::Serialization(e) => Error::from(e),
-    })
 }
