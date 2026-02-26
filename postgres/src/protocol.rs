@@ -9,7 +9,6 @@ use super::error::Error;
 pub(crate) use postgres_protocol::*;
 
 // an optimized version of postgres_protocol::frontend::bind function
-#[inline]
 pub(crate) fn bind<I, J, F, T, K>(
     portal_name: &str,
     stmt_name: &str,
@@ -51,7 +50,6 @@ where
     })
 }
 
-#[inline]
 fn write_body<F>(buf: &mut BytesMut, f: F) -> Result<(), Error>
 where
     F: FnOnce(&mut BytesMut) -> Result<(), Error>,
@@ -66,7 +64,6 @@ where
     Ok(())
 }
 
-#[inline]
 fn write_counted<I, T, F, E>(items: I, mut serializer: F, buf: &mut BytesMut) -> Result<(), Error>
 where
     I: ExactSizeIterator<Item = T>,
@@ -99,7 +96,6 @@ where
     Ok(())
 }
 
-#[inline]
 fn write_cstr(s: &str, buf: &mut BytesMut) {
     // strings used inside library dont contain c style null bytes.
     // debug assertions is enough for catching violation.
