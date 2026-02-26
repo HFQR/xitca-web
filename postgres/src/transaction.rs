@@ -10,7 +10,7 @@ use super::{
     driver::codec::AsParams,
     error::Error,
     execute::Execute,
-    pool::{PermitLike, PoolConnection},
+    pool::{GenericPoolConnection, PermitLike},
     statement::Statement,
     types::ToSql,
 };
@@ -248,21 +248,21 @@ where
 }
 
 // special treatment for pool connection for it's internal caching logic that are not accessible through Query trait
-impl<'c, P, Q, EO, QO> Execute<&'c mut Transaction<'_, PoolConnection<P>>> for Q
+impl<'c, P, Q, EO, QO> Execute<&'c mut Transaction<'_, GenericPoolConnection<P>>> for Q
 where
     P: PermitLike,
-    Q: Execute<&'c mut PoolConnection<P>, ExecuteOutput = EO, QueryOutput = QO>,
+    Q: Execute<&'c mut GenericPoolConnection<P>, ExecuteOutput = EO, QueryOutput = QO>,
 {
     type ExecuteOutput = EO;
     type QueryOutput = QO;
 
     #[inline]
-    fn execute(self, cli: &'c mut Transaction<'_, PoolConnection<P>>) -> Self::ExecuteOutput {
+    fn execute(self, cli: &'c mut Transaction<'_, GenericPoolConnection<P>>) -> Self::ExecuteOutput {
         Q::execute(self, cli.client.deref_mut())
     }
 
     #[inline]
-    fn query(self, cli: &'c mut Transaction<PoolConnection<P>>) -> Self::QueryOutput {
+    fn query(self, cli: &'c mut Transaction<GenericPoolConnection<P>>) -> Self::QueryOutput {
         Q::query(self, cli.client.deref_mut())
     }
 }

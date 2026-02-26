@@ -3,6 +3,12 @@
 - add `pool::PoolOwned` type for new variant of connection pool
 - add `pool::PoolOwned::get` method for acquiring pooled connection with relaxed lifetime bound
 - add `pool::PoolBuilder::build_owned` for building [`pool::PoolOwned`]
+- add `pool::PoolConnectionOwned` type alias
+
+## Change
+- rename `pool::PoolConnection` to `pool::GenericPoolConnection`
+- `pool::GenericPoolConnection` exposes generic type requiring `pool::PermitLike` trait bound
+- `pool::PoolConnection` becomes type alias of `pool::GenericPoolConnection<pool::Permit<'_>`
 
 # 0.4.0
 ## Fix

@@ -3,7 +3,7 @@ mod connection;
 mod execute;
 
 pub use self::connect::Connect;
-pub use self::connection::{CachedStatement, PoolConnection};
+pub use self::connection::{CachedStatement, GenericPoolConnection};
 
 use core::num::NonZeroUsize;
 
@@ -18,6 +18,16 @@ use self::{
     connect::{ConnectorDyn, DefaultConnector},
     connection::PoolClient,
 };
+
+/// type alias for pool connection with lifetime bound to connection pool
+///
+/// See [`Pool::get`] for detail
+pub type PoolConnection<'a> = GenericPoolConnection<Permit<'a>>;
+
+/// type alias for pool connection bound to connection pool through smart pointer
+///
+/// See [`PoolOwned::get`] for detail
+pub type PoolConnectionOwned = GenericPoolConnection<PermitOwned>;
 
 /// builder type for connection pool
 pub struct PoolBuilder {
@@ -116,7 +126,7 @@ impl Pool {
     /// try to get a connection from pool.
     /// when pool is empty it will try to spawn new connection to database and if the process failed the outcome will
     /// return as [`Error`]
-    pub async fn get(&self) -> Result<PoolConnection<Permit<'_>>, Error> {
+    pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
 
         let conn = match self.pool.try_get() {
@@ -153,7 +163,7 @@ impl PoolOwned {
     /// try to get a connection from pool.
     /// when pool is empty it will try to spawn new connection to database and if the process failed the outcome will
     /// return as [`Error`]
-    pub async fn get(&self) -> Result<PoolConnection<PermitOwned>, Error> {
+    pub async fn get(&self) -> Result<PoolConnectionOwned, Error> {
         let _permit = self
             .permits
             .clone()
@@ -166,7 +176,7 @@ impl PoolOwned {
             None => self.pool.connect().await?,
         };
 
-        Ok(PoolConnection {
+        Ok(PoolConnectionOwned {
             conn: Some(conn),
             pool_ref: PermitOwned {
                 pool: self.pool.clone(),

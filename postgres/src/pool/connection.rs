@@ -54,12 +54,12 @@ use super::PermitLike;
 /// - query statement with low latency requirement can benefit from upfront cache.
 /// - rare query statement can benefit from no caching by reduce resource usage from the server side. For low
 ///   latency of rare query consider use [`StatementNamed::bind`] as alternative.
-pub struct PoolConnection<P: PermitLike> {
+pub struct GenericPoolConnection<P: PermitLike> {
     pub(super) conn: Option<PoolClient>,
     pub(super) pool_ref: P,
 }
 
-impl<'a, P> PoolConnection<P>
+impl<'a, P> GenericPoolConnection<P>
 where
     P: PermitLike + 'a,
 {
@@ -165,7 +165,7 @@ where
     }
 }
 
-impl<P> ClientBorrow for PoolConnection<P>
+impl<P> ClientBorrow for GenericPoolConnection<P>
 where
     P: PermitLike,
 {
@@ -175,7 +175,7 @@ where
     }
 }
 
-impl<P> ClientBorrowMut for PoolConnection<P>
+impl<P> ClientBorrowMut for GenericPoolConnection<P>
 where
     P: PermitLike,
 {
@@ -185,7 +185,7 @@ where
     }
 }
 
-impl<P> r#Copy for PoolConnection<P>
+impl<P> r#Copy for GenericPoolConnection<P>
 where
     P: PermitLike,
 {
@@ -198,7 +198,7 @@ where
     }
 }
 
-impl<P> Drop for PoolConnection<P>
+impl<P> Drop for GenericPoolConnection<P>
 where
     P: PermitLike,
 {
@@ -254,7 +254,7 @@ impl PoolClient {
     }
 }
 
-impl<'c, P, E> Execute<&'c PoolConnection<P>> for E
+impl<'c, P, E> Execute<&'c GenericPoolConnection<P>> for E
 where
     P: PermitLike,
     E: Execute<&'c Client>,
@@ -263,17 +263,17 @@ where
     type QueryOutput = E::QueryOutput;
 
     #[inline]
-    fn execute(self, cli: &'c PoolConnection<P>) -> Self::ExecuteOutput {
+    fn execute(self, cli: &'c GenericPoolConnection<P>) -> Self::ExecuteOutput {
         E::execute(self, cli.borrow_cli_ref())
     }
 
     #[inline]
-    fn query(self, cli: &'c PoolConnection<P>) -> Self::QueryOutput {
+    fn query(self, cli: &'c GenericPoolConnection<P>) -> Self::QueryOutput {
         E::query(self, cli.borrow_cli_ref())
     }
 }
 
-impl<'c, 's, P> Execute<&'c mut PoolConnection<P>> for StatementNamed<'s>
+impl<'c, 's, P> Execute<&'c mut GenericPoolConnection<P>> for StatementNamed<'s>
 where
     's: 'c,
     P: PermitLike,
@@ -281,20 +281,20 @@ where
     type ExecuteOutput = StatementCacheFuture<'c>;
     type QueryOutput = Self::ExecuteOutput;
 
-    fn execute(self, cli: &'c mut PoolConnection<P>) -> Self::ExecuteOutput {
+    fn execute(self, cli: &'c mut GenericPoolConnection<P>) -> Self::ExecuteOutput {
         match cli.conn_mut().cache.get(self.stmt) {
             Some(stmt) => StatementCacheFuture::Cached(stmt.clone()),
             None => StatementCacheFuture::Prepared(Box::pin(async move {
                 let conn = cli.conn_mut();
                 let name = self.stmt;
                 let stmt = self.execute(&conn.client).await?.leak();
-                Ok(PoolConnection::<P>::insert_cache(&mut conn.cache, &conn.client, name, stmt).clone())
+                Ok(GenericPoolConnection::<P>::insert_cache(&mut conn.cache, &conn.client, name, stmt).clone())
             })),
         }
     }
 
     #[inline]
-    fn query(self, cli: &'c mut PoolConnection<P>) -> Self::QueryOutput {
+    fn query(self, cli: &'c mut GenericPoolConnection<P>) -> Self::QueryOutput {
         self.execute(cli)
     }
 }
@@ -325,7 +325,7 @@ impl Future for StatementCacheFuture<'_> {
 }
 
 #[cfg(not(feature = "nightly"))]
-impl<'c, 's, P, PP> Execute<&'c mut PoolConnection<PP>> for StatementQuery<'s, P>
+impl<'c, 's, P, PP> Execute<&'c mut GenericPoolConnection<PP>> for StatementQuery<'s, P>
 where
     P: AsParams + Send + 'c,
     PP: PermitLike,
@@ -334,7 +334,7 @@ where
     type ExecuteOutput = BoxedFuture<'c, Result<RowAffected, Error>>;
     type QueryOutput = BoxedFuture<'c, Result<RowStreamOwned, Error>>;
 
-    fn execute(self, conn: &'c mut PoolConnection<PP>) -> Self::ExecuteOutput {
+    fn execute(self, conn: &'c mut GenericPoolConnection<PP>) -> Self::ExecuteOutput {
         Box::pin(async move {
             let StatementQuery { stmt, types, params } = self;
 
@@ -344,7 +344,7 @@ where
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
+                    GenericPoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 
@@ -352,7 +352,7 @@ where
         })
     }
 
-    fn query(self, conn: &'c mut PoolConnection<PP>) -> Self::QueryOutput {
+    fn query(self, conn: &'c mut GenericPoolConnection<PP>) -> Self::QueryOutput {
         Box::pin(async move {
             let StatementQuery { stmt, types, params } = self;
 
@@ -362,7 +362,7 @@ where
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
+                    GenericPoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 
@@ -372,7 +372,7 @@ where
 }
 
 #[cfg(feature = "nightly")]
-impl<'c, 's, PP, P> Execute<&'c mut PoolConnection<PP>> for StatementQuery<'s, P>
+impl<'c, 's, PP, P> Execute<&'c mut GenericPoolConnection<PP>> for StatementQuery<'s, P>
 where
     P: AsParams + Send + 'c,
     PP: PermitLike,
@@ -381,7 +381,7 @@ where
     type ExecuteOutput = impl Future<Output = Result<RowAffected, Error>> + Send + 'c;
     type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
 
-    fn execute(self, conn: &'c mut PoolConnection<PP>) -> Self::ExecuteOutput {
+    fn execute(self, conn: &'c mut GenericPoolConnection<PP>) -> Self::ExecuteOutput {
         async move {
             let StatementQuery { stmt, types, params } = self;
 
@@ -391,7 +391,7 @@ where
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
+                    GenericPoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 
@@ -399,7 +399,7 @@ where
         }
     }
 
-    fn query(self, conn: &'c mut PoolConnection<PP>) -> Self::QueryOutput {
+    fn query(self, conn: &'c mut GenericPoolConnection<PP>) -> Self::QueryOutput {
         async move {
             let StatementQuery { stmt, types, params } = self;
 
@@ -409,7 +409,7 @@ where
                 Some(stmt) => stmt,
                 None => {
                     let prepared_stmt = Statement::named(stmt, types).execute(&conn.client).await?.leak();
-                    PoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
+                    GenericPoolConnection::<PP>::insert_cache(&mut conn.cache, &conn.client, stmt, prepared_stmt)
                 }
             };
 
