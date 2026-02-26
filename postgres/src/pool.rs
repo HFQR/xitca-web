@@ -9,12 +9,12 @@ use core::num::NonZeroUsize;
 
 use std::sync::Arc;
 
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, SemaphorePermit};
 
 use super::{config::Config, error::Error};
 
 use self::{
-    _pool::{_Pool, Permit, PermitOwned},
+    _pool::_Pool,
     connect::{ConnectorDyn, DefaultConnector},
     connection::PoolClient,
 };
@@ -186,12 +186,40 @@ pub trait PermitLike: Send + _pool::Sealed {
     fn put_back(&self, conn: PoolClient);
 }
 
+/// permit type holding reference to connection pool through lifetime bound
+pub struct Permit<'a> {
+    pub(super) pool: &'a _Pool,
+    pub(super) _permit: SemaphorePermit<'a>,
+}
+
+impl _pool::Sealed for Permit<'_> {}
+
+impl PermitLike for Permit<'_> {
+    #[inline]
+    fn put_back(&self, conn: PoolClient) {
+        self.pool.put_back(conn);
+    }
+}
+
+/// permit type holding reference to connection pool through smart pointer
+pub struct PermitOwned {
+    pub(super) pool: Arc<_Pool>,
+    pub(super) _permit: OwnedSemaphorePermit,
+}
+
+impl _pool::Sealed for PermitOwned {}
+
+impl PermitLike for PermitOwned {
+    #[inline]
+    fn put_back(&self, conn: PoolClient) {
+        self.pool.put_back(conn);
+    }
+}
+
 mod _pool {
     use std::{collections::VecDeque, sync::Mutex};
 
-    use tokio::sync::{OwnedSemaphorePermit, SemaphorePermit};
-
-    use super::{Arc, Config, ConnectorDyn, Error, NonZeroUsize, PermitLike, PoolClient};
+    use super::{Config, ConnectorDyn, Error, NonZeroUsize, PoolClient};
 
     pub struct _Pool {
         pub(super) conn: Mutex<VecDeque<PoolClient>>,
@@ -232,7 +260,7 @@ mod _pool {
             None
         }
 
-        fn put_back(&self, conn: PoolClient) {
+        pub(super) fn put_back(&self, conn: PoolClient) {
             self.conn.lock().unwrap().push_back(conn);
         }
 
@@ -246,34 +274,6 @@ mod _pool {
     }
 
     pub trait Sealed {}
-
-    pub struct Permit<'a> {
-        pub(super) pool: &'a _Pool,
-        pub(super) _permit: SemaphorePermit<'a>,
-    }
-
-    impl Sealed for Permit<'_> {}
-
-    impl PermitLike for Permit<'_> {
-        #[inline]
-        fn put_back(&self, conn: PoolClient) {
-            self.pool.put_back(conn);
-        }
-    }
-
-    pub struct PermitOwned {
-        pub(super) pool: Arc<_Pool>,
-        pub(super) _permit: OwnedSemaphorePermit,
-    }
-
-    impl Sealed for PermitOwned {}
-
-    impl PermitLike for PermitOwned {
-        #[inline]
-        fn put_back(&self, conn: PoolClient) {
-            self.pool.put_back(conn);
-        }
-    }
 }
 
 #[cfg(not(feature = "io-uring"))]
