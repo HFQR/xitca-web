@@ -11,10 +11,12 @@ use ::h3::{
     server::{self, RequestStream},
 };
 use futures_core::stream::Stream;
+use tokio_util::sync::CancellationToken;
 use xitca_io::net::QuicStream;
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
+use crate::util::futures::WaitOrPending;
 use crate::{
     bytes::Bytes,
     error::HttpServiceError,
@@ -29,6 +31,7 @@ pub(crate) struct Dispatcher<'a, S, ReqB> {
     addr: SocketAddr,
     service: &'a S,
     _req_body: PhantomData<ReqB>,
+    cancellation_token: CancellationToken,
 }
 
 impl<'a, S, ReqB, ResB, BE> Dispatcher<'a, S, ReqB>
@@ -39,12 +42,13 @@ where
     BE: fmt::Debug,
     ReqB: From<RequestBody>,
 {
-    pub(crate) fn new(io: QuicStream, addr: SocketAddr, service: &'a S) -> Self {
+    pub(crate) fn new(io: QuicStream, addr: SocketAddr, service: &'a S, cancellation_token: CancellationToken) -> Self {
         Self {
             io,
             addr,
             service,
             _req_body: PhantomData,
+            cancellation_token,
         }
     }
 
@@ -60,8 +64,20 @@ where
 
         // accept loop
         loop {
-            match conn.accept().select(queue.next()).await {
-                SelectOutput::A(Ok(Some(req))) => {
+            if queue.is_empty() && self.cancellation_token.is_cancelled() {
+                break;
+            }
+
+            match conn
+                .accept()
+                .select(queue.next())
+                .select(WaitOrPending::new(
+                    self.cancellation_token.cancelled(),
+                    self.cancellation_token.is_cancelled(),
+                ))
+                .await
+            {
+                SelectOutput::A(SelectOutput::A(Ok(Some(req)))) => {
                     queue.push(async move {
                         let (req, stream) = req.resolve_request().await?;
                         let (tx, rx) = stream.split();
@@ -76,13 +92,14 @@ where
                         h3_handler(fut, tx).await
                     });
                 }
-                SelectOutput::A(Ok(None)) => break,
-                SelectOutput::A(Err(e)) => return Err(e.into()),
-                SelectOutput::B(res) => {
+                SelectOutput::A(SelectOutput::A(Ok(None))) => break,
+                SelectOutput::A(SelectOutput::A(Err(e))) => return Err(e.into()),
+                SelectOutput::A(SelectOutput::B(res)) => {
                     if let Err(e) = res {
                         HttpServiceError::from(e).log("h3_dispatcher");
                     }
                 }
+                SelectOutput::B(_) => conn.shutdown(10).await?,
             }
         }
 

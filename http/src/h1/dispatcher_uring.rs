@@ -12,7 +12,12 @@ use std::{io, net::Shutdown, rc::Rc};
 
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all};
+use tokio_util::sync::CancellationToken;
+use tracing::trace;
+use xitca_io::{
+    bytes::BytesMut,
+    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
+};
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
 
@@ -44,6 +49,8 @@ pub(super) struct Dispatcher<'a, Io, S, ReqB, D, const H_LIMIT: usize, const R_L
     ctx: Context<'a, D, H_LIMIT>,
     service: &'a S,
     _phantom: PhantomData<ReqB>,
+    cancellation_token: CancellationToken,
+    request_guard: Rc<()>,
 }
 
 trait BufIo {
@@ -85,6 +92,7 @@ where
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
+        cancellation_token: CancellationToken,
     ) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io,
@@ -93,6 +101,8 @@ where
             ctx: Context::with_addr(addr, date),
             service,
             _phantom: PhantomData,
+            cancellation_token,
+            request_guard: Rc::new(()),
         };
 
         let mut read_buf = BytesMut::new();
@@ -130,7 +140,10 @@ where
                 match res {
                     Ok(read) => {
                         if read == 0 {
-                            self.ctx.set_close();
+                            if !self.cancellation_token.is_cancelled() {
+                                self.ctx.set_close();
+                            }
+
                             return (Ok(()), read_buf, write_buf);
                         }
                     }
@@ -167,6 +180,7 @@ where
 
             let req = req.map(|ext| ext.map_body(|_| ReqB::from(body)));
 
+            let _guard = self.request_guard.clone();
             let (parts, body) = match self.service.call(req).await {
                 Ok(res) => res.into_parts(),
                 Err(e) => return (Err(Error::Service(e)), read_buf, write_buf),

@@ -1,10 +1,11 @@
-use tokio::sync::mpsc::UnboundedSender;
-
 use super::Command;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct ServerHandle {
     pub(super) tx: UnboundedSender<Command>,
+    pub(super) cancellation_token: CancellationToken,
 }
 
 impl ServerHandle {
@@ -17,5 +18,6 @@ impl ServerHandle {
         };
 
         let _ = self.tx.send(cmd);
+        self.cancellation_token.cancel();
     }
 }

@@ -34,16 +34,18 @@ async fn h2_v2_post() {
     let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
-        let service = fn_service(move |(stream, _): (TcpStream, SocketAddr)| {
-            let tx2 = tx2.clone();
-            async move {
-                h2::run(stream, &fn_service(handler).call(()).now_or_panic().unwrap())
-                    .await
-                    .map(|_| {
-                        let _ = tx2.send(());
-                    })
-            }
-        });
+        let service = fn_service(
+            move |((stream, _), _): ((TcpStream, SocketAddr), tokio_util::sync::CancellationToken)| {
+                let tx2 = tx2.clone();
+                async move {
+                    h2::run(stream, &fn_service(handler).call(()).now_or_panic().unwrap())
+                        .await
+                        .map(|_| {
+                            let _ = tx2.send(());
+                        })
+                }
+            },
+        );
         let server = xitca_server::Builder::new()
             .bind("qa", "localhost:8080", service)?
             .build();

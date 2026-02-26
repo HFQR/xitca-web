@@ -26,3 +26,4 @@ futures-util = "0.3.17"
 h3-quinn = "0.0.10"
 rustls-pemfile = "2"
 tokio = { version = "1.30", features = ["macros", "rt"] }
+tokio-util = "0.7.13"

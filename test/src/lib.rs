@@ -10,6 +10,7 @@ use std::{
 };
 
 use futures_util::Stream;
+use tokio_util::sync::CancellationToken;
 use xitca_http::{
     body::ResponseBody,
     config::HttpServiceConfig,
@@ -33,7 +34,7 @@ type HResponse<B> = Response<ResponseBody<B>>;
 pub fn test_server<T, Req>(service: T) -> Result<TestServerHandle, Error>
 where
     T: Service + Send + Sync + 'static,
-    T::Response: ReadyService + Service<Req>,
+    T::Response: ReadyService + Service<(Req, CancellationToken)>,
     Req: TryFrom<NetStream> + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;
