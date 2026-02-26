@@ -7,14 +7,16 @@ pub use self::connection::{CachedStatement, GenericPoolConnection};
 
 use core::num::NonZeroUsize;
 
-use std::sync::Arc;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, SemaphorePermit};
 
 use super::{config::Config, error::Error};
 
 use self::{
-    _pool::_Pool,
     connect::{ConnectorDyn, DefaultConnector},
     connection::PoolClient,
 };
@@ -192,17 +194,17 @@ impl PoolOwned {
 }
 
 /// trait generic over different type of permition from connection pool
-pub trait PermitLike: Send + _pool::Sealed {
+pub trait PermitLike: Send + _seal::Sealed {
     fn put_back(&self, conn: PoolClient);
 }
 
 /// permit type holding reference to connection pool through lifetime bound
 pub struct Permit<'a> {
-    pub(super) pool: &'a _Pool,
-    pub(super) _permit: SemaphorePermit<'a>,
+    pool: &'a _Pool,
+    _permit: SemaphorePermit<'a>,
 }
 
-impl _pool::Sealed for Permit<'_> {}
+impl _seal::Sealed for Permit<'_> {}
 
 impl PermitLike for Permit<'_> {
     #[inline]
@@ -213,11 +215,11 @@ impl PermitLike for Permit<'_> {
 
 /// permit type holding reference to connection pool through smart pointer
 pub struct PermitOwned {
-    pub(super) pool: Arc<_Pool>,
-    pub(super) _permit: OwnedSemaphorePermit,
+    pool: Arc<_Pool>,
+    _permit: OwnedSemaphorePermit,
 }
 
-impl _pool::Sealed for PermitOwned {}
+impl _seal::Sealed for PermitOwned {}
 
 impl PermitLike for PermitOwned {
     #[inline]
@@ -226,64 +228,60 @@ impl PermitLike for PermitOwned {
     }
 }
 
-mod _pool {
-    use std::{collections::VecDeque, sync::Mutex};
-
-    use super::{Config, ConnectorDyn, Error, NonZeroUsize, PoolClient};
-
-    pub struct _Pool {
-        pub(super) conn: Mutex<VecDeque<PoolClient>>,
-        config: Box<PoolConfig>,
-    }
-
-    struct PoolConfig {
-        connector: Box<dyn ConnectorDyn>,
-        cfg: Config,
-        cache_size: NonZeroUsize,
-    }
-
-    impl _Pool {
-        pub(super) fn new(cap: usize, cache_size: NonZeroUsize, cfg: Config, connector: Box<dyn ConnectorDyn>) -> Self {
-            Self {
-                conn: Mutex::new(VecDeque::with_capacity(cap)),
-                config: Box::new(PoolConfig {
-                    connector,
-                    cfg,
-                    cache_size,
-                }),
-            }
-        }
-
-        pub(super) fn config(&self) -> &Config {
-            &self.config.cfg
-        }
-
-        pub(super) fn try_get(&self) -> Option<PoolClient> {
-            let mut inner = self.conn.lock().unwrap();
-
-            while let Some(conn) = inner.pop_front() {
-                if !conn.closed() {
-                    return Some(conn);
-                }
-            }
-
-            None
-        }
-
-        pub(super) fn put_back(&self, conn: PoolClient) {
-            self.conn.lock().unwrap().push_back(conn);
-        }
-
-        pub(super) async fn connect(&self) -> Result<PoolClient, Error> {
-            self.config
-                .connector
-                .connect_dyn(self.config.cfg.clone())
-                .await
-                .map(|cli| PoolClient::new(cli, self.config.cache_size))
-        }
-    }
-
+mod _seal {
     pub trait Sealed {}
+}
+
+struct _Pool {
+    conn: Mutex<VecDeque<PoolClient>>,
+    config: Box<PoolConfig>,
+}
+
+struct PoolConfig {
+    connector: Box<dyn ConnectorDyn>,
+    cfg: Config,
+    cache_size: NonZeroUsize,
+}
+
+impl _Pool {
+    fn new(cap: usize, cache_size: NonZeroUsize, cfg: Config, connector: Box<dyn ConnectorDyn>) -> Self {
+        Self {
+            conn: Mutex::new(VecDeque::with_capacity(cap)),
+            config: Box::new(PoolConfig {
+                connector,
+                cfg,
+                cache_size,
+            }),
+        }
+    }
+
+    fn config(&self) -> &Config {
+        &self.config.cfg
+    }
+
+    fn try_get(&self) -> Option<PoolClient> {
+        let mut inner = self.conn.lock().unwrap();
+
+        while let Some(conn) = inner.pop_front() {
+            if !conn.closed() {
+                return Some(conn);
+            }
+        }
+
+        None
+    }
+
+    fn put_back(&self, conn: PoolClient) {
+        self.conn.lock().unwrap().push_back(conn);
+    }
+
+    async fn connect(&self) -> Result<PoolClient, Error> {
+        self.config
+            .connector
+            .connect_dyn(self.config.cfg.clone())
+            .await
+            .map(|cli| PoolClient::new(cli, self.config.cache_size))
+    }
 }
 
 #[cfg(not(feature = "io-uring"))]
