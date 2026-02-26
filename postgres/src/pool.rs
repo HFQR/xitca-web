@@ -197,7 +197,7 @@ mod _pool {
         pub(super) conn: Mutex<VecDeque<PoolClient>>,
         config: Box<PoolConfig>,
     }
-    
+
     struct PoolConfig {
         connector: Box<dyn ConnectorDyn>,
         cfg: Config,
