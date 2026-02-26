@@ -1,4 +1,8 @@
-# unreleased
+# unreleased 0.5.0
+## Add
+- add `pool::PoolOwned` type for new variant of connection pool
+- add `pool::PoolOwned::get` method for acquiring pooled connection with relaxed lifetime bound
+- add `pool::PoolBuilder::build_owned` for building [`pool::PoolOwned`]
 
 # 0.4.0
 ## Fix

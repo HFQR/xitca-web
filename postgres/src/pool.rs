@@ -7,13 +7,14 @@ pub use self::connection::{CachedStatement, PoolConnection};
 
 use core::num::NonZeroUsize;
 
-use std::{collections::VecDeque, sync::Mutex};
+use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
 use super::{config::Config, error::Error};
 
 use self::{
+    _pool::{_Pool, Permit, PermitOwned},
     connect::{ConnectorDyn, DefaultConnector},
     connection::PoolClient,
 };
@@ -59,15 +60,17 @@ impl PoolBuilder {
     pub fn build(self) -> Result<Pool, Error> {
         let cfg = self.config?;
         let cache_size = NonZeroUsize::new(self.cache_size).ok_or_else(Error::todo)?;
-
         Ok(Pool {
-            conn: Mutex::new(VecDeque::with_capacity(self.capacity)),
+            pool: _Pool::new(self.capacity, cache_size, cfg, self.connector),
             permits: Semaphore::new(self.capacity),
-            config: Box::new(PoolConfig {
-                connector: self.connector,
-                cfg,
-                cache_size,
-            }),
+        })
+    }
+
+    /// try convert builder to a connection pool instance.
+    pub fn build_owned(self) -> Result<PoolOwned, Error> {
+        self.build().map(|pool| PoolOwned {
+            pool: Arc::new(pool.pool),
+            permits: Arc::new(pool.permits),
         })
     }
 }
@@ -91,15 +94,8 @@ impl PoolBuilder {
 /// [`Execute::query`]: crate::Execute::query
 /// [`Execute::execute`]: crate::Execute::execute
 pub struct Pool {
-    conn: Mutex<VecDeque<PoolClient>>,
+    pool: _Pool,
     permits: Semaphore,
-    config: Box<PoolConfig>,
-}
-
-struct PoolConfig {
-    connector: Box<dyn ConnectorDyn>,
-    cfg: Config,
-    cache_size: NonZeroUsize,
 }
 
 impl Pool {
@@ -120,46 +116,163 @@ impl Pool {
     /// try to get a connection from pool.
     /// when pool is empty it will try to spawn new connection to database and if the process failed the outcome will
     /// return as [`Error`]
-    pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
+    pub async fn get(&self) -> Result<PoolConnection<Permit<'_>>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
 
-        let conn = match self.try_get() {
+        let conn = match self.pool.try_get() {
             Some(conn) => conn,
-            None => self.connect().await?,
+            None => self.pool.connect().await?,
         };
 
         Ok(PoolConnection {
-            pool: self,
             conn: Some(conn),
-            _permit,
+            pool_ref: Permit {
+                pool: &self.pool,
+                _permit,
+            },
         })
     }
 
     /// get configration of current connection pool.
     pub fn config(&self) -> &Config {
-        &self.config.cfg
+        self.pool.config()
+    }
+}
+
+/// an owned version of connection pool
+///
+/// function the same as [`Pool`] while offering relaxed lifetime params
+/// can be cheaply cloned
+#[derive(Clone)]
+pub struct PoolOwned {
+    pool: Arc<_Pool>,
+    permits: Arc<Semaphore>,
+}
+
+impl PoolOwned {
+    /// try to get a connection from pool.
+    /// when pool is empty it will try to spawn new connection to database and if the process failed the outcome will
+    /// return as [`Error`]
+    pub async fn get(&self) -> Result<PoolConnection<PermitOwned>, Error> {
+        let _permit = self
+            .permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("Semaphore must not be closed");
+
+        let conn = match self.pool.try_get() {
+            Some(conn) => conn,
+            None => self.pool.connect().await?,
+        };
+
+        Ok(PoolConnection {
+            conn: Some(conn),
+            pool_ref: PermitOwned {
+                pool: self.pool.clone(),
+                _permit,
+            },
+        })
     }
 
-    fn try_get(&self) -> Option<PoolClient> {
-        let mut inner = self.conn.lock().unwrap();
+    /// get configration of current connection pool.
+    pub fn config(&self) -> &Config {
+        self.pool.config()
+    }
+}
 
-        while let Some(conn) = inner.pop_front() {
-            if !conn.closed() {
-                return Some(conn);
+/// trait generic over different type of permition from connection pool
+pub trait PermitLike: Send + _pool::Sealed {
+    fn put_back(&self, conn: PoolClient);
+}
+
+mod _pool {
+    use std::{collections::VecDeque, sync::Mutex};
+
+    use tokio::sync::{OwnedSemaphorePermit, SemaphorePermit};
+
+    use super::{Arc, Config, ConnectorDyn, Error, NonZeroUsize, PermitLike, PoolClient};
+
+    pub struct _Pool {
+        pub(super) conn: Mutex<VecDeque<PoolClient>>,
+        config: Box<PoolConfig>,
+    }
+    
+    struct PoolConfig {
+        connector: Box<dyn ConnectorDyn>,
+        cfg: Config,
+        cache_size: NonZeroUsize,
+    }
+
+    impl _Pool {
+        pub(super) fn new(cap: usize, cache_size: NonZeroUsize, cfg: Config, connector: Box<dyn ConnectorDyn>) -> Self {
+            Self {
+                conn: Mutex::new(VecDeque::with_capacity(cap)),
+                config: Box::new(PoolConfig {
+                    connector,
+                    cfg,
+                    cache_size,
+                }),
             }
         }
 
-        None
+        pub(super) fn config(&self) -> &Config {
+            &self.config.cfg
+        }
+
+        pub(super) fn try_get(&self) -> Option<PoolClient> {
+            let mut inner = self.conn.lock().unwrap();
+
+            while let Some(conn) = inner.pop_front() {
+                if !conn.closed() {
+                    return Some(conn);
+                }
+            }
+
+            None
+        }
+
+        fn put_back(&self, conn: PoolClient) {
+            self.conn.lock().unwrap().push_back(conn);
+        }
+
+        pub(super) async fn connect(&self) -> Result<PoolClient, Error> {
+            self.config
+                .connector
+                .connect_dyn(self.config.cfg.clone())
+                .await
+                .map(|cli| PoolClient::new(cli, self.config.cache_size))
+        }
     }
 
-    #[cold]
-    #[inline(never)]
-    async fn connect(&self) -> Result<PoolClient, Error> {
-        self.config
-            .connector
-            .connect_dyn(self.config.cfg.clone())
-            .await
-            .map(|cli| PoolClient::new(cli, self.config.cache_size))
+    pub trait Sealed {}
+
+    pub struct Permit<'a> {
+        pub(super) pool: &'a _Pool,
+        pub(super) _permit: SemaphorePermit<'a>,
+    }
+
+    impl Sealed for Permit<'_> {}
+
+    impl PermitLike for Permit<'_> {
+        #[inline]
+        fn put_back(&self, conn: PoolClient) {
+            self.pool.put_back(conn);
+        }
+    }
+
+    pub struct PermitOwned {
+        pub(super) pool: Arc<_Pool>,
+        pub(super) _permit: OwnedSemaphorePermit,
+    }
+
+    impl Sealed for PermitOwned {}
+
+    impl PermitLike for PermitOwned {
+        #[inline]
+        fn put_back(&self, conn: PoolClient) {
+            self.pool.put_back(conn);
+        }
     }
 }
 
