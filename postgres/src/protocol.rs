@@ -50,6 +50,16 @@ where
     })
 }
 
+// optimized version of postgres_protocol::frontend::execute
+pub(crate) fn execute(portal_name: &str, max_rows: i32, buf: &mut BytesMut) -> Result<(), Error> {
+    buf.put_u8(b'E');
+    write_body(buf, |buf| {
+        write_cstr(portal_name, buf);
+        buf.put_i32(max_rows);
+        Ok(())
+    })
+}
+
 // optimized version of postgres_protocol::frontend::sync
 pub(crate) fn sync(buf: &mut BytesMut) {
     buf.extend_from_slice(&[b'S', 0, 0, 0, 4]);

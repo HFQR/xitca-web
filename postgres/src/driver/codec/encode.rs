@@ -135,7 +135,7 @@ where
     P: AsParams,
 {
     encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
-    frontend::execute("", 0, buf)?;
+    protocol::execute("", 0, buf)?;
     protocol::sync(buf);
     Ok(())
 }
@@ -156,7 +156,7 @@ where
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
         encode_bind("", types, params, "", buf)?;
         frontend::describe(b'S', "", buf)?;
-        frontend::execute("", 0, buf)?;
+        protocol::execute("", 0, buf)?;
         protocol::sync(buf);
         Ok(IntoRowStreamGuard(cli))
     }
@@ -226,7 +226,7 @@ impl<'s> Encode for PortalQuery<'s> {
             max_rows,
             columns,
         } = self;
-        frontend::execute(name, max_rows, buf)?;
+        protocol::execute(name, max_rows, buf)?;
         protocol::sync(buf);
         Ok(columns)
     }
