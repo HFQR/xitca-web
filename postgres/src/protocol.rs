@@ -50,6 +50,11 @@ where
     })
 }
 
+// optimized version of postgres_protocol::frontend::sync
+pub(crate) fn sync(buf: &mut BytesMut) {
+    buf.extend_from_slice(&[b'S', 0, 0, 0, 4]);
+}
+
 fn write_body<F>(buf: &mut BytesMut, f: F) -> Result<(), Error>
 where
     F: FnOnce(&mut BytesMut) -> Result<(), Error>,
