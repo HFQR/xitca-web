@@ -94,7 +94,7 @@ impl Encode for StatementPreparedCancel<'_> {
     #[inline]
     fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let Self { name } = self;
-        frontend::close(b'S', name, buf)?;
+        protocol::close(b'S', name, buf)?;
         protocol::sync(buf);
         Ok(NoOpIntoRowStream)
     }
@@ -202,7 +202,7 @@ impl Encode for PortalCancel<'_> {
 
     #[inline]
     fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
-        frontend::close(b'P', self.name, buf)?;
+        protocol::close(b'P', self.name, buf)?;
         protocol::sync(buf);
         Ok(NoOpIntoRowStream)
     }
