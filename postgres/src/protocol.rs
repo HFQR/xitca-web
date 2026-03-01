@@ -8,7 +8,9 @@ use super::error::Error;
 
 pub(crate) use postgres_protocol::*;
 
-// an optimized version of postgres_protocol::frontend::bind function
+// optimized version of protocol functions depending on specific inputs
+
+// optimized version of postgres_protocol::frontend::bind
 pub(crate) fn bind<I, J, F, T, K>(
     portal_name: &str,
     stmt_name: &str,
@@ -56,6 +58,16 @@ pub(crate) fn execute(portal_name: &str, max_rows: i32, buf: &mut BytesMut) -> R
     write_body(buf, |buf| {
         write_cstr(portal_name, buf);
         buf.put_i32(max_rows);
+        Ok(())
+    })
+}
+
+// optimized version of postgres_protocol::frontend::close
+pub(crate) fn close(variant: u8, name: &str, buf: &mut BytesMut) -> Result<(), Error> {
+    buf.put_u8(b'C');
+    write_body(buf, |buf| {
+        buf.put_u8(variant);
+        write_cstr(name, buf);
         Ok(())
     })
 }
