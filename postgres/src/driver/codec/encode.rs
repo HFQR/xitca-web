@@ -252,7 +252,7 @@ where
 
     let params = params.zip(types);
 
-    crate::protocol::bind(
+    protocol::bind(
         portal_name,
         stmt_name,
         params.clone().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),
@@ -264,7 +264,6 @@ where
                 IsNull::Yes => protocol::IsNull::Yes,
             })
         },
-        Some(1),
         buf,
     )
 }

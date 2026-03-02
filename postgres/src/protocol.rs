@@ -11,24 +11,20 @@ pub(crate) use postgres_protocol::*;
 // optimized version of protocol functions depending on specific inputs
 
 // optimized version of postgres_protocol::frontend::bind
-pub(crate) fn bind<I, J, F, T, K>(
+pub(crate) fn bind<I, J, F, T>(
     portal_name: &str,
     stmt_name: &str,
     formats: I,
     values: J,
     mut serializer: F,
-    result_formats: K,
     buf: &mut BytesMut,
 ) -> Result<(), Error>
 where
     I: ExactSizeIterator<Item = i16>,
     J: ExactSizeIterator<Item = T>,
     F: FnMut(T, &mut BytesMut) -> Result<IsNull, Error>,
-    K: IntoIterator,
-    K::IntoIter: ExactSizeIterator<Item = i16>,
 {
     buf.put_u8(b'B');
-
     write_body(buf, |buf| {
         write_cstr(portal_name, buf);
         write_cstr(stmt_name, buf);
@@ -41,14 +37,8 @@ where
             buf,
         )?;
         write_counted(values, |v, buf| write_nullable(|buf| serializer(v, buf), buf), buf)?;
-        write_counted(
-            result_formats.into_iter(),
-            |f, buf| {
-                buf.put_i16(f);
-                Ok::<_, Infallible>(())
-            },
-            buf,
-        )
+        result_fmt_binary(buf);
+        Ok(())
     })
 }
 
@@ -133,6 +123,11 @@ fn write_cstr(s: &str, buf: &mut BytesMut) {
 
     buf.put_slice(s.as_bytes());
     buf.put_u8(0);
+}
+
+// hard coded reesult format to always ask for binary output from server
+fn result_fmt_binary(buf: &mut BytesMut) {
+    buf.extend_from_slice(&[0, 1, 0, 1]);
 }
 
 trait FromUsize: Sized {
