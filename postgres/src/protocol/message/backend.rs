@@ -71,7 +71,10 @@ pub(crate) struct MessageRaw {
 impl MessageRaw {
     #[inline(always)]
     pub(crate) fn tag(&self) -> u8 {
-        *self.buf.first().expect("MessageRaw::parse produced illformed data type")
+        *self
+            .buf
+            .first()
+            .expect("MessageRaw::parse produced illformed data type")
     }
 
     pub(crate) fn parse(buf: &mut BytesMut) -> io::Result<Option<Self>> {
@@ -98,9 +101,18 @@ impl MessageRaw {
         };
 
         let message = match tag {
-            PARSE_COMPLETE_TAG => Message::ParseComplete,
-            BIND_COMPLETE_TAG => Message::BindComplete,
-            CLOSE_COMPLETE_TAG => Message::CloseComplete,
+            PARSE_COMPLETE_TAG => {
+                empty_check!(buf);
+                Message::ParseComplete
+            }
+            BIND_COMPLETE_TAG => {
+                empty_check!(buf);
+                Message::BindComplete
+            }
+            CLOSE_COMPLETE_TAG => {
+                empty_check!(buf);
+                Message::CloseComplete
+            }
             NOTIFICATION_RESPONSE_TAG => {
                 let process_id = buf.read_i32::<BigEndian>()?;
                 let channel = buf.read_cstr()?;
@@ -112,7 +124,10 @@ impl MessageRaw {
                     message,
                 })
             }
-            COPY_DONE_TAG => Message::CopyDone,
+            COPY_DONE_TAG => {
+                empty_check!(buf);
+                Message::CopyDone
+            }
             COMMAND_COMPLETE_TAG => {
                 let tag = buf.read_cstr()?;
                 empty_check!(buf);
