@@ -351,13 +351,18 @@ impl DriverRx {
 
         while let Some(res) = ResponseMessage::try_from_buf(read_buf)? {
             match res {
-                ResponseMessage::Normal(mut msg) => {
+                ResponseMessage::Normal(msg) => {
                     // lock the shared state only when needed and keep the lock around a bit for possible multiple messages
                     let inner = guard.get_or_insert_with(|| self.guarded.lock().unwrap());
-                    let res = inner.res.pop_front().ok_or_else(|| msg.parse_error())?;
-                    let _ = res.send(msg.buf);
-                    if !msg.complete {
-                        inner.res.push_front(res);
+
+                    match inner.res.pop_front() {
+                        Some(tx) => {
+                            let _ = tx.send(msg.msg);
+                            if !msg.complete {
+                                inner.res.push_front(tx);
+                            }
+                        }
+                        None => return Err(msg.parse_error()),
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),
