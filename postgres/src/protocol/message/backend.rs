@@ -71,7 +71,7 @@ pub(crate) struct MessageRaw {
 impl MessageRaw {
     #[inline(always)]
     pub(crate) fn tag(&self) -> u8 {
-        *self.buf.get(0).expect("MessageRaw::parse produced illformed data type")
+        *self.buf.first().expect("MessageRaw::parse produced illformed data type")
     }
 
     pub(crate) fn parse(buf: &mut BytesMut) -> io::Result<Option<Self>> {
