@@ -355,14 +355,14 @@ impl DriverRx {
                     // lock the shared state only when needed and keep the lock around a bit for possible multiple messages
                     let inner = guard.get_or_insert_with(|| self.guarded.lock().unwrap());
 
-                    match inner.res.pop_front() {
+                    match inner.res.front_mut() {
                         Some(tx) => {
                             let _ = tx.send(msg.msg);
-                            if !msg.complete {
-                                inner.res.push_front(tx);
+                            if msg.complete {
+                                inner.res.pop_front();
                             }
                         }
-                        None => return Err(msg.parse_error()),
+                        None => return Err(msg.into_error()),
                     }
                 }
                 ResponseMessage::Async(msg) => return Ok(Some(msg)),

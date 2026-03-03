@@ -6,7 +6,7 @@ use std::io;
 
 use byteorder::{BigEndian, ReadBytesExt};
 use fallible_iterator::FallibleIterator;
-use xitca_io::bytes::{Buf, Bytes, BytesMut};
+use xitca_io::bytes::{Bytes, BytesMut};
 
 use crate::types::Oid;
 
@@ -55,17 +55,8 @@ impl Message {
     }
 }
 
-macro_rules! empty_check {
-    ($buf: ident) => {
-        debug_assert!(
-            $buf.slice().is_empty(),
-            "invalid message length: expected buffer to be empty"
-        );
-    };
-}
-
 pub(crate) struct MessageRaw {
-    pub(crate) buf: BytesMut,
+    buf: BytesMut,
 }
 
 impl MessageRaw {
@@ -101,36 +92,22 @@ impl MessageRaw {
         };
 
         let message = match tag {
-            PARSE_COMPLETE_TAG => {
-                empty_check!(buf);
-                Message::ParseComplete
-            }
-            BIND_COMPLETE_TAG => {
-                empty_check!(buf);
-                Message::BindComplete
-            }
-            CLOSE_COMPLETE_TAG => {
-                empty_check!(buf);
-                Message::CloseComplete
-            }
+            PARSE_COMPLETE_TAG => Message::ParseComplete,
+            BIND_COMPLETE_TAG => Message::BindComplete,
+            CLOSE_COMPLETE_TAG => Message::CloseComplete,
             NOTIFICATION_RESPONSE_TAG => {
                 let process_id = buf.read_i32::<BigEndian>()?;
                 let channel = buf.read_cstr()?;
                 let message = buf.read_cstr()?;
-                empty_check!(buf);
                 Message::NotificationResponse(NotificationResponseBody {
                     process_id,
                     channel,
                     message,
                 })
             }
-            COPY_DONE_TAG => {
-                empty_check!(buf);
-                Message::CopyDone
-            }
+            COPY_DONE_TAG => Message::CopyDone,
             COMMAND_COMPLETE_TAG => {
                 let tag = buf.read_cstr()?;
-                empty_check!(buf);
                 Message::CommandComplete(CommandCompleteBody { tag })
             }
             COPY_DATA_TAG => {
@@ -162,7 +139,6 @@ impl MessageRaw {
             BACKEND_KEY_DATA_TAG => {
                 let process_id = buf.read_i32::<BigEndian>()?;
                 let secret_key = buf.read_i32::<BigEndian>()?;
-                empty_check!(buf);
                 Message::BackendKeyData(BackendKeyDataBody { process_id, secret_key })
             }
             NO_DATA_TAG => Message::NoData,
@@ -171,40 +147,21 @@ impl MessageRaw {
                 Message::NoticeResponse(NoticeResponseBody { storage })
             }
             AUTHENTICATION_TAG => match buf.read_i32::<BigEndian>()? {
-                0 => {
-                    empty_check!(buf);
-                    Message::AuthenticationOk
-                }
-                2 => {
-                    empty_check!(buf);
-                    Message::AuthenticationKerberosV5
-                }
-                3 => {
-                    empty_check!(buf);
-                    Message::AuthenticationCleartextPassword
-                }
+                0 => Message::AuthenticationOk,
+                2 => Message::AuthenticationKerberosV5,
+                3 => Message::AuthenticationCleartextPassword,
                 5 => {
                     let mut salt = [0; 4];
                     io::Read::read_exact(&mut buf, &mut salt)?;
-                    empty_check!(buf);
                     Message::AuthenticationMd5Password(AuthenticationMd5PasswordBody { salt })
                 }
-                6 => {
-                    empty_check!(buf);
-                    Message::AuthenticationScmCredential
-                }
-                7 => {
-                    empty_check!(buf);
-                    Message::AuthenticationGss
-                }
+                6 => Message::AuthenticationScmCredential,
+                7 => Message::AuthenticationGss,
                 8 => {
                     let storage = buf.read_all();
                     Message::AuthenticationGssContinue(AuthenticationGssContinueBody(storage))
                 }
-                9 => {
-                    empty_check!(buf);
-                    Message::AuthenticationSspi
-                }
+                9 => Message::AuthenticationSspi,
                 10 => {
                     let storage = buf.read_all();
                     Message::AuthenticationSasl(AuthenticationSaslBody(storage))
@@ -224,14 +181,10 @@ impl MessageRaw {
                     ));
                 }
             },
-            PORTAL_SUSPENDED_TAG => {
-                empty_check!(buf);
-                Message::PortalSuspended
-            }
+            PORTAL_SUSPENDED_TAG => Message::PortalSuspended,
             PARAMETER_STATUS_TAG => {
                 let name = buf.read_cstr()?;
                 let value = buf.read_cstr()?;
-                empty_check!(buf);
                 Message::ParameterStatus(ParameterStatusBody { name, value })
             }
             PARAMETER_DESCRIPTION_TAG => {
@@ -246,7 +199,6 @@ impl MessageRaw {
             }
             READY_FOR_QUERY_TAG => {
                 let status = buf.read_u8()?;
-                empty_check!(buf);
                 Message::ReadyForQuery(ReadyForQueryBody { status })
             }
             tag => {
@@ -256,6 +208,12 @@ impl MessageRaw {
                 ));
             }
         };
+
+        #[cfg(debug_assertions)]
+        assert!(
+            buf.slice().is_empty(),
+            "invalid message length: expected buffer to be empty"
+        );
 
         Ok(message)
     }
@@ -274,22 +232,28 @@ impl Buffer {
 
     #[inline]
     fn read_cstr(&mut self) -> io::Result<Bytes> {
-        match memchr::memchr(0, self.slice()) {
-            Some(pos) => {
-                let start = self.idx;
-                let end = start + pos;
-                let cstr = self.bytes.slice(start..end);
-                self.idx = end + 1;
-                Ok(cstr)
-            }
-            None => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF")),
-        }
+        let pos = memchr::memchr(0, self.slice())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"))?;
+        let start = self.idx;
+        let end = start + pos;
+        let cstr = self.bytes.slice(start..end);
+        self.idx = end + 1;
+        Ok(cstr)
     }
 
+    #[cfg(not(debug_assertions))]
     #[inline(always)]
     fn read_all(mut self) -> Bytes {
+        use xitca_io::bytes::Buf;
         self.bytes.advance(self.idx);
         self.bytes
+    }
+
+    #[cfg(debug_assertions)]
+    fn read_all(&mut self) -> Bytes {
+        let buf = self.bytes.slice(self.idx..);
+        self.idx = self.bytes.len();
+        buf
     }
 }
 
@@ -456,14 +420,14 @@ impl FallibleIterator for ColumnFormats<'_> {
     #[inline]
     fn next(&mut self) -> io::Result<Option<u16>> {
         if self.remaining == 0 {
-            if self.buf.is_empty() {
-                return Ok(None);
+            return if self.buf.is_empty() {
+                Ok(None)
             } else {
-                return Err(io::Error::new(
+                Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "invalid message length: wrong column formats",
-                ));
-            }
+                ))
+            };
         }
 
         self.remaining -= 1;
@@ -538,14 +502,14 @@ impl FallibleIterator for DataRowRanges<'_> {
     #[inline]
     fn next(&mut self) -> io::Result<Option<Option<Range<usize>>>> {
         if self.remaining == 0 {
-            if self.buf.is_empty() {
-                return Ok(None);
+            return if self.buf.is_empty() {
+                Ok(None)
             } else {
-                return Err(io::Error::new(
+                Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "invalid message length: datarowrange is not empty",
-                ));
-            }
+                ))
+            };
         }
 
         self.remaining -= 1;
@@ -593,14 +557,14 @@ impl<'a> FallibleIterator for ErrorFields<'a> {
     fn next(&mut self) -> io::Result<Option<ErrorField<'a>>> {
         let type_ = self.buf.read_u8()?;
         if type_ == 0 {
-            if self.buf.is_empty() {
-                return Ok(None);
+            return if self.buf.is_empty() {
+                Ok(None)
             } else {
-                return Err(io::Error::new(
+                Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "invalid message length: error fields is not drained",
-                ));
-            }
+                ))
+            };
         }
 
         let value_end = find_null(self.buf, 0)?;
@@ -695,14 +659,14 @@ impl FallibleIterator for Parameters<'_> {
     #[inline]
     fn next(&mut self) -> io::Result<Option<Oid>> {
         if self.remaining == 0 {
-            if self.buf.is_empty() {
-                return Ok(None);
+            return if self.buf.is_empty() {
+                Ok(None)
             } else {
-                return Err(io::Error::new(
+                Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "invalid message length: parameters is not drained",
-                ));
-            }
+                ))
+            };
         }
 
         self.remaining -= 1;
@@ -771,14 +735,14 @@ impl<'a> FallibleIterator for Fields<'a> {
     #[inline]
     fn next(&mut self) -> io::Result<Option<Field<'a>>> {
         if self.remaining == 0 {
-            if self.buf.is_empty() {
-                return Ok(None);
+            return if self.buf.is_empty() {
+                Ok(None)
             } else {
-                return Err(io::Error::new(
+                Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "invalid message length: field is not drained",
-                ));
-            }
+                ))
+            };
         }
 
         self.remaining -= 1;

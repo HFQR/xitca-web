@@ -118,7 +118,7 @@ pub(super) struct BytesMessage {
 impl BytesMessage {
     #[cold]
     #[inline(never)]
-    pub(super) fn parse_error(self) -> Error {
+    pub(super) fn into_error(self) -> Error {
         match self.msg.try_into_message() {
             Err(e) => Error::from(e),
             Ok(backend::Message::ErrorResponse(body)) => Error::db(body.fields()),
