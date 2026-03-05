@@ -132,7 +132,10 @@ pub(super) struct State {
 
 impl State {
     fn register(&mut self, waker: &Waker) {
-        self.waker = Some(waker.clone());
+        match self.waker {
+            Some(ref w) if w.will_wake(waker) => {}
+            _ => self.waker = Some(waker.clone()),
+        };
     }
 
     fn wake(&mut self) {
