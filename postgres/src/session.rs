@@ -116,8 +116,8 @@ impl Session {
             loop {
                 match drv.recv().await? {
                     backend::Message::DataRow(body) => {
-                        let range = body.ranges().next()?.flatten().ok_or(Error::todo())?;
-                        let slice = &body.buffer()[range.start..range.end];
+                        let range = body.ranges().next()?.ok_or(Error::todo())?;
+                        let slice = body.buffer().get(range).ok_or(Error::todo())?;
                         match (slice, cfg.get_target_session_attrs()) {
                             (b"on", TargetSessionAttrs::ReadWrite) => return Err(Error::todo()),
                             (b"off", TargetSessionAttrs::ReadOnly) => return Err(Error::todo()),
