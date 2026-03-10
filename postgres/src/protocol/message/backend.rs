@@ -308,7 +308,7 @@ impl<'a> FallibleIterator for SaslMechanisms<'a> {
 
     #[inline]
     fn next(&mut self) -> io::Result<Option<&'a str>> {
-        let value_end = find_null(self.0, 0)?;
+        let value_end = find_null(self.0)?;
         if value_end == 0 {
             if self.0.len() != 1 {
                 return Err(io::Error::new(
@@ -496,11 +496,11 @@ pub struct DataRowRanges<'a> {
 }
 
 impl FallibleIterator for DataRowRanges<'_> {
-    type Item = Option<Range<usize>>;
+    type Item = Range<usize>;
     type Error = io::Error;
 
     #[inline]
-    fn next(&mut self) -> io::Result<Option<Option<Range<usize>>>> {
+    fn next(&mut self) -> io::Result<Option<Range<usize>>> {
         if self.remaining == 0 {
             return if self.buf.is_empty() {
                 Ok(None)
@@ -515,7 +515,15 @@ impl FallibleIterator for DataRowRanges<'_> {
         self.remaining -= 1;
         let len = self.buf.read_i32::<BigEndian>()?;
         if len < 0 {
-            Ok(Some(None))
+            /*
+                an empty Range value is used to represent null pg value offsets inside row's raw
+                data buffer.
+                when empty range is used to slice data collection through a safe Rust API(`<&[u8]>::get(Range<usize>)`
+                in this case) it always produce Option type where the None variant can be used as final output of null
+                pg value.
+                this saves 8 bytes per range storage
+            */
+            Ok(Some(Range { start: 1, end: 0 }))
         } else {
             let len = len as usize;
             if self.buf.len() < len {
@@ -523,7 +531,7 @@ impl FallibleIterator for DataRowRanges<'_> {
             }
             let base = self.len - self.buf.len();
             self.buf = &self.buf[len..];
-            Ok(Some(Some(base..base + len)))
+            Ok(Some(base..base + len))
         }
     }
 
@@ -567,7 +575,7 @@ impl<'a> FallibleIterator for ErrorFields<'a> {
             };
         }
 
-        let value_end = find_null(self.buf, 0)?;
+        let value_end = find_null(self.buf)?;
         let value = &self.buf[..value_end];
         self.buf = &self.buf[value_end + 1..];
 
@@ -746,7 +754,7 @@ impl<'a> FallibleIterator for Fields<'a> {
         }
 
         self.remaining -= 1;
-        let name_end = find_null(self.buf, 0)?;
+        let name_end = find_null(self.buf)?;
         let name = get_str(&self.buf[..name_end])?;
         self.buf = &self.buf[name_end + 1..];
         let table_oid = self.buf.read_u32::<BigEndian>()?;
@@ -822,11 +830,8 @@ impl<'a> Field<'a> {
 }
 
 #[inline]
-fn find_null(buf: &[u8], start: usize) -> io::Result<usize> {
-    match memchr::memchr(0, &buf[start..]) {
-        Some(pos) => Ok(pos + start),
-        None => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF")),
-    }
+fn find_null(buf: &[u8]) -> io::Result<usize> {
+    memchr::memchr(0, buf).ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"))
 }
 
 #[inline]

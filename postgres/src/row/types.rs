@@ -57,15 +57,7 @@ where
         ranges_mut.clear();
 
         while let Some(range) = iter.next()? {
-            /*
-                when unwrapping the Range an empty value is used to represent null pg value offsets inside row's raw
-                data buffer.
-                when empty range is used to slice data collection through a safe Rust API(`<&[u8]>::get(Range<usize>)`
-                in this case) it always produce Option type where the None variant can be used as final output of null
-                pg value.
-                this saves 8 bytes per range storage
-            */
-            ranges_mut.push(range.unwrap_or(Range { start: 1, end: 0 }));
+            ranges_mut.push(range);
         }
 
         Ok(Self {
