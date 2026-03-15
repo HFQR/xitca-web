@@ -102,13 +102,13 @@ impl Params {
         });
     }
 
-    // Transform each key.
-    pub(crate) fn for_each_key_mut(&mut self, f: impl Fn((usize, &mut SmallStr))) {
+    // Set each param key from the provided slice, zipping with the stored params.
+    // Using zip avoids a bounds check on keys[i] that indexed access would require.
+    pub(crate) fn apply_keys(&mut self, keys: &[SmallStr]) {
         self.inner
             .iter_mut()
-            .map(|param| &mut param.key)
-            .enumerate()
-            .for_each(f);
+            .zip(keys.iter())
+            .for_each(|(param, key)| param.key = key.clone());
     }
 }
 
