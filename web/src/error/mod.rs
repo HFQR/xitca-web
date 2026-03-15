@@ -248,6 +248,61 @@ impl Error {
         }
         e
     }
+
+    /// Specialized error to response conversion to workaround trait impl specialization.
+    /// This API is often used when calling `Service::call(&Error)` from another error type's Service impl.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use std::{convert::Infallible, fmt};
+    ///
+    /// use xitca_web::{
+    ///     error::{Error, Request},
+    ///     handler::{json::Json, Responder},
+    ///     http::WebResponse,
+    ///     service::Service,
+    ///     WebContext
+    /// };
+    ///
+    /// // a self defined error type and necessary error implements.
+    /// #[derive(Debug)]
+    /// struct MyError;
+    ///
+    /// impl fmt::Display for MyError {
+    ///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    ///         f.write_str("my error")
+    ///     }
+    /// }
+    ///
+    /// impl std::error::Error for MyError {}
+    ///
+    /// impl From<MyError> for Error {
+    ///     fn from(e: MyError) -> Self {
+    ///         Self::from_service(e)
+    ///     }
+    /// }
+    ///
+    /// // Assuming application state is needed in error handler then this is the Service impl
+    /// // you want to write
+    /// impl<'r> Service<WebContext<'r, Request<'r>>> for MyError {
+    ///     type Response = WebResponse;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn call(&self, mut ctx: WebContext<'r, Request<'r>>) -> Result<Self::Response, Self::Error> {
+    ///         // an invalid json object would fail to be conerted to web response.
+    ///         match Json(r#"{"key": value}"#).respond(ctx.reborrow()).await {
+    ///             Ok(res) => Ok(res),
+    ///             // assuming we want to convert the json failure as final error response to client
+    ///             // but <Error as Service>::call can't be used here due to it's trait impl bound.
+    ///             // instead we use Error::call_dyn instead to workaround the limitation
+    ///             Err(e) => e.call_dyn(ctx).await
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    pub async fn call_dyn(&self, ctx: WebContext<'_, Request<'_>>) -> Result<WebResponse, Infallible> {
+        crate::service::object::ServiceObject::call(&self.0, ctx).await
+    }
 }
 
 impl fmt::Debug for Error {
@@ -282,14 +337,11 @@ where
 
     async fn call(&self, ctx: WebContext<'r, C>) -> Result<Self::Response, Self::Error> {
         let WebContext { req, body, ctx } = ctx;
-        crate::service::object::ServiceObject::call(
-            &self.0,
-            WebContext {
-                req,
-                body,
-                ctx: &Request { inner: ctx as _ },
-            },
-        )
+        self.call_dyn(WebContext {
+            req,
+            body,
+            ctx: &Request { inner: ctx as _ },
+        })
         .await
     }
 }

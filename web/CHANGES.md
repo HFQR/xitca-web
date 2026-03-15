@@ -1,4 +1,7 @@
 # unreleased 0.8.0
+## Add
+- Add `error::Error::call_dyn` enabling object oriented web response conversion in arbitrary error type's Service impl
+
 ## Change
 - Router rework. Named param is capatured with `{x}` instead of `:x`. Catch all is captured with `{*x}` intead of `*x`. For detail please reference `App::at` doc
 - update `xitca-http` to `0.8.2`
