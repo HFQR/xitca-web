@@ -58,10 +58,10 @@ impl InsertError {
         let mut route = route.clone();
 
         // The route is conflicting with the current node.
-        if prefix.unescaped() == current.prefix.unescaped() {
+        if *prefix == *current.prefix {
             denormalize_params(&mut route, &current.remapping);
             return InsertError::Conflict {
-                with: String::from_utf8(route.into_unescaped()).unwrap(),
+                with: route.into_unescaped(),
             };
         }
 
@@ -89,7 +89,7 @@ impl InsertError {
 
         // Return the conflicting route.
         InsertError::Conflict {
-            with: String::from_utf8(route.into_unescaped()).unwrap(),
+            with: route.into_unescaped(),
         }
     }
 }
