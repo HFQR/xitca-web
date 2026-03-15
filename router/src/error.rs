@@ -1,9 +1,9 @@
 use core::{error, fmt, ops::Deref};
 
 use crate::{
-    escape::{UnescapedRef, UnescapedRoute},
-    tree::{denormalize_params, Node},
     String, Vec,
+    escape::{UnescapedRef, UnescapedRoute},
+    tree::{Node, denormalize_params},
 };
 
 /// Represents errors that can occur when inserting a new route.

@@ -1,10 +1,10 @@
 use core::{cmp, fmt, mem, ops::Range};
 
 use crate::{
+    Box, SmallStr, String, Vec,
     error::{InsertError, MatchError},
     escape::{UnescapedRef, UnescapedRoute},
     params::Params,
-    Box, SmallStr, String, Vec,
 };
 
 /// A radix tree used for URL path matching.

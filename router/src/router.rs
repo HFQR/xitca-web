@@ -1,8 +1,8 @@
 use crate::{
+    String, Vec,
     error::{InsertError, MatchError, MergeError},
     params::Params,
     tree::Node,
-    String, Vec,
 };
 
 /// A zero-copy URL router.
