@@ -42,8 +42,58 @@ pub(super) enum FieldDecoder {
     Fixed(u64),
     #[default]
     StreamBegin,
-    StreamPossibleEnd,
+    StreamDelimiter,
     StreamEnd,
+}
+
+// Tracks progress through the `\r\n--` prefix of a multipart inter-field
+// boundary delimiter.  Each variant records how many bytes have been
+// consecutively matched at a chunk boundary.
+#[derive(Copy, Clone)]
+pub(super) enum DelimiterState {
+    Cr,           // matched `\r`
+    CrLf,         // matched `\r\n`
+    CrLfDash,     // matched `\r\n-`
+    CrLfDashDash, // matched `\r\n--`; partial boundary name follows in buf
+}
+
+impl DelimiterState {
+    // Advance the state by one byte of `\r\n--`.
+    // Returns `None` if `byte` breaks the match.
+    fn step(self, byte: u8) -> Option<Self> {
+        match (self, byte) {
+            (Self::Cr, b'\n') => Some(Self::CrLf),
+            (Self::CrLf, b'-') => Some(Self::CrLfDash),
+            (Self::CrLfDash, b'-') => Some(Self::CrLfDashDash),
+            _ => None,
+        }
+    }
+
+    // Find the longest suffix of `bytes` that is a prefix of `\r\n--`.
+    // Scans the last 3 bytes (the longest prefix without `--`), restarting
+    // the match each time a fresh `\r` is encountered.
+    fn from_tail(bytes: &[u8]) -> Option<Self> {
+        let tail = &bytes[bytes.len().saturating_sub(3)..];
+        let mut state: Option<Self> = None;
+        for &byte in tail {
+            state = if byte == b'\r' {
+                Some(Self::Cr) // start or restart on \r
+            } else {
+                state.and_then(|s| s.step(byte))
+            };
+        }
+        state
+    }
+
+    // Number of `\r\n--` bytes represented by this state.
+    fn matched(self) -> usize {
+        match self {
+            Self::Cr => 1,
+            Self::CrLf => 2,
+            Self::CrLfDash => 3,
+            Self::CrLfDashDash => 4,
+        }
+    }
 }
 
 impl<S, T, E> Field<'_, S>
@@ -88,7 +138,7 @@ where
                         let chunk = buf.split_to(at as usize).freeze();
                         return Ok(Some(chunk));
                     }
-                    FieldDecoder::StreamBegin | FieldDecoder::StreamPossibleEnd => {
+                    FieldDecoder::StreamBegin | FieldDecoder::StreamDelimiter => {
                         if let Some(at) = self.decoder.try_find_split_idx(buf, multipart.boundary)? {
                             return Ok(Some(buf.split_to(at).freeze()));
                         }
@@ -96,38 +146,48 @@ where
                 }
             }
 
-            // multipart buffer is empty. read more from stream.
-            let item = self.multipart.as_mut().try_read_stream().await?;
-
-            let multipart = self.multipart.as_mut().project();
-            let buf = multipart.buf;
-
-            // try to deal with the read bytes in place before extend to multipart buffer.
-            match self.decoder {
-                FieldDecoder::Fixed(0) => {
-                    buf.extend_from_slice(item.as_ref());
-                    *multipart.pending_field = false;
-                    return Ok(None);
-                }
-                FieldDecoder::Fixed(ref mut len) => {
-                    let chunk = item.as_ref();
-                    let at = cmp::min(*len, chunk.len() as u64);
-                    *len -= at;
-                    let bytes = split_bytes(item, at as usize, buf);
-                    return Ok(Some(bytes));
-                }
-                FieldDecoder::StreamBegin => match self.decoder.try_find_split_idx(&item, multipart.boundary)? {
-                    Some(at) => {
-                        let bytes = split_bytes(item, at, buf);
-                        return Ok(Some(bytes));
-                    }
-                    None => buf.extend_from_slice(item.as_ref()),
-                },
-                // possible boundary where partial boundary is already in the the buffer. so extend to it and check again.
-                FieldDecoder::StreamPossibleEnd => buf.extend_from_slice(item.as_ref()),
+            match &mut self.decoder {
+                // try_find_split_idx may mutate the decoder state to stream end.
+                // check it before reading more data from stream
                 FieldDecoder::StreamEnd => {
                     *multipart.pending_field = false;
                     return Ok(None);
+                }
+                decoder => {
+                    // multipart buffer is empty. read more from stream.
+                    let item = self.multipart.as_mut().try_read_stream().await?;
+
+                    let multipart = self.multipart.as_mut().project();
+                    let buf = multipart.buf;
+
+                    // try to deal with the read bytes in place before extend to multipart buffer.
+                    match decoder {
+                        FieldDecoder::Fixed(0) => {
+                            buf.extend_from_slice(item.as_ref());
+                            *multipart.pending_field = false;
+                            return Ok(None);
+                        }
+                        FieldDecoder::Fixed(len) => {
+                            let chunk = item.as_ref();
+                            let at = cmp::min(*len, chunk.len() as u64);
+                            *len -= at;
+                            let bytes = split_bytes(item, at as usize, buf);
+                            return Ok(Some(bytes));
+                        }
+                        FieldDecoder::StreamBegin => {
+                            match self.decoder.try_find_split_idx(&item, multipart.boundary)? {
+                                Some(at) => {
+                                    let bytes = split_bytes(item, at, buf);
+                                    return Ok(Some(bytes));
+                                }
+                                None => buf.extend_from_slice(item.as_ref()),
+                            }
+                        }
+                        // partial delimiter bytes are already in buf; combine with new data
+                        // before searching so that a split "\r\n--" is not missed.
+                        FieldDecoder::StreamDelimiter => buf.extend_from_slice(item.as_ref()),
+                        FieldDecoder::StreamEnd => unreachable!("outter match covered branch already"),
+                    }
                 }
             }
         }
@@ -140,31 +200,49 @@ impl FieldDecoder {
         T: AsRef<[u8]>,
     {
         let item = item.as_ref();
-        match memmem::find(item, super::DOUBLE_HYPHEN) {
+
+        match memmem::find(item, super::FIELD_DELIMITER) {
             Some(idx) => {
-                let start = idx + super::DOUBLE_HYPHEN.len();
+                let start = idx + super::FIELD_DELIMITER.len();
                 let length = cmp::min(item.len() - start, boundary.len());
-                let end = start + length;
+                let slice = &item[start..start + length];
 
-                let slice = &item[start..end];
-
-                // not boundary so split till end offset.
+                // not boundary — yield up to the end of the checked bytes.
                 if !boundary.starts_with(slice) {
-                    return Ok(Some(end));
+                    return Ok(Some(start + length));
                 }
 
-                // possible boundary but no full view yet.
-                if boundary.len() > slice.len() {
-                    *self = FieldDecoder::StreamPossibleEnd;
-                    return Ok(None);
-                }
+                // boundary prefix matched but full name not yet visible.
+                *self = if boundary.len() > slice.len() {
+                    FieldDecoder::StreamDelimiter
+                } else {
+                    FieldDecoder::StreamEnd
+                };
 
-                *self = FieldDecoder::StreamEnd;
-
-                let idx = idx.checked_sub(2).ok_or(MultipartError::Boundary)?;
-                Ok(Some(idx))
+                // caller would split a byte buffer based on returned idx
+                // split at 0 is wasteful
+                Ok((idx > 0).then_some(idx))
             }
-            None => Ok(Some(item.len())),
+            None => {
+                // No "\r\n--" in this item.  Use DelimiterState::step to check
+                // whether the tail is a partial prefix of "\r\n--" so those bytes
+                // can be kept in the buffer for the next read to complete the match.
+                match DelimiterState::from_tail(item) {
+                    Some(state) if state.matched() >= item.len() => {
+                        // Entire item is a potential partial prefix; need more data.
+                        *self = FieldDecoder::StreamDelimiter;
+                        Ok(None)
+                    }
+                    Some(state) => {
+                        *self = FieldDecoder::StreamDelimiter;
+                        Ok(Some(item.len() - state.matched()))
+                    }
+                    None => {
+                        *self = FieldDecoder::StreamBegin;
+                        Ok(Some(item.len()))
+                    }
+                }
+            }
         }
     }
 }
@@ -211,5 +289,49 @@ mod test {
         assert!(try_downcast_to_bytes(bytes).is_ok());
         let bytes = Vec::<u8>::new();
         assert!(try_downcast_to_bytes(bytes).is_err());
+    }
+
+    #[test]
+    fn delimiter_state_step() {
+        // happy path: \r\n--
+        let s = DelimiterState::Cr;
+        let s = s.step(b'\n').unwrap();
+        assert!(matches!(s, DelimiterState::CrLf));
+        let s = s.step(b'-').unwrap();
+        assert!(matches!(s, DelimiterState::CrLfDash));
+        let s = s.step(b'-').unwrap();
+        assert!(matches!(s, DelimiterState::CrLfDashDash));
+
+        // mismatch breaks the chain
+        assert!(DelimiterState::Cr.step(b'x').is_none());
+        assert!(DelimiterState::CrLf.step(b'x').is_none());
+        assert!(DelimiterState::CrLfDash.step(b'x').is_none());
+    }
+
+    #[test]
+    fn delimiter_state_from_tail() {
+        assert!(matches!(DelimiterState::from_tail(b"abc\r"), Some(DelimiterState::Cr)));
+        assert!(matches!(
+            DelimiterState::from_tail(b"abc\r\n"),
+            Some(DelimiterState::CrLf)
+        ));
+        assert!(matches!(
+            DelimiterState::from_tail(b"abc\r\n-"),
+            Some(DelimiterState::CrLfDash)
+        ));
+        // \r\n-- contains "--" so it is caught by the memmem path, not from_tail;
+        // from_tail only sees it when the entire item is that prefix.
+        assert!(matches!(
+            DelimiterState::from_tail(b"\r\n-"),
+            Some(DelimiterState::CrLfDash)
+        ));
+        // restart on a second \r
+        assert!(matches!(
+            DelimiterState::from_tail(b"\r\r\n"),
+            Some(DelimiterState::CrLf)
+        ));
+        // no match
+        assert!(DelimiterState::from_tail(b"abcxyz").is_none());
+        assert!(DelimiterState::from_tail(b"").is_none());
     }
 }

@@ -121,6 +121,7 @@ pin_project! {
 const DOUBLE_HYPHEN: &[u8; 2] = b"--";
 const LF: &[u8; 1] = b"\n";
 const DOUBLE_CR_LF: &[u8; 4] = b"\r\n\r\n";
+const FIELD_DELIMITER: &[u8; 4] = b"\r\n--";
 
 impl<S, T, E> Multipart<S>
 where
@@ -410,6 +411,111 @@ mod test {
             multipart.try_next().now_or_never().unwrap().err().unwrap(),
             MultipartError::Header(httparse::Error::TooManyHeaders)
         ));
+    }
+
+    // Regression: boundary() in header.rs computed `end` as a subslice-relative
+    // index rather than an absolute one, so &header[start..end] panicked when
+    // Content-Type contained extra parameters after the boundary value.
+    #[test]
+    fn boundary_with_trailing_content_type_param() {
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/form-data; boundary=abc; charset=utf-8"),
+        );
+        let body = once_body(Bytes::new());
+        // Should extract boundary "abc" without panicking.
+        let result = multipart(&req, body);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn boundary_quoted() {
+        // RFC 2045 §5.1: boundary may be a quoted-string.
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/form-data; boundary=\"abc def\""),
+        );
+        let body = once_body(Bytes::new());
+        // Should extract "abc def" (quotes stripped), not fail.
+        assert!(multipart(&req, body).is_ok());
+    }
+
+    #[test]
+    fn boundary_unquoted_whitespace() {
+        // Unquoted boundary values may carry surrounding OWS from header folding.
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/form-data; boundary= abc "),
+        );
+        let body = once_body(Bytes::new());
+        // Should extract "abc" (whitespace trimmed), not fail.
+        assert!(multipart(&req, body).is_ok());
+    }
+
+    #[test]
+    fn boundary_quoted_with_leading_whitespace() {
+        // OWS before the opening quote must also be accepted.
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/form-data; boundary= \"abc def\""),
+        );
+        let body = once_body(Bytes::new());
+        assert!(multipart(&req, body).is_ok());
+    }
+
+    #[test]
+    fn boundary_quoted_unclosed() {
+        // An unclosed quote is malformed and must return an error.
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("multipart/form-data; boundary=\"unclosed"),
+        );
+        let body = once_body(Bytes::new());
+        assert!(matches!(multipart(&req, body), Err(MultipartError::Boundary)));
+    }
+
+    #[test]
+    fn consume_field_boundary_split_across_chunks() {
+        // Full logical body (boundary = "abc"):
+        //   --abc\r\n<headers-f1>\r\n\r\nsomedata\r\n--abc\r\n<headers-f2>\r\n\r\nhello\r\n--abc--\r\n
+        //
+        // Split just before the second '-' of "--abc":
+        let chunk1 = Bytes::from_static(b"--abc\r\nContent-Disposition: form-data; name=\"f1\"\r\n\r\nsomedata\r\n-");
+        let chunk2 =
+            Bytes::from_static(b"-abc\r\nContent-Disposition: form-data; name=\"f2\"\r\n\r\nhello\r\n--abc--\r\n");
+
+        let mut req = Request::new(());
+        *req.method_mut() = Method::POST;
+        req.headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static("multipart/mixed; boundary=abc"));
+
+        let body = futures_util::stream::iter(vec![Ok::<_, Infallible>(chunk1), Ok(chunk2)]);
+        let multipart = multipart(&req, body).unwrap();
+        let mut multipart = pin!(multipart);
+
+        // Retrieve field1 then drop it without consuming any bytes.
+        // The next try_next() call will invoke consume_pending_field(), which
+        // is where the split-boundary bug manifests.
+        {
+            let _field1 = multipart.try_next().now_or_never().unwrap().unwrap().unwrap();
+        }
+
+        // field2 must still be accessible.
+        let field2 = multipart.try_next().now_or_never().unwrap().unwrap();
+        assert!(
+            field2.is_some(),
+            "field2 was skipped because '--' was split across two stream chunks"
+        );
     }
 
     #[test]
