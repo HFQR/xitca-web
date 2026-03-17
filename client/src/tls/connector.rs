@@ -69,7 +69,7 @@ pub(crate) mod openssl {
         }
     }
 
-    pub(crate) fn connect(protocols: &[&[u8]]) -> Connector {
+    pub(crate) fn connect(protocols: &[&[u8]], #[cfg(feature = "dangerous")] allow_invalid_certs: bool) -> Connector {
         let mut alpn = Vec::with_capacity(20);
         for proto in protocols {
             alpn.put_u8(proto.len() as u8);
@@ -81,6 +81,13 @@ pub(crate) mod openssl {
         ssl.set_alpn_protos(&alpn)
             .unwrap_or_else(|e| panic!("Can not set ALPN protocol: {e:?}"));
 
+        #[cfg(feature = "dangerous")]
+        {
+            if allow_invalid_certs {
+                ssl.set_verify(openssl::ssl::SslVerifyMode::NONE);
+            }
+        }
+
         Box::new(ssl.build())
     }
 }
@@ -89,10 +96,9 @@ pub(crate) mod openssl {
 pub(crate) mod rustls {
     use std::sync::Arc;
 
+    use super::*;
     use webpki_roots::TLS_SERVER_ROOTS;
     use xitca_tls::rustls::{self, ClientConfig, ClientConnection, RootCertStore, pki_types::ServerName};
-
-    use super::*;
 
     pub struct TlsConnector(Arc<ClientConfig>);
 
@@ -123,7 +129,7 @@ pub(crate) mod rustls {
         }
     }
 
-    pub(crate) fn connect(protocols: &[&[u8]]) -> Connector {
+    pub(crate) fn connect(protocols: &[&[u8]], #[cfg(feature = "dangerous")] allow_invalid_certs: bool) -> Connector {
         let mut root_certs = RootCertStore::empty();
 
         root_certs.extend(TLS_SERVER_ROOTS.iter().cloned());
@@ -133,6 +139,21 @@ pub(crate) mod rustls {
             .with_no_client_auth();
 
         config.alpn_protocols = protocols.iter().map(|p| p.to_vec()).collect();
+
+        #[cfg(feature = "dangerous")]
+        {
+            if allow_invalid_certs {
+                #[cfg(feature = "rustls-ring-crypto")]
+                {
+                    config
+                        .dangerous()
+                        .set_certificate_verifier(crate::tls::dangerous::rustls::SkipServerVerification::new());
+                }
+
+                #[cfg(not(feature = "rustls-ring-crypto"))]
+                unimplemented!("cannot skip server verification without `rustls-ring-crypto` feature");
+            }
+        }
 
         Box::new(TlsConnector(Arc::new(config)))
     }
