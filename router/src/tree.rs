@@ -83,10 +83,7 @@ struct InsertState<'node, T> {
 impl<'node, T> InsertState<'node, T> {
     /// Returns a reference to the parent node for the traversal.
     fn parent(&self) -> Option<&Node<T>> {
-        match self.child {
-            None => None,
-            Some(_) => Some(self.parent),
-        }
+        self.child.is_some().then_some(self.parent)
     }
 
     /// Returns a reference to the current node in the traversal.
@@ -975,6 +972,7 @@ impl<T> Node<T> {
     /// Test helper that ensures route priorities are consistent.
     pub(super) fn check_priorities(&self) -> Result<u32, (u32, u32)> {
         let mut priority: u32 = 0;
+
         for child in &self.children {
             priority += child.check_priorities()?;
         }
@@ -983,11 +981,11 @@ impl<T> Node<T> {
             priority += 1;
         }
 
-        if self.priority != priority {
-            return Err((self.priority, priority));
+        if self.priority == priority {
+            Ok(priority)
+        } else {
+            Err((self.priority, priority))
         }
-
-        Ok(priority)
     }
 }
 
@@ -1010,14 +1008,11 @@ type ParamRemapping = Box<[SmallStr]>;
 #[cold]
 #[inline(never)]
 fn try_match_empty_catchall<T>(node: &Node<T>) -> Option<&T> {
-    if !node.wild_child {
-        return None;
-    }
-    let child = node.children.last().unwrap();
-    if child.node_type == NodeType::CatchAllRelaxed {
-        return child.value.as_ref();
-    }
-    None
+    node.wild_child
+        .then(|| node.children.last())
+        .flatten()
+        .filter(|node| node.node_type == NodeType::CatchAllRelaxed)
+        .and_then(|node| node.value.as_ref())
 }
 
 /// Returns `path` with normalized route parameters, and a parameter remapping
@@ -1033,10 +1028,9 @@ fn normalize_params(mut path: UnescapedRoute) -> Result<(UnescapedRoute, ParamRe
 
     loop {
         // Find a wildcard to normalize.
-        let mut wildcard = match find_wildcard(path.as_ref().slice_off(start))? {
-            Some(wildcard) => wildcard,
-            // No wildcard, we are done.
-            None => return Ok((path, original.into_boxed_slice())),
+        // No wildcard, we are done.
+        let Some(mut wildcard) = find_wildcard(path.as_ref().slice_off(start))? else {
+            return Ok((path, original.into_boxed_slice()));
         };
 
         wildcard.start += start;
@@ -1084,18 +1078,16 @@ pub(crate) fn denormalize_params(route: &mut UnescapedRoute, params: &ParamRemap
         wildcard.start += start;
         wildcard.end += start;
 
-        // Get the corresponding parameter remapping.
-
         // Denormalize this parameter.
+        let mut denormalized = String::with_capacity(next.as_ref().len() + 2);
+        denormalized.push('{');
+        denormalized.push_str(next.as_ref());
+        denormalized.push('}');
 
-        let mut next = String::from(next.as_ref());
-        next.insert(0, '{');
-        next.push('}');
-
-        let _ = route.splice(wildcard.clone(), &next);
+        let _ = route.splice(wildcard.clone(), &denormalized);
 
         i += 1;
-        start = wildcard.start + next.len();
+        start = wildcard.start + denormalized.len();
     }
 }
 
@@ -1125,13 +1117,6 @@ fn find_wildcard(path: UnescapedRef<'_>) -> Result<Option<Range<usize>>, InsertE
                     if path.is_escaped(i) {
                         continue;
                     }
-
-                    // unlike matchit. single * is allowed as wildcard
-
-                    // Ensure catch-all parameters have a non-empty name.
-                    // if path.get(i - 1) == Some(&b'*') {
-                    //     return Err(InsertError::InvalidParam);
-                    // }
 
                     return Ok(Some(start..i + 1));
                 }
