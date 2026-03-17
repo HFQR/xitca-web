@@ -15,9 +15,25 @@ pub(super) fn boundary(headers: &HeaderMap) -> Result<&[u8], MultipartError> {
 
     let idx = memmem::find(header, b"boundary=").ok_or(MultipartError::Boundary)?;
     let start = idx + 9;
-    let end = memmem::find(&header[start..], b";").unwrap_or(header.len());
+    let end = memmem::find(&header[start..], b";")
+        .map(|i| start + i)
+        .unwrap_or(header.len());
 
-    Ok(&header[start..end])
+    // RFC 2045 §5.1: the boundary parameter may be a quoted-string
+    // (e.g. boundary="ab cd") or an unquoted token. Either form may have
+    // surrounding OWS from header folding, so trim first, then strip quotes.
+    let mut boundary = header[start..end].trim_ascii();
+
+    if let Some(quoted) = boundary.strip_prefix(b"\"") {
+        let end = memchr::memchr(b'"', quoted).ok_or(MultipartError::Boundary)?;
+        boundary = &quoted[..end];
+    }
+
+    if boundary.is_empty() {
+        return Err(MultipartError::Boundary);
+    }
+
+    Ok(boundary)
 }
 
 pub(super) fn parse_headers(headers: &mut HeaderMap, slice: &[u8]) -> Result<(), MultipartError> {
