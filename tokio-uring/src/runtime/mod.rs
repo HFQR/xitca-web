@@ -88,6 +88,13 @@ impl Runtime {
                         .flush();
                 });
             })
+            .on_thread_unpark(|| {
+                CONTEXT.with(|x| {
+                    if let Some(h) = x.handle() {
+                        h.dispatch_completions();
+                    }
+                });
+            })
             .enable_all();
 
         #[cfg(tokio_unstable)]
@@ -170,12 +177,10 @@ fn start_uring_wakes_task(tokio_rt: &TokioRt, _local: &tokio::task::LocalSet, dr
 
 async fn drive_uring_wakes(driver: AsyncFd<driver::Handle>) {
     loop {
-        // Wait for read-readiness
-        let mut guard = driver.readable().await.unwrap();
-
-        guard.get_inner().dispatch_completions();
-
-        guard.clear_ready();
+        // Wait for the ring fd to become readable (new CQEs available).
+        // Dispatch is handled in on_thread_unpark before the task scheduler runs,
+        // so here we only re-arm the EPOLLONESHOT registration.
+        driver.readable().await.unwrap().clear_ready();
     }
 }
 
