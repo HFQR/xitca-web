@@ -56,18 +56,18 @@ pub(super) fn parse_headers(headers: &mut HeaderMap, slice: &[u8]) -> Result<(),
 }
 
 pub(super) fn check_headers(headers: &HeaderMap) -> Result<(), MultipartError> {
-    let ct = headers
+    let nested = headers
         .get(&CONTENT_TYPE)
         .and_then(|ct| ct.to_str().ok())
-        .and_then(|ct| ct.parse().ok())
-        .unwrap_or(mime::APPLICATION_OCTET_STREAM);
+        .filter(|ct| ct.trim_start().starts_with("multipart/"))
+        .is_some();
 
     // nested multipart stream is not supported
-    if ct.type_() == mime::MULTIPART {
-        return Err(MultipartError::Nested);
+    if nested {
+        Err(MultipartError::Nested)
+    } else {
+        Ok(())
     }
-
-    Ok(())
 }
 
 pub(super) fn content_length_opt(headers: &HeaderMap) -> Result<Option<u64>, MultipartError> {
