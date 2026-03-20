@@ -131,6 +131,24 @@ impl Part {
     }
 
     fn format_headers_into(&self, buf: &mut BytesMut) {
+        let (low, up) = self.body.size_hint();
+        let exact = Some(low) == up;
+
+        // Fixed bytes:
+        //   "Content-Disposition: form-data; name=\""  38
+        //   closing quote + CRLF                        3
+        //   "Content-Type: " + CRLF                    16
+        //   final blank CRLF                             2
+        //                                         total 59
+        let mut len = 59 + self.name.len() + self.content_type.len();
+        if let Some(fname) = &self.filename {
+            len += 13 + fname.len(); // "; filename=\"" (12) + closing quote (1)
+        }
+        if exact {
+            len += 38; // "Content-Length: " (16) + up to 20 digits + CRLF (2)
+        }
+        buf.reserve(len);
+
         buf.extend_from_slice(b"Content-Disposition: form-data; name=\"");
         buf.extend_from_slice(self.name.as_bytes());
         buf.extend_from_slice(b"\"");
@@ -147,9 +165,7 @@ impl Part {
         buf.extend_from_slice(self.content_type.as_bytes());
         buf.extend_from_slice(b"\r\n");
 
-        let (low, up) = self.body.size_hint();
-
-        if Some(low) == up {
+        if exact {
             buf.extend_from_slice(b"Content-Length: ");
             buf.extend_from_slice(format!("{low}").as_bytes());
             buf.extend_from_slice(b"\r\n");
