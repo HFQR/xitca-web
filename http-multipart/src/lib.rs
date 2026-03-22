@@ -3,9 +3,14 @@
 mod content_disposition;
 mod error;
 mod field;
+mod form;
 mod header;
 
-pub use self::{error::MultipartError, field::Field};
+pub use self::{
+    error::MultipartError,
+    field::Field,
+    form::{Form, Part},
+};
 
 use core::{future::poll_fn, pin::Pin};
 

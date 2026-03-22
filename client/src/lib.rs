@@ -61,6 +61,9 @@ mod h3;
 #[cfg(feature = "websocket")]
 pub mod ws;
 
+#[cfg(feature = "multipart")]
+pub mod multipart;
+
 pub mod error;
 pub mod http_tunnel;
 pub mod middleware;

@@ -63,6 +63,13 @@ impl RequestBuilder<'_, marker::Http> {
         }
     }
 
+    #[cfg(feature = "multipart")]
+    pub fn multipart(mut self, parts: Vec<crate::multipart::Part>) -> Self {
+        let form = crate::multipart::Form::new(parts);
+        self.headers_mut().insert(CONTENT_TYPE, form.content_type());
+        self.method(Method::POST).stream(form)
+    }
+
     /// Use pre allocated bytes as request body.
     ///
     /// Input type must implement [From] trait with [Bytes].
