@@ -20,16 +20,22 @@ type BoxedStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send>>;
 ///
 /// # Examples
 /// ```rust
+/// use http::Request;
 /// use http_multipart::{Form, Part};
 ///
+/// // construct a form from parts
 /// let parts = vec![
 ///     Part::text("username", "alice"),
 ///     Part::binary("data", &b"hello"[..]).file_name("hello.bin"),
 /// ];
 /// let form = Form::new(parts);
 ///
-/// let content_type = form.content_type(); // set on the outgoing Request
-/// // `form` itself implements Stream — use it directly as the request body
+/// // build a request with the form
+/// let req = Request::builder()
+///     .method("POST") // multipart is usually used with POST method
+///     .header("Content-Type", form.content_type()) // content type header must be set to form's content type
+///     .body(form) // form implements Stream, so it can be used directly as the body
+///     .unwrap();
 /// ```
 pub struct Form {
     boundary: Box<[u8]>,
@@ -38,7 +44,7 @@ pub struct Form {
     buf: BytesMut,
 }
 
-/// A single field in a multipart form body.
+/// A single field for [`Form`]
 pub struct Part {
     name: String,
     filename: Option<String>,
@@ -208,15 +214,15 @@ impl Stream for Form {
                 this.buf.reserve(this.boundary.len() + 4);
                 this.buf.extend_from_slice(&this.boundary);
 
-                match this.parts.next() {
+                this.state = match this.parts.next() {
                     None => {
                         this.buf.extend_from_slice(b"--\r\n");
-                        this.state = StreamState::Done;
+                        StreamState::Done
                     }
                     Some(part) => {
                         this.buf.extend_from_slice(b"\r\n");
                         part.format_headers_into(&mut this.buf);
-                        this.state = StreamState::Body(part.body);
+                        StreamState::Body(part.body)
                     }
                 };
 
@@ -225,6 +231,8 @@ impl Stream for Form {
             StreamState::Body(body) => {
                 let chunk = ready!(body.as_mut().poll_next(cx)).unwrap_or_else(|| {
                     this.state = StreamState::NextPart;
+                    // the end of delimiter chunk is only 2 bytes.
+                    // downstream should try to buffer it to reduce fragmentation
                     Ok(Bytes::from_static(b"\r\n"))
                 });
 

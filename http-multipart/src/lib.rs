@@ -17,7 +17,7 @@ use core::{future::poll_fn, pin::Pin};
 use bytes::{Buf, BytesMut};
 use field::FieldDecoder;
 use futures_core::stream::Stream;
-use http::{header::HeaderMap, HeaderName, Method, Request};
+use http::{header::HeaderMap, Method, Request};
 use memchr::memmem;
 use pin_project_lite::pin_project;
 
@@ -94,30 +94,6 @@ where
         pending_field: false,
         config,
     })
-}
-
-/// Build a `multipart/form-data` [`Request`] from a list of [`Part`]s.
-///
-/// The returned request has the `Content-Type` header pre-set to
-/// `multipart/form-data; boundary=<generated>` and its body is a [`Form`]
-/// stream ready to be sent.
-///
-/// # Examples
-/// ```rust
-/// use http_multipart::{Part, multipart_request};
-///
-/// let req = multipart_request(vec![
-///     Part::text("username", "alice"),
-///     Part::binary("avatar", &b"\x89PNG..."[..]),
-/// ]);
-/// ```
-pub fn multipart_request(form: impl Into<Vec<Part>>) -> Request<Form> {
-    let form = Form::new(form.into());
-    Request::builder()
-        .method(Method::POST)
-        .header(HeaderName::from_static("content-type"), form.content_type())
-        .body(form)
-        .unwrap()
 }
 
 /// Configuration for [Multipart] type
