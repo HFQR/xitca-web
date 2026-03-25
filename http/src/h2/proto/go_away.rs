@@ -50,8 +50,7 @@ impl GoAway {
 
     pub fn load(payload: &[u8]) -> Result<GoAway, Error> {
         if payload.len() < 8 {
-            todo!()
-            // return Err(Error::BadFrameSize);
+            return Err(Error::MalformedMessage);
         }
 
         let (last_stream_id, _) = StreamId::parse(&payload[..4]);

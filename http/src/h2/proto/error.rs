@@ -1,10 +1,11 @@
 use std::io;
 
-use super::hpack::DecoderError;
+use super::{hpack::DecoderError, reason::Reason};
 
 #[derive(Debug)]
 pub(super) enum Error {
     MalformedMessage,
+    GoAway(Reason),
     Hpack(DecoderError),
     Io(io::Error),
 }

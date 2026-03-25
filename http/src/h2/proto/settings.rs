@@ -140,8 +140,7 @@ impl Settings {
         use self::Setting::*;
 
         if !head.stream_id().is_zero() {
-            todo!();
-            // return Err(Error::InvalidStreamId);
+            return Err(Error::MalformedMessage);
         }
 
         // Load the flag
@@ -150,8 +149,7 @@ impl Settings {
         if flag.is_ack() {
             // Ensure that the payload is empty
             if !payload.is_empty() {
-                todo!();
-                // return Err(Error::InvalidPayloadLength);
+                return Err(Error::MalformedMessage);
             }
 
             // Return the ACK frame
@@ -161,8 +159,7 @@ impl Settings {
         // Ensure the payload length is correct, each setting is 6 bytes long.
         if payload.len() % 6 != 0 {
             tracing::debug!("invalid settings payload length; len={:?}", payload.len());
-            todo!();
-            // return Err(Error::InvalidPayloadAckSettings);
+            return Err(Error::MalformedMessage);
         }
 
         let mut settings = Settings::default();
@@ -177,29 +174,22 @@ impl Settings {
                     0 | 1 => {
                         settings.enable_push = Some(val);
                     }
-                    _ => {
-                        todo!();
-                        // return Err(Error::InvalidSettingValue);
-                    }
+                    _ => return Err(Error::MalformedMessage),
                 },
                 Some(MaxConcurrentStreams(val)) => {
                     settings.max_concurrent_streams = Some(val);
                 }
                 Some(InitialWindowSize(val)) => {
                     if val as usize > MAX_INITIAL_WINDOW_SIZE {
-                        todo!();
-                        // return Err(Error::InvalidSettingValue);
-                    } else {
-                        settings.initial_window_size = Some(val);
+                        return Err(Error::MalformedMessage);
                     }
+                    settings.initial_window_size = Some(val);
                 }
                 Some(MaxFrameSize(val)) => {
                     if !(DEFAULT_MAX_FRAME_SIZE..=MAX_MAX_FRAME_SIZE).contains(&val) {
-                        todo!();
-                        // return Err(Error::InvalidSettingValue);
-                    } else {
-                        settings.max_frame_size = Some(val);
+                        return Err(Error::MalformedMessage);
                     }
+                    settings.max_frame_size = Some(val);
                 }
                 Some(MaxHeaderListSize(val)) => {
                     settings.max_header_list_size = Some(val);
@@ -208,10 +198,7 @@ impl Settings {
                     0 | 1 => {
                         settings.enable_connect_protocol = Some(val);
                     }
-                    _ => {
-                        todo!();
-                        // return Err(Error::InvalidSettingValue);
-                    }
+                    _ => return Err(Error::MalformedMessage),
                 },
                 None => {}
             }

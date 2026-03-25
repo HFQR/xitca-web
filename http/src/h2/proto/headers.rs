@@ -128,15 +128,13 @@ where
         tracing::trace!("loading headers; flags={:?}", flags);
 
         if head.stream_id().is_zero() {
-            todo!()
-            // return Err(Error::InvalidStreamId);
+            return Err(Error::MalformedMessage);
         }
 
         // Read the padding length
         if flags.is_padded() {
             if src.is_empty() {
-                todo!()
-                // return Err(Error::MalformedMessage);
+                return Err(Error::MalformedMessage);
             }
             pad = src[0] as usize;
 
@@ -147,14 +145,12 @@ where
         // Read the stream dependency
         let stream_dep = if flags.is_priority() {
             if src.len() < 5 {
-                todo!()
-                // return Err(Error::MalformedMessage);
+                return Err(Error::MalformedMessage);
             }
             let stream_dep = StreamDependency::load(&src[..5])?;
 
             if stream_dep.dependency_id() == head.stream_id() {
-                todo!()
-                // return Err(Error::InvalidDependencyId);
+                return Err(Error::MalformedMessage);
             }
 
             // Drop the next 5 bytes
@@ -167,8 +163,7 @@ where
 
         if pad > 0 {
             if pad > src.len() {
-                todo!()
-                // return Err(Error::TooMuchPadding);
+                return Err(Error::MalformedMessage);
             }
 
             let len = src.len() - pad;
@@ -488,13 +483,12 @@ impl From<HeadersFlag> for u8 {
 
 impl fmt::Debug for HeadersFlag {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        todo!()
-        // util::debug_flags(fmt, self.0)
-        //     .flag_if(self.is_end_headers(), "END_HEADERS")
-        //     .flag_if(self.is_end_stream(), "END_STREAM")
-        //     .flag_if(self.is_padded(), "PADDED")
-        //     .flag_if(self.is_priority(), "PRIORITY")
-        //     .finish()
+        fmt.debug_struct("HeadersFlag")
+            .field("end_headers", &self.is_end_headers())
+            .field("end_stream", &self.is_end_stream())
+            .field("padded", &self.is_padded())
+            .field("priority", &self.is_priority())
+            .finish()
     }
 }
 
