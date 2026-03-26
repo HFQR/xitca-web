@@ -6,6 +6,7 @@ use xitca_io::bytes::{BufMut, BytesMut};
 use super::{
     error::Error,
     head::{Head, Kind},
+    reason,
     stream_id::StreamId,
     unpack_octets_4,
 };
@@ -181,7 +182,9 @@ impl Settings {
                 }
                 Some(InitialWindowSize(val)) => {
                     if val as usize > MAX_INITIAL_WINDOW_SIZE {
-                        return Err(Error::MalformedMessage);
+                        // RFC 7540 §6.5.2: SETTINGS_INITIAL_WINDOW_SIZE exceeding
+                        // 2^31-1 is a connection error FLOW_CONTROL_ERROR.
+                        return Err(Error::GoAway(reason::Reason::FLOW_CONTROL_ERROR));
                     }
                     settings.initial_window_size = Some(val);
                 }

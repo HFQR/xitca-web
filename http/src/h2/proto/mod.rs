@@ -7,6 +7,7 @@ mod go_away;
 mod head;
 mod headers;
 mod hpack;
+mod ping;
 mod priority;
 mod reason;
 mod reset;

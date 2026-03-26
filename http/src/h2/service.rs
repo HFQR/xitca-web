@@ -85,6 +85,7 @@ mod io_uring {
     use crate::{
         config::HttpServiceConfig,
         date::{DateTime, DateTimeService},
+        h2::proto::dispatcher_uring::{Frame, RequestBody, run},
         util::timer::KeepAlive,
     };
 
@@ -123,10 +124,10 @@ mod io_uring {
     impl<S, B, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
         Service<(TcpStream, SocketAddr)> for H2UringService<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     where
-        S: Service<Request<RequestExt<crate::h2::proto::RequestBody>>, Response = Response<B>>,
+        S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
         A: Service<TcpStream>,
         A::Response: AsyncBufRead + AsyncBufWrite + 'static,
-        B: Stream<Item = Result<Bytes, BE>>,
+        B: Stream<Item = Result<Frame, BE>>,
         HttpServiceError<S::Error, BE>: From<A::Error>,
         S::Error: fmt::Debug,
         BE: fmt::Debug,
@@ -145,7 +146,7 @@ mod io_uring {
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            crate::h2::proto::run(io, &self.service).await.unwrap();
+            run(io, &self.service).await.unwrap();
 
             Ok(())
         }

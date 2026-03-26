@@ -122,7 +122,7 @@ impl Data<Bytes> {
         // The last Pad Length bytes are padding and must be stripped.
         // Pad Length >= remaining payload length is a PROTOCOL_ERROR.
         let pad_len = if flags.is_padded() {
-            let len = *payload.get(0).ok_or(Error::MalformedMessage)? as usize;
+            let len = *payload.first().ok_or(Error::MalformedMessage)? as usize;
             payload.advance(1);
             let data_len = payload.len().checked_sub(len).ok_or(Error::MalformedMessage)?;
             payload.truncate(data_len);
