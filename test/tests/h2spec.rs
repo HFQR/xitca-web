@@ -76,7 +76,11 @@ mod inner {
 
         std::thread::spawn(move || {
             let service = fn_service(move |(stream, _): (TcpStream, SocketAddr)| async move {
-                h2::run(stream, &fn_service(handler).call(()).now_or_panic().unwrap()).await
+                // Set max_concurrent_streams=1 so h2spec's 5.1.2 test only
+                // needs to open 2 simultaneous streams to trigger the limit.
+                let mut settings = h2::Settings::default();
+                settings.set_max_concurrent_streams(Some(1));
+                h2::run(stream, &fn_service(handler).call(()).now_or_panic().unwrap(), settings).await
             });
 
             let server = xitca_server::Builder::new()

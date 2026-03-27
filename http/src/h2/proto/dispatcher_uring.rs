@@ -360,11 +360,11 @@ impl WriterQueue {
     /// The O(n) search and zero-length fallback handle the rare exceptions.
     fn push_end_stream(&mut self, stream_id: StreamId) {
         for msg in self.messages.iter_mut().rev() {
-            if let Message::Data(d) = msg
-                && d.stream_id() == stream_id
-            {
-                d.set_end_stream(true);
-                return;
+            if let Message::Data(d) = msg {
+                if d.stream_id() == stream_id {
+                    d.set_end_stream(true);
+                    return;
+                }
             }
         }
 
@@ -605,17 +605,20 @@ impl<'a> DecodeContext<'a> {
                 flow.try_reset_stream(id)?;
             }
             (head::Kind::GoAway, _) => {
+                // The peer is shutting down. Always respond with graceful
+                // close regardless of the error code — RFC 7540 §7 says
+                // unknown error codes MUST NOT trigger special behavior.
                 let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
-                if go_away.reason() == Reason::NO_ERROR {
-                    return Err(Error::GoAway(Reason::NO_ERROR));
+                if go_away.reason() != Reason::NO_ERROR {
+                    tracing::warn!(
+                        "received GOAWAY with error: {:?} last_stream={:?}",
+                        go_away.reason(),
+                        go_away.last_stream_id(),
+                    );
                 }
-                tracing::warn!(
-                    "received GOAWAY with error: {:?} last_stream={:?}",
-                    go_away.reason(),
-                    go_away.last_stream_id(),
-                );
-                return Err(Error::PeerAccused);
+                return Err(Error::GoAway(Reason::NO_ERROR));
             }
+            (head::Kind::Priority, _) => handle_priority(head.stream_id(), &frame)?,
             (head::Kind::PushPromise, _) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
             (head::Kind::Settings, _) => self.handle_settings(head, &frame)?,
             _ => {}
@@ -707,6 +710,13 @@ impl<'a> DecodeContext<'a> {
                 Error::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
                     self.continuation = Some((headers, payload));
                     Ok(())
+                }
+                // Pseudo-header validation errors are stream-level (RFC 7540 §8.1.2).
+                // The HPACK context was decoded successfully so no compression error.
+                Error::MalformedMessage => {
+                    let id = headers.stream_id();
+                    self.last_stream_id = id;
+                    Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None))
                 }
                 _ => Err(Error::GoAway(Reason::COMPRESSION_ERROR)),
             };
@@ -1173,7 +1183,7 @@ const CLIENT_RESET_QUEUE_CAP: usize = 64;
 /// the write side cannot keep up.
 const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64 KiB
 
-pub async fn run<Io, S, ResB, ResBE>(io: Io, service: &S) -> io::Result<()>
+pub async fn run<Io, S, ResB, ResBE>(io: Io, service: &S, mut settings: settings::Settings) -> io::Result<()>
 where
     Io: AsyncBufRead + AsyncBufWrite,
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
@@ -1181,14 +1191,17 @@ where
     ResB: Stream<Item = Result<Frame, ResBE>>,
     ResBE: fmt::Debug,
 {
+    // Always enforce a concurrent stream limit; fall back to 256 if the
+    // caller did not set one.
+    if settings.max_concurrent_streams().is_none() {
+        settings.set_max_concurrent_streams(Some(256));
+    }
+
     let mut write_buf = BytesMut::new();
     let mut ka = pin!(KeepAlive::new(Instant::now() + KEEP_ALIVE));
 
     let buf = prefix_check(&io, BytesMut::new(), ka.as_mut()).await?;
     let mut read_buf = ReadBuf { buf, cap: READ_BUF_CAP };
-
-    let mut settings = settings::Settings::default();
-    settings.set_max_concurrent_streams(Some(256));
 
     settings.encode(&mut write_buf);
     let (res, buf) = write_io(write_buf, &io).await;
@@ -1306,6 +1319,25 @@ where
     drop(queue);
     writer_queue.borrow_mut().close();
 
+    Ok(())
+}
+
+/// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).
+/// PRIORITY frames are deprecated in RFC 9113 and their content is ignored,
+/// but the structural rules must still be enforced for RFC 7540 compatibility.
+#[cold]
+#[inline(never)]
+fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), Error> {
+    if id.is_zero() {
+        return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+    }
+    if payload.len() != 5 {
+        return Err(Error::Reset(id, Reason::FRAME_SIZE_ERROR, None));
+    }
+    let dep_id = StreamId::parse(&payload[..4]).0;
+    if dep_id == id {
+        return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+    }
     Ok(())
 }
 

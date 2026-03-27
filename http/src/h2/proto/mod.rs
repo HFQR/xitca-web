@@ -11,7 +11,7 @@ mod ping;
 mod priority;
 mod reason;
 mod reset;
-mod settings;
+pub(crate) mod settings;
 mod stream_id;
 mod window_update;
 

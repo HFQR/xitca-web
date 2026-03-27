@@ -140,8 +140,15 @@ where
 
         // PRIORITY data (RFC 9113 deprecated). Skip the 5-byte block if
         // present so the buffer is correctly positioned for HPACK decoding.
+        // RFC 7540 §5.3.1: a stream cannot depend on itself — self-dependency
+        // is a stream-level PROTOCOL_ERROR which h2spec accepts as a
+        // connection-level PROTOCOL_ERROR (GOAWAY) too.
         if flags.is_priority() {
             if src.len() < 5 {
+                return Err(Error::MalformedMessage);
+            }
+            let dep_id = StreamId::parse(&src[..4]).0;
+            if dep_id == head.stream_id() {
                 return Err(Error::MalformedMessage);
             }
             let _ = src.split_to(5);
@@ -538,6 +545,8 @@ where
             return Err(e.into());
         }
 
+        self.pseudo.validate(&mut malformed);
+
         if malformed {
             tracing::trace!("malformed message");
             return Err(Error::MalformedMessage);
@@ -589,6 +598,9 @@ pub trait _Pseudo {
     );
 
     fn as_header_size(&self) -> usize;
+
+    /// Called after HPACK decoding completes to validate pseudo-header constraints.
+    fn validate(&self, _malformed: &mut bool) {}
 }
 
 impl _Pseudo for Pseudo {
@@ -672,8 +684,34 @@ impl _Pseudo for Pseudo {
             Protocol(v) => {
                 // set_pseudo!(protocol, v)
             }
-            Status(v) => set_pseudo!(status, v),
+            Status(_) => {
+                // :status is a response-only pseudo-header; reject in requests.
+                tracing::trace!("load_hpack; :status pseudo-header in request");
+                *malformed = true;
+            }
             _ => unreachable!(),
+        }
+    }
+
+    fn validate(&self, malformed: &mut bool) {
+        // RFC 7540 §8.1.2.3: :path MUST NOT be empty.
+        if self.path.as_deref().is_some_and(|p| p.is_empty()) {
+            tracing::trace!("pseudo validation; empty :path");
+            *malformed = true;
+            return;
+        }
+        // CONNECT method (§8.3) MUST NOT include :scheme or :path.
+        // All other methods MUST include both :scheme and :path.
+        let is_connect = self.method.as_ref().is_some_and(|m| m == crate::http::Method::CONNECT);
+        if !is_connect {
+            if self.scheme.is_none() {
+                tracing::trace!("pseudo validation; missing :scheme");
+                *malformed = true;
+            }
+            if self.path.is_none() {
+                tracing::trace!("pseudo validation; missing :path");
+                *malformed = true;
+            }
         }
     }
 

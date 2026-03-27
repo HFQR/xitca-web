@@ -146,7 +146,7 @@ mod io_uring {
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            run(io, &self.service).await.unwrap();
+            run(io, &self.service, Default::default()).await.unwrap();
 
             Ok(())
         }
