@@ -1062,7 +1062,9 @@ async fn response_task<S, ResB, ResBE>(
             error!("service error: {:?}", e);
             writer_tx.borrow_mut().push(Message::Reset {
                 stream_id,
-                reason: Reason::INTERNAL_ERROR,
+                // TODO: service error reason is hardcoded.
+                // need proper documentation or more flexible reason handling from service
+                reason: Reason::PROTOCOL_ERROR,
             });
             return;
         }
