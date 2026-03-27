@@ -86,13 +86,18 @@ struct StreamState {
     /// Closed after request END_STREAM or trailer.
     body_tx: BodyChannel,
     /// Send side: flow control for the response body.
-    /// `None` until the response task starts streaming, or after it finishes.
+    /// Kept alive for the lifetime of the stream so that WINDOW_UPDATE overflow
+    /// can always be detected (RFC 7540 §6.9.1), even after the response is done.
     send_flow: Option<StreamControlFlow>,
+    /// Set to `true` by `StreamGuard::drop` once the response task has finished.
+    /// Used by `is_empty` instead of `send_flow.is_none()` so that `send_flow`
+    /// can remain `Some` for window-overflow tracking after the response is done.
+    send_done: bool,
 }
 
 impl StreamState {
     fn is_empty(&self) -> bool {
-        self.body_tx.is_closed() && self.send_flow.is_none()
+        self.body_tx.is_closed() && self.send_done
     }
 }
 
@@ -803,6 +808,7 @@ impl<'a> DecodeContext<'a> {
                 StreamState {
                     body_tx: BodyChannel::closed(),
                     send_flow: Some(sf),
+                    send_done: false,
                 },
             );
         } else {
@@ -811,6 +817,7 @@ impl<'a> DecodeContext<'a> {
                 StreamState {
                     body_tx: BodyChannel::open(tx, settings::DEFAULT_INITIAL_WINDOW_SIZE as usize),
                     send_flow: Some(sf),
+                    send_done: false,
                 },
             );
         }
@@ -1032,7 +1039,9 @@ async fn response_task<S, ResB, ResBE>(
             let mut flow = self.flow.borrow_mut();
             flow.open_streams -= 1;
             if let Some(state) = flow.stream_map.get_mut(&self.stream_id) {
-                state.send_flow = None;
+                // Mark response done. Keep send_flow alive so WINDOW_UPDATE
+                // overflow can still be detected for this stream (RFC §6.9.1).
+                state.send_done = true;
                 if state.is_empty() {
                     flow.stream_map.remove(&self.stream_id);
                 }
@@ -1147,7 +1156,12 @@ struct PingPong<'a> {
     flow: &'a SharedFlowControl,
 }
 
-impl PingPong<'_> {
+impl<'a> PingPong<'a> {
+    fn new(mut timer: Pin<&'a mut KeepAlive>, flow: &'a SharedFlowControl) -> Self {
+        timer.as_mut().update(Instant::now() + KEEP_ALIVE);
+        Self { timer, flow }
+    }
+
     async fn tick(&mut self) -> io::Result<()> {
         self.timer.as_mut().await;
         // Keepalive tick: timeout if the previous PING was never ACKed
