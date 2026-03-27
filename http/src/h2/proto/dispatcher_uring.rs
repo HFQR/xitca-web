@@ -15,17 +15,17 @@ use std::{
 };
 
 use futures_core::stream::Stream;
-use tokio::{
-    sync::mpsc::{UnboundedReceiver, UnboundedSender},
-    time::Instant,
-};
+use tokio::time::Instant;
 use tracing::error;
 use xitca_io::{
     bytes::{Buf, BufMut, BytesMut},
     io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
 };
 use xitca_service::Service;
-use xitca_unsafe_collection::futures::{Select, SelectOutput};
+use xitca_unsafe_collection::{
+    futures::{Select, SelectOutput},
+    no_hash::NoHashBuilder,
+};
 
 use crate::{
     body::BodySize,
@@ -192,7 +192,7 @@ struct FlowControl {
     recv_connection_window: usize,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
-    stream_map: HashMap<StreamId, StreamState>,
+    stream_map: HashMap<StreamId, StreamState, NoHashBuilder>,
     /// State of the server-initiated keepalive PING. Replaces the old
     /// `pending_ack` boolean; see `KeepalivePing` for the state transitions.
     keepalive_ping: KeepalivePing,
@@ -256,12 +256,13 @@ impl RemoteSettings {
 impl FlowControl {
     /// Remove all state for a stream. Drops the body sender (so `RequestBody`
     /// sees EOF) and wakes any blocked response task so it can exit cleanly.
-    fn remove_stream(&mut self, id: StreamId) {
-        if let Some(state) = self.stream_map.remove(&id) {
-            if let Some(mut sf) = state.send_flow {
+    fn remove_stream(&mut self, id: StreamId) -> Option<StreamState> {
+        self.stream_map.remove(&id).map(|mut state| {
+            if let Some(ref mut sf) = state.send_flow {
                 sf.wake();
             }
-        }
+            state
+        })
     }
 
     /// Look up a stream by ID, distinguishing three cases:
@@ -289,6 +290,19 @@ impl FlowControl {
             }
         }
     }
+
+    // A RST_STREAM is "premature" if the stream is still tracked — either
+    // the response task is running or the request body is still being
+    // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
+    fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
+        if self.remove_stream(id).is_some() {
+            self.premature_reset_count += 1;
+            if self.premature_reset_count > PREMATURE_RESET_LIMIT {
+                return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
+            }
+        }
+        Ok(())
+    }
 }
 
 type SharedFlowControl = RefCell<FlowControl>;
@@ -304,6 +318,13 @@ enum Message {
 
 struct WriterQueue {
     messages: VecDeque<Message>,
+    /// Bounded queue for RST_STREAM frames triggered by client-caused protocol
+    /// errors (e.g. WINDOW_UPDATE incr=0, flow-control overflow). These are
+    /// separated from `messages` so that a malicious client cannot exhaust
+    /// heap memory by forcing the server to emit an unbounded number of resets.
+    /// Server-initiated resets (service errors, body errors) stay in `messages`
+    /// because they are bounded by `max_concurrent_streams`.
+    resets: VecDeque<(StreamId, Reason)>,
     closed: bool,
 }
 
@@ -313,12 +334,21 @@ impl WriterQueue {
     fn new() -> Self {
         Self {
             messages: VecDeque::new(),
+            resets: VecDeque::new(),
             closed: false,
         }
     }
 
     fn push(&mut self, msg: Message) {
         self.messages.push_back(msg);
+    }
+
+    /// Push a RST_STREAM caused by a client protocol error. Returns `true` if
+    /// the reset queue has reached `CLIENT_RESET_QUEUE_CAP`, indicating the
+    /// caller should send GOAWAY and close the connection.
+    fn push_client_reset(&mut self, stream_id: StreamId, reason: Reason) -> bool {
+        self.resets.push_back((stream_id, reason));
+        self.resets.len() > CLIENT_RESET_QUEUE_CAP
     }
 
     /// Set END_STREAM on the most recent DATA frame for `stream_id` in place,
@@ -356,6 +386,9 @@ impl WriterQueue {
     }
 
     fn poll_recv(&mut self) -> Poll<Option<Message>> {
+        if let Some((stream_id, reason)) = self.resets.pop_front() {
+            return Poll::Ready(Some(Message::Reset { stream_id, reason }));
+        }
         if let Some(msg) = self.messages.pop_front() {
             Poll::Ready(Some(msg))
         } else if self.closed {
@@ -399,7 +432,7 @@ impl<'a> DecodeContext<'a> {
             _ => Reason::STREAM_CLOSED,
         };
 
-        flow.remove_stream(id);
+        let _ = flow.remove_stream(id);
         Err(Error::Reset(id, reason, (payload_len > 0).then_some(payload_len)))
     }
 
@@ -446,7 +479,9 @@ impl<'a> DecodeContext<'a> {
                 Ok(()) => {}
                 Err(Error::Reset(id, reason, window)) => {
                     let mut tx = self.writer_tx.borrow_mut();
-                    tx.push(Message::Reset { stream_id: id, reason });
+                    if tx.push_client_reset(id, reason) {
+                        return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
+                    }
                     if let Some(size) = window {
                         tx.push(Message::WindowUpdate {
                             stream_id: StreamId::zero(),
@@ -507,7 +542,7 @@ impl<'a> DecodeContext<'a> {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
                         self.check_not_idle(id)?;
-                        self.flow.borrow_mut().remove_stream(id);
+                        let _ = self.flow.borrow_mut().remove_stream(id);
                         return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                     }
                     (incr, StreamId::ZERO) => {
@@ -534,7 +569,7 @@ impl<'a> DecodeContext<'a> {
                         if let Some(state) = flow.get_stream_mut(id, self.last_stream_id)? {
                             if let Some(ref mut sf) = state.send_flow {
                                 if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                    flow.remove_stream(id);
+                                    let _ = flow.remove_stream(id);
                                     drop(flow);
                                     return Err(Error::Reset(id, Reason::FLOW_CONTROL_ERROR, None));
                                 } else {
@@ -567,17 +602,7 @@ impl<'a> DecodeContext<'a> {
                 }
                 self.check_not_idle(id)?;
                 let mut flow = self.flow.borrow_mut();
-                // A stream is "prematurely" reset if the response task is still
-                // running (send_flow is Some). Count these to detect rapid-reset
-                // abuse (CVE-2023-44487). Legitimate resets (e.g. client timeout
-                // after full request) are included but rare enough not to matter.
-                if flow.stream_map.get(&id).and_then(|s| s.send_flow.as_ref()).is_some() {
-                    flow.premature_reset_count += 1;
-                    if flow.premature_reset_count > PREMATURE_RESET_LIMIT {
-                        return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
-                    }
-                }
-                flow.remove_stream(id);
+                flow.try_reset_stream(id)?;
             }
             (head::Kind::GoAway, _) => {
                 let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
@@ -1138,6 +1163,11 @@ const KEEP_ALIVE: Duration = Duration::from_secs(10);
 /// Maximum number of premature RST_STREAMs before the connection is closed
 /// with GOAWAY(ENHANCE_YOUR_CALM). Matches the h2 crate's default.
 const PREMATURE_RESET_LIMIT: usize = 100;
+/// Maximum number of client-caused RST_STREAM frames that may queue up in
+/// `WriterQueue::resets` at once. Exceeding this kills the connection with
+/// GOAWAY(ENHANCE_YOUR_CALM). A well-behaved client should not trigger more
+/// resets than it has open streams; a burst beyond this cap is abuse.
+const CLIENT_RESET_QUEUE_CAP: usize = 64;
 /// Hard cap on unprocessed bytes in the read buffer. `read_io` yields
 /// `Poll::Pending` when this is reached, preventing unbounded ingest when
 /// the write side cannot keep up.
@@ -1183,7 +1213,7 @@ where
         stream_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
         max_frame_size: max_frame_size as usize,
         recv_connection_window: recv_initial_window_size as usize,
-        stream_map: HashMap::new(),
+        stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
         keepalive_ping: KeepalivePing::Idle,
         pending_client_ping: None,
         remote_settings: RemoteSettings::default(),
@@ -1306,9 +1336,90 @@ async fn prefix_check(io: &impl AsyncBufRead, buf: BytesMut, timer: Pin<&mut Kee
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 preface timeout"))?
 }
 
+mod spsc {
+    //! Single-producer single-consumer channel for single-threaded use.
+
+    use core::task::{Context, Poll, Waker};
+    use std::{collections::VecDeque, rc::Rc};
+
+    use super::*;
+
+    struct Inner<T> {
+        queue: VecDeque<T>,
+        waker: Option<Waker>,
+        tx_closed: bool,
+        rx_closed: bool,
+    }
+
+    pub(super) struct Sender<T>(Rc<RefCell<Inner<T>>>);
+    pub(super) struct Receiver<T>(Rc<RefCell<Inner<T>>>);
+
+    pub(super) fn channel<T>() -> (Sender<T>, Receiver<T>) {
+        let inner = Rc::new(RefCell::new(Inner {
+            queue: VecDeque::new(),
+            waker: None,
+            tx_closed: false,
+            rx_closed: false,
+        }));
+        (Sender(Rc::clone(&inner)), Receiver(inner))
+    }
+
+    impl<T> Sender<T> {
+        /// Returns `Err(val)` if the receiver has been dropped.
+        pub(super) fn send(&self, val: T) -> Result<(), T> {
+            let waker = {
+                let mut inner = self.0.borrow_mut();
+                if inner.rx_closed {
+                    return Err(val);
+                }
+                inner.queue.push_back(val);
+                inner.waker.take()
+            };
+            // Wake outside the borrow to avoid re-entrant RefCell panics.
+            if let Some(w) = waker {
+                w.wake();
+            }
+            Ok(())
+        }
+    }
+
+    impl<T> Drop for Sender<T> {
+        fn drop(&mut self) {
+            let waker = {
+                let mut inner = self.0.borrow_mut();
+                inner.tx_closed = true;
+                inner.waker.take()
+            };
+            if let Some(w) = waker {
+                w.wake();
+            }
+        }
+    }
+
+    impl<T> Drop for Receiver<T> {
+        fn drop(&mut self) {
+            self.0.borrow_mut().rx_closed = true;
+        }
+    }
+
+    impl<T> Receiver<T> {
+        pub(super) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
+            let mut inner = self.0.borrow_mut();
+            if let Some(val) = inner.queue.pop_front() {
+                return Poll::Ready(Some(val));
+            }
+            if inner.tx_closed {
+                return Poll::Ready(None);
+            }
+            inner.waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
 pub struct RequestBody {
     stream_id: StreamId,
-    rx: UnboundedReceiver<Result<Frame, BodyError>>,
+    rx: spsc::Receiver<Result<Frame, BodyError>>,
     writer_tx: SharedWriterQueue,
     /// Bytes consumed but not yet reported back as a WINDOW_UPDATE.
     /// Flushed as a single message when the channel has no more items
@@ -1316,11 +1427,11 @@ pub struct RequestBody {
     pending_window: usize,
 }
 
-pub type RequestBodySender = UnboundedSender<Result<Frame, BodyError>>;
+type RequestBodySender = spsc::Sender<Result<Frame, BodyError>>;
 
 impl RequestBody {
     fn new_pair(stream_id: StreamId, writer_tx: SharedWriterQueue) -> (Self, RequestBodySender) {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = spsc::channel();
         (
             Self {
                 stream_id,

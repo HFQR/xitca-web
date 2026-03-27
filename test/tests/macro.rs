@@ -1,9 +1,9 @@
 use core::fmt;
 
-use xitca_service::{ready::ReadyService, Service, ServiceExt};
+use xitca_service::{Service, ServiceExt, ready::ReadyService};
 use xitca_web::{
-    http::{StatusCode, WebResponse},
     WebContext,
+    http::{StatusCode, WebResponse},
 };
 
 struct Test;
