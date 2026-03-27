@@ -10,6 +10,7 @@ use core::{
 use std::{
     collections::{HashMap, VecDeque},
     io,
+    net::Shutdown,
     rc::Rc,
     time::Duration,
 };
@@ -1300,20 +1301,22 @@ where
                         last_stream_id: ctx.last_stream_id,
                         reason,
                     });
+                    writer_queue.borrow_mut().close();
                     if reason == Reason::NO_ERROR {
-                        writer_queue.borrow_mut().close();
                         loop {
                             match queue.next().select(write_task.as_mut()).await {
                                 SelectOutput::A(_) => {}
                                 SelectOutput::B(res) => {
                                     res?;
+                                    // Send FIN so the peer sees a clean connection
+                                    // close rather than RST (RFC 7540 §6.8).
+                                    let _ = io.shutdown(Shutdown::Write);
                                     return Ok(());
                                 }
                             }
                         }
                     } else {
                         drop(queue);
-                        writer_queue.borrow_mut().close();
                         write_task.as_mut().await?;
                         return Ok(());
                     }
