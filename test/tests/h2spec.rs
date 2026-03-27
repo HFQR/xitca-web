@@ -72,6 +72,10 @@ mod inner {
                     h2::Frame::Trailers(_) => break,
                 }
             }
+
+            if bytes.len() != len {
+                return Err("body length mismatch".into());
+            }
         }
 
         Ok(Response::new(Once::new()))
