@@ -19,7 +19,6 @@ use super::{
     error::Error,
     head::{Head, Kind},
     hpack,
-    priority::StreamDependency,
     stream_id::StreamId,
 };
 
@@ -31,8 +30,6 @@ type EncodeBuf<'a> = Limit<&'a mut BytesMut>;
 pub struct Headers<P = Pseudo> {
     /// The ID of the stream with which this frame is associated.
     stream_id: StreamId,
-    /// The stream dependency information, if any.
-    stream_dep: Option<StreamDependency>,
     /// The header block fragment
     header_block: HeaderBlock<P>,
     /// The associated flags
@@ -99,7 +96,6 @@ where
     pub fn new(stream_id: StreamId, pseudo: P, fields: HeaderMap) -> Self {
         Self {
             stream_id,
-            stream_dep: None,
             header_block: HeaderBlock {
                 fields,
                 is_over_size: false,
@@ -142,24 +138,14 @@ where
             let _ = src.split_to(1);
         }
 
-        // Read the stream dependency
-        let stream_dep = if flags.is_priority() {
+        // PRIORITY data (RFC 9113 deprecated). Skip the 5-byte block if
+        // present so the buffer is correctly positioned for HPACK decoding.
+        if flags.is_priority() {
             if src.len() < 5 {
                 return Err(Error::MalformedMessage);
             }
-            let stream_dep = StreamDependency::load(&src[..5])?;
-
-            if stream_dep.dependency_id() == head.stream_id() {
-                return Err(Error::MalformedMessage);
-            }
-
-            // Drop the next 5 bytes
             let _ = src.split_to(5);
-
-            Some(stream_dep)
-        } else {
-            None
-        };
+        }
 
         if pad > 0 {
             if pad > src.len() {
@@ -172,7 +158,6 @@ where
 
         let headers = Headers {
             stream_id: head.stream_id(),
-            stream_dep,
             header_block: HeaderBlock {
                 fields: HeaderMap::new(),
                 is_over_size: false,
@@ -252,7 +237,6 @@ impl Headers<()> {
         flags.set_end_stream();
         Self {
             stream_id,
-            stream_dep: None,
             header_block: HeaderBlock {
                 fields,
                 is_over_size: false,
@@ -271,10 +255,6 @@ impl<P> fmt::Debug for Headers<P> {
         // if let Some(ref protocol) = self.header_block.pseudo.protocol {
         //     builder.field("protocol", protocol);
         // }
-
-        if let Some(ref dep) = self.stream_dep {
-            builder.field("stream_dep", dep);
-        }
 
         // `fields` and `pseudo` purposefully not included
         builder.finish()
@@ -487,7 +467,6 @@ impl fmt::Debug for HeadersFlag {
             .field("end_headers", &self.is_end_headers())
             .field("end_stream", &self.is_end_stream())
             .field("padded", &self.is_padded())
-            .field("priority", &self.is_priority())
             .finish()
     }
 }

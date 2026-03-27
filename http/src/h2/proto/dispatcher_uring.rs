@@ -74,7 +74,6 @@ struct DecodeContext<'a> {
     /// Highest stream ID fully accepted by the server. Sent in GOAWAY frames
     /// so the client knows which streams were processed (RFC 7540 §6.8).
     last_stream_id: StreamId,
-    remote_setting: Settings,
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
@@ -166,11 +165,11 @@ impl BodyChannel {
 /// State machine for the server-initiated keepalive PING (CVE-2019-9512,
 /// CVE-2019-9517).
 ///
-/// - `Idle`     — no keepalive in flight; ping_pong_task may queue one.
-/// - `Pending`  — ping_pong_task queued a PING; poll_encode has not encoded it yet.
+/// - `Idle`     — no keepalive in flight; `PingPong::tick` may queue one.
+/// - `Pending`  — `PingPong::tick` queued a PING; poll_encode has not encoded it yet.
 /// - `InFlight` — poll_encode sent the PING; waiting for the peer's ACK.
 ///
-/// ping_pong_task treats both `Pending` and `InFlight` as "not yet ACKed",
+/// `PingPong::tick` treats both `Pending` and `InFlight` as "not yet ACKed",
 /// so it fires a timeout regardless of whether write_io is stalled (PING
 /// never left) or the peer is silent (PING was sent but no ACK arrived).
 #[derive(PartialEq)]
@@ -202,19 +201,56 @@ struct FlowControl {
     /// Always overwritten by the latest client PING; poll_encode takes and
     /// clears it after encoding the ACK.
     pending_client_ping: Option<[u8; 8]>,
-    /// True while a SETTINGS ACK is already queued. Further SETTINGS frames
-    /// are applied to flow-control state but their ACK is coalesced into the
-    /// one already queued (CVE-2019-9515).
-    pending_settings_ack: bool,
-    /// Latest HEADER_TABLE_SIZE value received from the peer but not yet
-    /// applied to the HPACK encoder. Accumulated here so that even when a
-    /// SETTINGS ACK is coalesced, the encoder always uses the newest value.
-    pending_header_table_size: Option<u32>,
+    /// The peer's latest SETTINGS frame, pending an ACK (CVE-2019-9515).
+    /// A well-behaved peer sends one SETTINGS and waits for the ACK before
+    /// sending another (RFC 7540 §6.5.3). A second SETTINGS arriving while
+    /// one is already pending kills the connection with ENHANCE_YOUR_CALM.
+    remote_settings: RemoteSettings,
     /// Net count of premature resets: incremented when RST_STREAM arrives for
     /// an active response task, decremented when a stream completes normally.
     /// Stays near zero for well-behaved clients; climbs toward
     /// PREMATURE_RESET_LIMIT only when resets consistently outpace completions.
     premature_reset_count: usize,
+}
+
+/// The peer's remote settings and their ACK state.
+///
+/// Stores the peer's latest non-ACK SETTINGS frame. `pending` is set on
+/// receipt and cleared when the ACK is dispatched by `poll_encode`. The full
+/// `Settings` value is kept so all relevant fields (e.g. HPACK table size)
+/// can be applied atomically at ACK time.
+#[derive(Default)]
+struct RemoteSettings {
+    settings: Settings,
+    pending: bool,
+}
+
+impl RemoteSettings {
+    /// Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
+    /// previous SETTINGS has not yet been ACKed (CVE-2019-9515).
+    fn try_update(&mut self, settings: Settings) -> Result<(), Error> {
+        if self.pending {
+            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
+        }
+        self.pending = true;
+        self.settings = settings;
+        Ok(())
+    }
+
+    /// Encode a SETTINGS ACK if one is pending. Applies the HPACK table size
+    /// update before the ACK so the encoder is consistent with the wire order.
+    /// Called at the top of every `poll_encode` pass ahead of header encoding.
+    /// No-ops when nothing is pending.
+    fn encode(&mut self, encoder: &mut hpack::Encoder, buf: &mut BytesMut) {
+        if !self.pending {
+            return;
+        }
+        if let Some(size) = self.settings.header_table_size() {
+            encoder.update_max_size(size as usize);
+        }
+        Settings::ack().encode(buf);
+        self.pending = false;
+    }
 }
 
 impl FlowControl {
@@ -261,27 +297,13 @@ enum Message {
     Head(headers::Headers<ResponsePseudo>),
     Data(data::Data),
     Trailer(headers::Headers<()>),
-    Reset {
-        stream_id: StreamId,
-        reason: Reason,
-    },
-    WindowUpdate {
-        stream_id: StreamId,
-        size: usize,
-    },
-    /// Wake the write task to flush a pending SETTINGS ACK. The actual
-    /// HEADER_TABLE_SIZE to apply is stored in `FlowControl::pending_header_table_size`
-    /// so that multiple coalesced SETTINGS always use the latest value.
-    Settings,
-    GoAway {
-        last_stream_id: StreamId,
-        reason: Reason,
-    },
+    Reset { stream_id: StreamId, reason: Reason },
+    WindowUpdate { stream_id: StreamId, size: usize },
+    GoAway { last_stream_id: StreamId, reason: Reason },
 }
 
 struct WriterQueue {
     messages: VecDeque<Message>,
-    waker: Option<Waker>,
     closed: bool,
 }
 
@@ -291,20 +313,12 @@ impl WriterQueue {
     fn new() -> Self {
         Self {
             messages: VecDeque::new(),
-            waker: None,
             closed: false,
         }
     }
 
     fn push(&mut self, msg: Message) {
         self.messages.push_back(msg);
-        self.wake();
-    }
-
-    pub(super) fn wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
     }
 
     /// Set END_STREAM on the most recent DATA frame for `stream_id` in place,
@@ -320,7 +334,6 @@ impl WriterQueue {
                 && d.stream_id() == stream_id
             {
                 d.set_end_stream(true);
-                self.wake();
                 return;
             }
         }
@@ -340,16 +353,14 @@ impl WriterQueue {
 
     fn close(&mut self) {
         self.closed = true;
-        self.wake();
     }
 
-    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<Message>> {
+    fn poll_recv(&mut self) -> Poll<Option<Message>> {
         if let Some(msg) = self.messages.pop_front() {
             Poll::Ready(Some(msg))
         } else if self.closed {
             Poll::Ready(None)
         } else {
-            self.waker = Some(cx.waker().clone());
             Poll::Pending
         }
     }
@@ -394,7 +405,6 @@ impl<'a> DecodeContext<'a> {
 
     fn new(flow: &'a SharedFlowControl, writer_tx: &'a SharedWriterQueue, max_concurrent_streams: usize) -> Self {
         Self {
-            remote_setting: Settings::default(),
             max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
             max_concurrent_streams,
             last_stream_id: StreamId::zero(),
@@ -471,6 +481,13 @@ impl<'a> DecodeContext<'a> {
                 let payload = data.into_payload();
 
                 self.check_not_idle(id)?;
+                // A zero-length DATA frame without END_STREAM carries no
+                // payload and signals nothing — it has no legitimate purpose.
+                // The only valid use of empty DATA is to set END_STREAM on a
+                // stream with no body (RFC 7540 §6.1).
+                if payload.is_empty() && !is_end {
+                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+                }
                 self.on_data_payload(id, payload)?;
 
                 if is_end {
@@ -534,7 +551,7 @@ impl<'a> DecodeContext<'a> {
             (head::Kind::Ping, _) => {
                 let ping = Ping::load(head, frame.as_ref())?;
                 if ping.is_ack {
-                    // ACK for our keepalive PING: return to Idle so ping_pong_task
+                    // ACK for our keepalive PING: return to Idle so `PingPong::tick`
                     // does not time out on the next tick.
                     self.flow.borrow_mut().keepalive_ping = KeepalivePing::Idle;
                 } else {
@@ -610,10 +627,9 @@ impl<'a> DecodeContext<'a> {
             return Ok(());
         }
 
-        self.remote_setting = setting;
         let mut flow = self.flow.borrow_mut();
 
-        if let Some(new_window) = self.remote_setting.initial_window_size() {
+        if let Some(new_window) = setting.initial_window_size() {
             let new_window = new_window as i64;
             let delta = new_window - flow.stream_window;
             flow.stream_window = new_window;
@@ -634,7 +650,7 @@ impl<'a> DecodeContext<'a> {
             }
         }
 
-        if let Some(frame_size) = self.remote_setting.max_frame_size() {
+        if let Some(frame_size) = setting.max_frame_size() {
             let frame_size = frame_size as usize;
             flow.max_frame_size = frame_size;
             for state in flow.stream_map.values_mut() {
@@ -644,16 +660,9 @@ impl<'a> DecodeContext<'a> {
             }
         }
 
-        // Accumulate the latest HEADER_TABLE_SIZE so the encoder always uses
-        // the newest value even when multiple SETTINGS are coalesced into one ACK.
-        let header_table_size = self.remote_setting.header_table_size();
-        flow.pending_header_table_size = header_table_size.or(flow.pending_header_table_size);
-        if !flow.pending_settings_ack {
-            flow.pending_settings_ack = true;
-            drop(flow);
-            self.writer_tx.borrow_mut().push(Message::Settings);
-        }
-        Ok(())
+        // Record the pending ACK. A second SETTINGS before the first is ACKed
+        // is a protocol violation and returns ENHANCE_YOUR_CALM (CVE-2019-9515).
+        flow.remote_settings.try_update(setting)
     }
 
     fn decode_header_block<F>(
@@ -779,14 +788,44 @@ impl<'a> DecodeContext<'a> {
     }
 }
 
-async fn read_io(mut buf: BytesMut, io: &impl AsyncBufRead) -> (io::Result<usize>, BytesMut) {
-    let len = buf.len();
-    let remaining = buf.capacity() - len;
-    if remaining < 4096 {
-        buf.reserve(4096 - remaining);
+/// Read buffer with a hard cap on accumulated unprocessed bytes.
+///
+/// `read_io` yields `Poll::Pending` without touching the socket when
+/// `buf.len() >= cap`, preventing unbounded ingest when the write side is
+/// stalled and frames cannot be drained fast enough.
+struct ReadBuf {
+    buf: BytesMut,
+    cap: usize,
+}
+
+impl ReadBuf {
+    fn new(cap: usize) -> Self {
+        Self {
+            buf: BytesMut::new(),
+            cap,
+        }
     }
-    let (res, buf) = io.read(buf.slice(len..)).await;
-    (res, buf.into_inner())
+}
+
+async fn read_io(mut rbuf: ReadBuf, io: &impl AsyncBufRead) -> (io::Result<usize>, ReadBuf) {
+    if rbuf.buf.len() >= rbuf.cap {
+        // Unprocessed data has hit the cap. Yield without issuing a new read
+        // until the caller drains the buffer and restarts the task.
+        return core::future::pending().await;
+    }
+    let len = rbuf.buf.len();
+    let remaining = rbuf.buf.capacity() - len;
+    if remaining < 4096 {
+        rbuf.buf.reserve(4096 - remaining);
+    }
+    let (res, buf) = io.read(rbuf.buf.slice(len..)).await;
+    (
+        res,
+        ReadBuf {
+            buf: buf.into_inner(),
+            cap: rbuf.cap,
+        },
+    )
 }
 
 async fn write_io(buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
@@ -831,19 +870,25 @@ impl<'a> EncodeContext<'a> {
         }
     }
 
-    fn poll_encode(&mut self, cx: &mut Context<'_>, write_buf: &mut BytesMut) -> Poll<bool> {
+    fn poll_encode(&mut self, write_buf: &mut BytesMut) -> Poll<bool> {
+        let mut flow = self.flow.borrow_mut();
+
+        flow.remote_settings.encode(&mut self.encoder, write_buf);
+
+        let mut queue = self.write_queue.borrow_mut();
+
         let is_eof = loop {
-            match self.write_queue.borrow_mut().poll_recv(cx) {
+            match queue.poll_recv() {
                 Poll::Ready(Some(msg)) => match msg {
                     Message::Head(headers) => {
-                        let frame_size = self.flow.borrow().max_frame_size;
+                        let frame_size = flow.max_frame_size;
                         let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
                         while let Some(c) = cont {
                             cont = c.encode(&mut write_buf.limit(frame_size));
                         }
                     }
                     Message::Trailer(headers) => {
-                        let frame_size = self.flow.borrow().max_frame_size;
+                        let frame_size = flow.max_frame_size;
                         let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
                         while let Some(c) = cont {
                             cont = c.encode(&mut write_buf.limit(frame_size));
@@ -858,13 +903,12 @@ impl<'a> EncodeContext<'a> {
                     }
                     Message::WindowUpdate { stream_id, size } => {
                         debug_assert!(size > 0, "window update size must not be 0");
-                        {
-                            let mut f = self.flow.borrow_mut();
-                            f.recv_connection_window += size;
-                            if let Some(state) = f.stream_map.get_mut(&stream_id) {
-                                state.body_tx.replenish_window(size);
-                            }
+
+                        flow.recv_connection_window += size;
+                        if let Some(state) = flow.stream_map.get_mut(&stream_id) {
+                            state.body_tx.replenish_window(size);
                         }
+
                         self.pending_conn_window += size;
                         // Stream 0 = connection-only replenishment (e.g. closed
                         // stream). Only accumulate into pending_conn_window;
@@ -873,17 +917,6 @@ impl<'a> EncodeContext<'a> {
                             let update = WindowUpdate::new(stream_id, size as _);
                             update.encode(write_buf);
                         }
-                    }
-                    Message::Settings => {
-                        let mut flow = self.flow.borrow_mut();
-                        let header_table_size = flow.pending_header_table_size.take();
-                        flow.pending_settings_ack = false;
-                        drop(flow);
-                        if let Some(size) = header_table_size {
-                            self.encoder.update_max_size(size as usize);
-                        }
-                        let setting = Settings::ack();
-                        setting.encode(write_buf);
                     }
                     Message::GoAway { last_stream_id, reason } => {
                         self.pending_conn_window = 0;
@@ -906,7 +939,7 @@ impl<'a> EncodeContext<'a> {
         self.flush_conn_window(write_buf);
 
         // Encode a client PING ACK if one is waiting (take-and-clear).
-        if let Some(payload) = self.flow.borrow_mut().pending_client_ping.take() {
+        if let Some(payload) = flow.pending_client_ping.take() {
             let head = head::Head::new(head::Kind::Ping, 0x1, StreamId::zero());
             head.encode(8, write_buf);
             write_buf.put_slice(&payload);
@@ -914,11 +947,11 @@ impl<'a> EncodeContext<'a> {
 
         // Encode our keepalive PING if it is queued but not yet sent, then
         // transition to InFlight so we do not re-send it on the next pass.
-        if self.flow.borrow().keepalive_ping == KeepalivePing::Pending {
+        if flow.keepalive_ping == KeepalivePing::Pending {
             let head = head::Head::new(head::Kind::Ping, 0x0, StreamId::zero());
             head.encode(8, write_buf);
             write_buf.put_slice(&[0u8; 8]);
-            self.flow.borrow_mut().keepalive_ping = KeepalivePing::InFlight;
+            flow.keepalive_ping = KeepalivePing::InFlight;
         }
 
         // Return Pending only when there is nothing to write AND the queue is
@@ -1074,25 +1107,30 @@ async fn response_task<S, ResB, ResBE>(
     }
 }
 
-async fn ping_pong_task(
-    writer_tx: &SharedWriterQueue,
-    flow: &SharedFlowControl,
-    mut timer: Pin<&mut KeepAlive>,
-) -> io::Error {
-    loop {
-        timer.as_mut().update(Instant::now() + KEEP_ALIVE);
-        timer.as_mut().await;
-        let mut flow = flow.borrow_mut();
-        // Timeout if our previous keepalive PING was not ACKed. This catches
-        // two cases with the same check:
-        //   - Pending:  write_io was stalled; the PING never left the server.
-        //   - InFlight: the PING was sent but the peer did not reply in time.
-        if flow.keepalive_ping != KeepalivePing::Idle {
-            return io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout");
+struct PingPong<'a> {
+    timer: Pin<&'a mut KeepAlive>,
+    flow: &'a SharedFlowControl,
+}
+
+impl PingPong<'_> {
+    async fn tick(&mut self) -> io::Result<()> {
+        self.timer.as_mut().await;
+        // Keepalive tick: timeout if the previous PING was never ACKed
+        // (write_io stalled or peer silent). Otherwise queue a new PING
+        // and reset — write_task sees KeepalivePing::Pending on the next
+        // select iteration with no explicit wake() required.
+        {
+            let mut flow = self.flow.borrow_mut();
+
+            if flow.keepalive_ping != KeepalivePing::Idle {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout"));
+            }
+            flow.keepalive_ping = KeepalivePing::Pending;
         }
-        flow.keepalive_ping = KeepalivePing::Pending;
-        drop(flow);
-        writer_tx.borrow_mut().wake();
+
+        self.timer.as_mut().update(Instant::now() + KEEP_ALIVE);
+
+        Ok(())
     }
 }
 
@@ -1100,6 +1138,10 @@ const KEEP_ALIVE: Duration = Duration::from_secs(10);
 /// Maximum number of premature RST_STREAMs before the connection is closed
 /// with GOAWAY(ENHANCE_YOUR_CALM). Matches the h2 crate's default.
 const PREMATURE_RESET_LIMIT: usize = 100;
+/// Hard cap on unprocessed bytes in the read buffer. `read_io` yields
+/// `Poll::Pending` when this is reached, preventing unbounded ingest when
+/// the write side cannot keep up.
+const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64 KiB
 
 pub async fn run<Io, S, ResB, ResBE>(io: Io, service: &S) -> io::Result<()>
 where
@@ -1109,11 +1151,11 @@ where
     ResB: Stream<Item = Result<Frame, ResBE>>,
     ResBE: fmt::Debug,
 {
-    let mut read_buf = BytesMut::new();
     let mut write_buf = BytesMut::new();
     let mut ka = pin!(KeepAlive::new(Instant::now() + KEEP_ALIVE));
 
-    read_buf = prefix_check(&io, read_buf, ka.as_mut()).await?;
+    let buf = prefix_check(&io, BytesMut::new(), ka.as_mut()).await?;
+    let mut read_buf = ReadBuf { buf, cap: READ_BUF_CAP };
 
     let mut settings = settings::Settings::default();
     settings.set_max_concurrent_streams(Some(256));
@@ -1144,19 +1186,18 @@ where
         stream_map: HashMap::new(),
         keepalive_ping: KeepalivePing::Idle,
         pending_client_ping: None,
-        pending_settings_ack: false,
-        pending_header_table_size: None,
+        remote_settings: RemoteSettings::default(),
         premature_reset_count: 0,
     });
     let mut ctx = DecodeContext::new(&flow, &writer_queue, max_concurrent_streams);
     let mut queue = Queue::new();
-    let mut ping_pong = pin!(ping_pong_task(&writer_queue, &flow, ka.as_mut()));
+    let mut ping_pong = PingPong { timer: ka, flow: &flow };
 
     let mut write_task = pin!(async {
         let mut enc = EncodeContext::new(&flow, &writer_queue);
 
         loop {
-            let is_eof = poll_fn(|cx| enc.poll_encode(cx, &mut write_buf)).await;
+            let is_eof = poll_fn(|_| enc.poll_encode(&mut write_buf)).await;
 
             let (res, buf) = write_io(write_buf, &io).await;
             write_buf = buf;
@@ -1173,7 +1214,7 @@ where
             .as_mut()
             .select(queue.next())
             .select(write_task.as_mut())
-            .select(ping_pong.as_mut())
+            .select(ping_pong.tick())
             .await
         {
             SelectOutput::A(SelectOutput::A(SelectOutput::A((res, buf)))) => {
@@ -1182,7 +1223,7 @@ where
                     break;
                 }
 
-                let res = ctx.try_decode(&mut read_buf, &mut |req, stream_id| {
+                let res = ctx.try_decode(&mut read_buf.buf, &mut |req, stream_id| {
                     let t = Rc::clone(&writer_queue);
                     queue.push(response_task(req, stream_id, service, t, &flow));
                 });
@@ -1228,7 +1269,7 @@ where
                 res?;
                 break;
             }
-            SelectOutput::B(e) => return Err(e),
+            SelectOutput::B(res) => res?,
         }
     }
 
@@ -1242,15 +1283,16 @@ where
 #[inline(never)]
 async fn prefix_check(io: &impl AsyncBufRead, buf: BytesMut, timer: Pin<&mut KeepAlive>) -> io::Result<BytesMut> {
     async {
-        let mut buf = buf;
-        while buf.len() < PREFACE.len() {
-            let (res, b) = read_io(buf, io).await;
-            buf = b;
+        // No cap during preface: the buffer is tiny and always fully drained.
+        let mut rbuf = ReadBuf { buf, cap: usize::MAX };
+        while rbuf.buf.len() < PREFACE.len() {
+            let (res, b) = read_io(rbuf, io).await;
+            rbuf = b;
             res?;
         }
-        if buf.starts_with(PREFACE) {
-            buf.advance(PREFACE.len());
-            Ok(buf)
+        if rbuf.buf.starts_with(PREFACE) {
+            rbuf.buf.advance(PREFACE.len());
+            Ok(rbuf.buf)
         } else {
             // No GOAWAY is sent because our own preface has not been exchanged yet.
             Err(io::Error::new(
