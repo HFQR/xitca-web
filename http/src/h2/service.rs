@@ -12,7 +12,7 @@ use crate::{
     util::timer::Timeout,
 };
 
-use super::{body::RequestBody, proto::Dispatcher};
+use super::{body::RequestBody, dispatcher::Dispatcher};
 
 pub type H2Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
@@ -89,9 +89,9 @@ mod io_uring {
     use crate::{
         config::HttpServiceConfig,
         date::{DateTime, DateTimeService},
-        h2::proto::{
+        h2::{
             dispatcher_uring::{Frame, RequestBody, run},
-            settings::Settings,
+            proto::settings::Settings,
         },
         util::timer::KeepAlive,
     };

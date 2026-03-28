@@ -42,7 +42,7 @@ use crate::{
     },
 };
 
-use super::{
+use super::proto::{
     PREFACE, data,
     error::Error,
     go_away::GoAway,
@@ -910,15 +910,6 @@ struct ReadBuf {
     cap: usize,
 }
 
-impl ReadBuf {
-    fn new(cap: usize) -> Self {
-        Self {
-            buf: BytesMut::new(),
-            cap,
-        }
-    }
-}
-
 async fn read_io(mut rbuf: ReadBuf, io: &impl AsyncBufRead) -> (io::Result<usize>, ReadBuf) {
     if rbuf.buf.len() >= rbuf.cap {
         // Unprocessed data has hit the cap. Yield without issuing a new read
@@ -1285,7 +1276,7 @@ const CLIENT_RESET_QUEUE_CAP: usize = 64;
 /// the write side cannot keep up.
 const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64 KiB
 
-pub(crate) async fn run<Io, S, ResB, ResBE>(
+pub(super) async fn run<Io, S, ResB, ResBE>(
     io: Io,
     addr: SocketAddr,
     keep_alive: Pin<&mut KeepAlive>,

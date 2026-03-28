@@ -3,7 +3,7 @@ use std::io;
 use super::{hpack::DecoderError, reason::Reason, stream_id::StreamId};
 
 #[derive(Debug)]
-pub(super) enum Error {
+pub enum Error {
     MalformedMessage,
     GoAway(Reason),
     Hpack(DecoderError),

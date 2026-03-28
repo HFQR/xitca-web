@@ -1,28 +1,20 @@
 #![allow(dead_code)]
 
-mod data;
-mod dispatcher;
-mod error;
-mod go_away;
-mod head;
-mod headers;
-mod hpack;
-mod ping;
-mod priority;
-mod reason;
-mod reset;
-pub(crate) mod settings;
-mod stream_id;
-mod window_update;
+pub mod data;
+pub mod error;
+pub mod go_away;
+pub mod head;
+pub mod headers;
+pub mod hpack;
+pub mod ping;
+pub mod priority;
+pub mod reason;
+pub mod reset;
+pub mod settings;
+pub mod stream_id;
+pub mod window_update;
 
-pub(crate) use dispatcher::Dispatcher;
-
-const HEADER_LEN: usize = 9;
-
-const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
-
-#[cfg(feature = "io-uring")]
-pub mod dispatcher_uring;
+pub const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 /// A helper macro that unpacks a sequence of 4 bytes found in the buffer with
 /// the given identifier, starting at the given offset, into the given integer

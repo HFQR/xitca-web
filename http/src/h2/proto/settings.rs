@@ -137,7 +137,7 @@ impl Settings {
     }
     */
 
-    pub(super) fn load(head: Head, payload: &[u8]) -> Result<Settings, Error> {
+    pub fn load(head: Head, payload: &[u8]) -> Result<Settings, Error> {
         use self::Setting::*;
 
         if !head.stream_id().is_zero() {
