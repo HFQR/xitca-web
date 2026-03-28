@@ -19,13 +19,13 @@ mod inner {
 
     use std::{net::TcpListener, process::Command};
 
-    use futures_util::{Stream, StreamExt};
+    use futures_util::Stream;
     use xitca_http::{
         bytes::Bytes,
         h2,
         http::{Request, RequestExt, Response},
     };
-    use xitca_io::{bytes::BytesMut, net::io_uring::TcpStream};
+    use xitca_io::net::io_uring::TcpStream;
     use xitca_service::{Service, fn_service};
     use xitca_unsafe_collection::futures::NowOrPanic;
 
@@ -50,34 +50,8 @@ mod inner {
     }
 
     async fn handler(
-        req: Request<RequestExt<h2::RequestBodyV2>>,
+        _: Request<RequestExt<h2::RequestBodyV2>>,
     ) -> Result<Response<Once>, Box<dyn std::error::Error + Send + Sync>> {
-        let len = req
-            .headers()
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<usize>().ok());
-
-        if let Some(len) = len {
-            let mut bytes = BytesMut::new();
-            let mut body = req.into_body();
-            while let Some(frame) = body.next().await {
-                match frame? {
-                    h2::Frame::Data(data) => {
-                        bytes.extend_from_slice(&data);
-                        if bytes.len() > len {
-                            return Err("body overflow".into());
-                        }
-                    }
-                    h2::Frame::Trailers(_) => break,
-                }
-            }
-
-            if bytes.len() != len {
-                return Err("body length mismatch".into());
-            }
-        }
-
         Ok(Response::new(Once::new()))
     }
 

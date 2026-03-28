@@ -82,6 +82,49 @@ struct DecodeContext<'a> {
     writer_tx: &'a SharedWriterQueue,
 }
 
+/// Tracks the expected number of DATA bytes remaining for RFC 7540 §8.1.2.6.
+enum ContentLength {
+    /// No `content-length` header was present; no enforcement.
+    Omitted,
+    /// Bytes still expected before END_STREAM.
+    Remaining(u64),
+}
+
+impl ContentLength {
+    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Self {
+        if !is_end_stream {
+            headers
+                .get(CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .map_or(ContentLength::Omitted, ContentLength::Remaining)
+        } else {
+            ContentLength::Omitted
+        }
+    }
+
+    /// Subtract `len` bytes received in a DATA frame.
+    /// Returns `Err(())` if this would underflow (overflow: more data than declared).
+    fn dec(&mut self, len: usize) -> Result<(), ()> {
+        match self {
+            ContentLength::Omitted => Ok(()),
+            ContentLength::Remaining(rem) => {
+                *rem = rem.checked_sub(len as u64).ok_or(())?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Returns `Err(())` if remaining != 0 at END_STREAM (underflow: less data than declared).
+    fn ensure_zero(&self) -> Result<(), ()> {
+        match self {
+            ContentLength::Omitted => Ok(()),
+            ContentLength::Remaining(0) => Ok(()),
+            ContentLength::Remaining(_) => Err(()),
+        }
+    }
+}
+
 struct StreamState {
     /// Receive side: body sender + receive window.
     /// Closed after request END_STREAM or trailer.
@@ -94,6 +137,8 @@ struct StreamState {
     /// Used by `is_empty` instead of `send_flow.is_none()` so that `send_flow`
     /// can remain `Some` for window-overflow tracking after the response is done.
     send_done: bool,
+    /// RFC 7540 §8.1.2.6: tracks remaining expected DATA bytes.
+    content_length: ContentLength,
 }
 
 impl StreamState {
@@ -429,10 +474,17 @@ impl<'a> DecodeContext<'a> {
         //   Ok(None)       → fully closed stream → STREAM_CLOSED.
         // For the error cases the window is restored via the Reset handler in try_decode.
         let reason = match flow.get_stream_mut(id, self.last_stream_id)? {
-            Some(state) if !state.body_tx.is_closed() => match state.body_tx.forward(payload) {
-                None => return Ok(()),
-                Some(reason) => reason,
-            },
+            Some(state) if !state.body_tx.is_closed() => {
+                // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
+                if state.content_length.dec(payload_len).is_err() {
+                    let _ = flow.remove_stream(id);
+                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+                }
+                match state.body_tx.forward(payload) {
+                    None => return Ok(()),
+                    Some(reason) => reason,
+                }
+            }
             // body_tx closed: half-closed (remote); any further DATA is STREAM_CLOSED.
             // stream not in map: fully closed; same error.
             _ => Reason::STREAM_CLOSED,
@@ -534,6 +586,12 @@ impl<'a> DecodeContext<'a> {
                 if is_end {
                     let mut flow = self.flow.borrow_mut();
                     if let Some(state) = flow.stream_map.get_mut(&id) {
+                        // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
+                        if state.content_length.ensure_zero().is_err() {
+                            let _ = flow.remove_stream(id);
+                            drop(flow);
+                            return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+                        }
                         state.body_tx.close();
                         if state.is_empty() {
                             flow.stream_map.remove(&id);
@@ -795,6 +853,10 @@ impl<'a> DecodeContext<'a> {
 
         self.last_stream_id = id;
 
+        // RFC 7540 §8.1.2.6: parse content-length before headers are moved into the request.
+        // Only meaningful when there will be DATA frames (not end_stream).
+        let content_length = ContentLength::from_header(&headers, is_end_stream);
+
         let mut req = Request::new(RequestExt::<()>::default());
         *req.version_mut() = Version::HTTP_2;
         *req.headers_mut() = headers;
@@ -802,26 +864,23 @@ impl<'a> DecodeContext<'a> {
 
         let (body, tx) = RequestBody::new_pair(id, Rc::clone(self.writer_tx));
 
-        if is_end_stream {
+        let body_tx = if is_end_stream {
             drop(tx);
-            flow.stream_map.insert(
-                id,
-                StreamState {
-                    body_tx: BodyChannel::closed(),
-                    send_flow: Some(sf),
-                    send_done: false,
-                },
-            );
+            BodyChannel::closed()
         } else {
-            flow.stream_map.insert(
-                id,
-                StreamState {
-                    body_tx: BodyChannel::open(tx, settings::DEFAULT_INITIAL_WINDOW_SIZE as usize),
-                    send_flow: Some(sf),
-                    send_done: false,
-                },
-            );
-        }
+            BodyChannel::open(tx, settings::DEFAULT_INITIAL_WINDOW_SIZE as usize)
+        };
+
+        flow.stream_map.insert(
+            id,
+            StreamState {
+                body_tx,
+                send_flow: Some(sf),
+                send_done: false,
+                content_length,
+            },
+        );
+
         drop(flow);
 
         let req = req.map(|ext| ext.map_body(|_| body));
