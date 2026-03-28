@@ -21,13 +21,13 @@ mod inner {
 
     use futures_util::Stream;
     use xitca_http::{
+        HttpServiceBuilder,
         bytes::Bytes,
         h2,
         http::{Request, RequestExt, Response},
     };
     use xitca_io::net::io_uring::TcpStream;
-    use xitca_service::{Service, fn_service};
-    use xitca_unsafe_collection::futures::NowOrPanic;
+    use xitca_service::{ServiceExt, fn_service};
 
     struct Once(Option<h2::Frame>);
 
@@ -77,13 +77,7 @@ mod inner {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
         std::thread::spawn(move || {
-            let service = fn_service(move |(stream, _): (TcpStream, SocketAddr)| async move {
-                // Set max_concurrent_streams=1 so h2spec's 5.1.2 test only
-                // needs to open 2 simultaneous streams to trigger the limit.
-                let mut settings = h2::Settings::default();
-                settings.set_max_concurrent_streams(Some(1));
-                h2::run(stream, &fn_service(handler).call(()).now_or_panic().unwrap(), settings).await
-            });
+            let service = fn_service(handler).enclosed(HttpServiceBuilder::h2().io_uring());
 
             let server = xitca_server::Builder::new()
                 .bind("h2spec", addr, service)

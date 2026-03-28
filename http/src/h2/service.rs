@@ -134,7 +134,7 @@ mod io_uring {
     {
         type Response = ();
         type Error = HttpServiceError<S::Error, BE>;
-        async fn call(&self, (io, _): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+        async fn call(&self, (io, addr): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
             let accept_dur = self.config.tls_accept_timeout;
             let deadline = self.date.get().now() + accept_dur;
             let mut timer = pin!(KeepAlive::new(deadline));
@@ -146,7 +146,17 @@ mod io_uring {
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            run(io, &self.service, Default::default()).await.unwrap();
+            run(
+                io,
+                addr,
+                timer,
+                self.config.keep_alive_timeout,
+                &self.service,
+                self.date.get(),
+                Default::default(),
+            )
+            .await
+            .unwrap();
 
             Ok(())
         }

@@ -10,13 +10,12 @@ use core::{
 use std::{
     collections::{HashMap, VecDeque},
     io,
-    net::Shutdown,
+    net::{Shutdown, SocketAddr},
     rc::Rc,
     time::Duration,
 };
 
 use futures_core::stream::Stream;
-use tokio::time::Instant;
 use tracing::error;
 use xitca_io::{
     bytes::{Buf, BufMut, BytesMut},
@@ -31,8 +30,12 @@ use xitca_unsafe_collection::{
 use crate::{
     body::BodySize,
     bytes::Bytes,
+    date::{DateTime, DateTimeHandle},
     error::BodyError,
-    http::{HeaderMap, Request, RequestExt, Response, Version, header::CONTENT_LENGTH},
+    http::{
+        Extension, HeaderMap, Request, RequestExt, Response, Version,
+        header::{CONTENT_LENGTH, DATE},
+    },
     util::{
         futures::Queue,
         timer::{KeepAlive, Timeout},
@@ -80,6 +83,7 @@ struct DecodeContext<'a> {
     continuation: Option<(headers::Headers, BytesMut)>,
     flow: &'a SharedFlowControl,
     writer_tx: &'a SharedWriterQueue,
+    addr: SocketAddr,
 }
 
 /// Tracks the expected number of DATA bytes remaining for RFC 7540 §8.1.2.6.
@@ -494,7 +498,12 @@ impl<'a> DecodeContext<'a> {
         Err(Error::Reset(id, reason, (payload_len > 0).then_some(payload_len)))
     }
 
-    fn new(flow: &'a SharedFlowControl, writer_tx: &'a SharedWriterQueue, max_concurrent_streams: usize) -> Self {
+    fn new(
+        flow: &'a SharedFlowControl,
+        writer_tx: &'a SharedWriterQueue,
+        max_concurrent_streams: usize,
+        addr: SocketAddr,
+    ) -> Self {
         Self {
             max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
             max_concurrent_streams,
@@ -504,6 +513,7 @@ impl<'a> DecodeContext<'a> {
             continuation: None,
             flow,
             writer_tx,
+            addr,
         }
     }
 
@@ -857,7 +867,7 @@ impl<'a> DecodeContext<'a> {
         // Only meaningful when there will be DATA frames (not end_stream).
         let content_length = ContentLength::from_header(&headers, is_end_stream);
 
-        let mut req = Request::new(RequestExt::<()>::default());
+        let mut req = Request::new(RequestExt::from_parts((), Extension::new(self.addr)));
         *req.version_mut() = Version::HTTP_2;
         *req.headers_mut() = headers;
         *req.method_mut() = method;
@@ -1083,6 +1093,7 @@ async fn response_task<S, ResB, ResBE>(
     service: &S,
     writer_tx: SharedWriterQueue,
     flow: &SharedFlowControl,
+    date: &DateTimeHandle,
 ) where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
@@ -1135,6 +1146,11 @@ async fn response_task<S, ResB, ResBE>(
 
     if let BodySize::Sized(size) = size {
         parts.headers.insert(CONTENT_LENGTH, size.into());
+    }
+
+    if !parts.headers.contains_key(DATE) {
+        let date = date.with_date(http::header::HeaderValue::from_bytes).unwrap();
+        parts.headers.insert(DATE, date);
     }
 
     let pseudo = headers::Pseudo::response(parts.status);
@@ -1216,12 +1232,23 @@ async fn response_task<S, ResB, ResBE>(
 struct PingPong<'a> {
     timer: Pin<&'a mut KeepAlive>,
     flow: &'a SharedFlowControl,
+    date: &'a DateTimeHandle,
+    ka_dur: Duration,
 }
 
 impl<'a> PingPong<'a> {
-    fn new(mut timer: Pin<&'a mut KeepAlive>, flow: &'a SharedFlowControl) -> Self {
-        timer.as_mut().update(Instant::now() + KEEP_ALIVE);
-        Self { timer, flow }
+    fn new(
+        timer: Pin<&'a mut KeepAlive>,
+        flow: &'a SharedFlowControl,
+        date: &'a DateTimeHandle,
+        ka_dur: Duration,
+    ) -> Self {
+        Self {
+            timer,
+            flow,
+            date,
+            ka_dur,
+        }
     }
 
     async fn tick(&mut self) -> io::Result<()> {
@@ -1239,13 +1266,12 @@ impl<'a> PingPong<'a> {
             flow.keepalive_ping = KeepalivePing::Pending;
         }
 
-        self.timer.as_mut().update(Instant::now() + KEEP_ALIVE);
+        self.timer.as_mut().update(self.date.now() + self.ka_dur);
 
         Ok(())
     }
 }
 
-const KEEP_ALIVE: Duration = Duration::from_secs(10);
 /// Maximum number of premature RST_STREAMs before the connection is closed
 /// with GOAWAY(ENHANCE_YOUR_CALM). Matches the h2 crate's default.
 const PREMATURE_RESET_LIMIT: usize = 100;
@@ -1259,7 +1285,15 @@ const CLIENT_RESET_QUEUE_CAP: usize = 64;
 /// the write side cannot keep up.
 const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64 KiB
 
-pub async fn run<Io, S, ResB, ResBE>(io: Io, service: &S, mut settings: settings::Settings) -> io::Result<()>
+pub async fn run<Io, S, ResB, ResBE>(
+    io: Io,
+    addr: SocketAddr,
+    keep_alive: Pin<&mut KeepAlive>,
+    ka_dur: Duration,
+    service: &S,
+    date: &DateTimeHandle,
+    mut settings: settings::Settings,
+) -> io::Result<()>
 where
     Io: AsyncBufRead + AsyncBufWrite,
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
@@ -1274,7 +1308,7 @@ where
     }
 
     let mut write_buf = BytesMut::new();
-    let mut ka = pin!(KeepAlive::new(Instant::now() + KEEP_ALIVE));
+    let mut ka = keep_alive;
 
     let buf = prefix_check(&io, BytesMut::new(), ka.as_mut()).await?;
     let mut read_buf = ReadBuf { buf, cap: READ_BUF_CAP };
@@ -1308,9 +1342,9 @@ where
         remote_settings: RemoteSettings::default(),
         premature_reset_count: 0,
     });
-    let mut ctx = DecodeContext::new(&flow, &writer_queue, max_concurrent_streams);
+    let mut ctx = DecodeContext::new(&flow, &writer_queue, max_concurrent_streams, addr);
     let mut queue = Queue::new();
-    let mut ping_pong = PingPong { timer: ka, flow: &flow };
+    let mut ping_pong = PingPong::new(ka, &flow, date, ka_dur);
 
     let mut write_task = pin!(async {
         let mut enc = EncodeContext::new(&flow, &writer_queue);
@@ -1344,7 +1378,7 @@ where
 
                 let res = ctx.try_decode(&mut read_buf.buf, &mut |req, stream_id| {
                     let t = Rc::clone(&writer_queue);
-                    queue.push(response_task(req, stream_id, service, t, &flow));
+                    queue.push(response_task(req, stream_id, service, t, &flow, date));
                 });
 
                 let reason = match res {

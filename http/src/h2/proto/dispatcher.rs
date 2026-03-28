@@ -26,7 +26,7 @@ use crate::{
     h2::{body::RequestBody, error::Error},
     http::{
         Extension, Request, RequestExt, Response, Version,
-        header::{CONNECTION, CONTENT_LENGTH, DATE, HeaderMap, HeaderName, HeaderValue, TRAILER},
+        header::{CONNECTION, CONTENT_LENGTH, DATE, HeaderValue},
     },
     util::{futures::Queue, timer::KeepAlive},
 };
@@ -233,14 +233,8 @@ where
 
     // check eof state of response body and make sure header is valid.
     let is_eof = match BodySize::from_stream(&body) {
-        BodySize::None => {
-            debug_assert!(!res.headers().contains_key(CONTENT_LENGTH));
-            true
-        }
-        BodySize::Stream => {
-            debug_assert!(!res.headers().contains_key(CONTENT_LENGTH));
-            false
-        }
+        BodySize::None => true,
+        BodySize::Stream => false,
         BodySize::Sized(n) => {
             // add an content-length header if there is non provided.
             if !res.headers().contains_key(CONTENT_LENGTH) {
@@ -249,14 +243,6 @@ where
             n == 0
         }
     };
-
-    let mut trailers = HeaderMap::with_capacity(0);
-
-    while let Some(value) = res.headers_mut().remove(TRAILER) {
-        let name = HeaderName::from_bytes(value.as_bytes()).unwrap();
-        let value = res.headers_mut().remove(name.clone()).unwrap();
-        trailers.append(name, value);
-    }
 
     if !res.headers().contains_key(DATE) {
         let date = date.with_date(HeaderValue::from_bytes).unwrap();
@@ -298,17 +284,8 @@ where
                 stream.send_data(bytes, false)?;
             }
         }
-    }
 
-    if trailers.is_empty() {
-        // If trailers is empty, send an empty data frame to signal end of stream.
-        // It should be ok to send trailers even if empty but some client library does not like it.
-        // see https://gitlab.gnome.org/GNOME/libsoup/-/issues/457
-        // and https://github.com/hyperium/h2/issues/845
         stream.send_data(EMPTY_DATA_FRAME, true)?;
-    } else {
-        // send trailers if there is any.
-        stream.send_trailers(trailers)?;
     }
 
     Ok(state)
