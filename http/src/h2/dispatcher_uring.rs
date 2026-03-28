@@ -86,13 +86,16 @@ struct DecodeContext<'a> {
 }
 
 /// Tracks the expected number of DATA bytes remaining for RFC 7540 §8.1.2.6.
-struct ContentLength {
-    rem: u64,
+enum ContentLength {
+    /// No `content-length` header was present; no enforcement.
+    Omitted,
+    /// Bytes still expected before END_STREAM.
+    Remaining(u64),
 }
 
 impl ContentLength {
     fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Self {
-        let rem = (!is_end_stream)
+        (!is_end_stream)
             .then(|| {
                 headers
                     .get(CONTENT_LENGTH)
@@ -100,22 +103,27 @@ impl ContentLength {
                     .and_then(|s| s.trim().parse::<u64>().ok())
             })
             .flatten()
-            .unwrap_or(0);
-        Self { rem }
+            .map_or(ContentLength::Omitted, ContentLength::Remaining)
     }
 
     /// Subtract `len` bytes received in a DATA frame.
     /// Returns `Err(())` if this would underflow (overflow: more data than declared).
     fn dec(&mut self, len: usize) -> Result<(), ()> {
-        self.rem = self.rem.checked_sub(len as u64).ok_or(())?;
-        Ok(())
+        match self {
+            ContentLength::Omitted => Ok(()),
+            ContentLength::Remaining(rem) => {
+                *rem = rem.checked_sub(len as u64).ok_or(())?;
+                Ok(())
+            }
+        }
     }
 
     /// Returns `Err(())` if remaining != 0 at END_STREAM (underflow: less data than declared).
     fn ensure_zero(&self) -> Result<(), ()> {
-        match self.rem {
-            0 => Ok(()),
-            _ => Err(()),
+        match self {
+            ContentLength::Omitted => Ok(()),
+            ContentLength::Remaining(0) => Ok(()),
+            ContentLength::Remaining(_) => Err(()),
         }
     }
 }
