@@ -23,21 +23,21 @@ mod inner {
         HttpServiceBuilder,
         bytes::Bytes,
         config::HttpServiceConfig,
-        h2,
+        h2::dispatcher_uring::{Frame, RequestBody},
         http::{Request, RequestExt, Response},
     };
     use xitca_service::{ServiceExt, fn_service};
 
-    struct Once(Option<h2::Frame>);
+    struct Once(Option<Frame>);
 
     impl Once {
         fn new() -> Self {
-            Self(Some(h2::Frame::Data(Bytes::new())))
+            Self(Some(Frame::Data(Bytes::new())))
         }
     }
 
     impl Stream for Once {
-        type Item = Result<h2::Frame, Infallible>;
+        type Item = Result<Frame, Infallible>;
 
         fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             Poll::Ready(self.get_mut().0.take().map(Ok))
@@ -49,7 +49,7 @@ mod inner {
     }
 
     async fn handler(
-        _: Request<RequestExt<h2::RequestBodyV2>>,
+        _: Request<RequestExt<RequestBody>>,
     ) -> Result<Response<Once>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Response::new(Once::new()))
     }
