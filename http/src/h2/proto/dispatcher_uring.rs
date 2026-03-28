@@ -1285,14 +1285,14 @@ const CLIENT_RESET_QUEUE_CAP: usize = 64;
 /// the write side cannot keep up.
 const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64 KiB
 
-pub async fn run<Io, S, ResB, ResBE>(
+pub(crate) async fn run<Io, S, ResB, ResBE>(
     io: Io,
     addr: SocketAddr,
     keep_alive: Pin<&mut KeepAlive>,
     ka_dur: Duration,
     service: &S,
     date: &DateTimeHandle,
-    mut settings: settings::Settings,
+    settings: settings::Settings,
 ) -> io::Result<()>
 where
     Io: AsyncBufRead + AsyncBufWrite,
@@ -1301,12 +1301,6 @@ where
     ResB: Stream<Item = Result<Frame, ResBE>>,
     ResBE: fmt::Debug,
 {
-    // Always enforce a concurrent stream limit; fall back to 256 if the
-    // caller did not set one.
-    if settings.max_concurrent_streams().is_none() {
-        settings.set_max_concurrent_streams(Some(256));
-    }
-
     let mut write_buf = BytesMut::new();
     let mut ka = keep_alive;
 

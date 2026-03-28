@@ -49,6 +49,10 @@ where
 
         let mut conn = ::h2::server::Builder::new()
             .enable_connect_protocol()
+            .max_concurrent_streams(self.config.h2_max_concurrent_streams)
+            .initial_window_size(self.config.h2_initial_window_size)
+            .max_frame_size(self.config.h2_max_frame_size)
+            .max_header_list_size(self.config.h2_max_header_list_size)
             .handshake(PollIoAdapter(tls_stream))
             .timeout(timer.as_mut())
             .await
@@ -85,7 +89,10 @@ mod io_uring {
     use crate::{
         config::HttpServiceConfig,
         date::{DateTime, DateTimeService},
-        h2::proto::dispatcher_uring::{Frame, RequestBody, run},
+        h2::proto::{
+            dispatcher_uring::{Frame, RequestBody, run},
+            settings::Settings,
+        },
         util::timer::KeepAlive,
     };
 
@@ -135,8 +142,7 @@ mod io_uring {
         type Response = ();
         type Error = HttpServiceError<S::Error, BE>;
         async fn call(&self, (io, addr): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
-            let accept_dur = self.config.tls_accept_timeout;
-            let deadline = self.date.get().now() + accept_dur;
+            let deadline = self.date.get().now() + self.config.tls_accept_timeout;
             let mut timer = pin!(KeepAlive::new(deadline));
 
             let io = self
@@ -146,6 +152,17 @@ mod io_uring {
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
+            // update timer to first request timeout.
+            let deadline = self.date.get().now() + self.config.request_head_timeout;
+            timer.as_mut().update(deadline);
+
+            let mut settings = Settings::default();
+            settings.set_max_concurrent_streams(Some(self.config.h2_max_concurrent_streams));
+            settings.set_initial_window_size(Some(self.config.h2_initial_window_size));
+            settings.set_max_frame_size(Some(self.config.h2_max_frame_size));
+            settings.set_max_header_list_size(Some(self.config.h2_max_header_list_size));
+            settings.set_enable_connect_protocol(Some(1));
+
             run(
                 io,
                 addr,
@@ -153,7 +170,7 @@ mod io_uring {
                 self.config.keep_alive_timeout,
                 &self.service,
                 self.date.get(),
-                Default::default(),
+                settings,
             )
             .await
             .unwrap();

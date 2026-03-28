@@ -22,6 +22,7 @@ mod inner {
     use xitca_http::{
         HttpServiceBuilder,
         bytes::Bytes,
+        config::HttpServiceConfig,
         h2,
         http::{Request, RequestExt, Response},
     };
@@ -75,7 +76,11 @@ mod inner {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
         std::thread::spawn(move || {
-            let service = fn_service(handler).enclosed(HttpServiceBuilder::h2().io_uring());
+            let service = fn_service(handler).enclosed(
+                HttpServiceBuilder::h2()
+                    .io_uring()
+                    .config(HttpServiceConfig::new().h2_max_concurrent_streams(2)),
+            );
 
             let server = xitca_server::Builder::new()
                 .bind("h2spec", addr, service)
@@ -89,29 +94,8 @@ mod inner {
         // Wait until the server thread has called .build() and is listening.
         rx.recv().unwrap();
 
-        // http2/5.1.2 is excluded: h2spec does not wait for SETTINGS ACK before
-        // sending the stream flood, so any interleaved PING frame (e.g. keepalive)
-        // causes a false negative. See https://github.com/summerwind/h2spec/issues/136
         let status = Command::new("h2spec")
-            .args([
-                "-p",
-                &port.to_string(),
-                "-h",
-                "127.0.0.1",
-                "--timeout",
-                "10",
-                "http2/3",
-                "http2/4",
-                "http2/5.1.1",
-                "http2/5.3",
-                "http2/5.4",
-                "http2/5.5",
-                "http2/6",
-                "http2/7",
-                "http2/8",
-                "http2/9",
-                "hpack",
-            ])
+            .args(["-p", &port.to_string(), "-h", "127.0.0.1", "--timeout", "10"])
             .status()
             .expect("h2spec binary not found — see top-of-file comment for install instructions");
 

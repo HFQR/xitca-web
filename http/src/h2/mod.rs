@@ -14,6 +14,4 @@ pub use self::error::Error;
 pub use self::service::H2Service;
 
 #[cfg(feature = "io-uring")]
-pub use self::proto::dispatcher_uring::{Frame, RequestBody as RequestBodyV2, run};
-#[cfg(feature = "io-uring")]
-pub use self::proto::settings::Settings;
+pub use self::proto::dispatcher_uring::{Frame, RequestBody as RequestBodyV2};
