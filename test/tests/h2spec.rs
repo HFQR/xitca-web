@@ -12,7 +12,6 @@
 mod inner {
     use core::{
         convert::Infallible,
-        net::SocketAddr,
         pin::Pin,
         task::{Context, Poll},
     };
@@ -26,7 +25,6 @@ mod inner {
         h2,
         http::{Request, RequestExt, Response},
     };
-    use xitca_io::net::io_uring::TcpStream;
     use xitca_service::{ServiceExt, fn_service};
 
     struct Once(Option<h2::Frame>);
