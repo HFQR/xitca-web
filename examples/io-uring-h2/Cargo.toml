@@ -1,0 +1,12 @@
+[package]
+name = "xitca-web-io-uring-h2"
+version = "0.1.0"
+authors = ["fakeshadow <24548779@qq.com>"]
+edition = "2024"
+
+[dependencies]
+xitca-http = {  path = "../../http", features = ["http2", "io-uring", "router"] }
+xitca-server = { version = "0.6.1", features = ["io-uring"] }
+xitca-service = "0.3"
+
+futures-core = "0.3"

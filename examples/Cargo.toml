@@ -11,6 +11,7 @@ members = [
     "grpc",
     "hello-world",
     "io-uring",
+    "io-uring-h2",
     "macros",
     "multipart",
     "multi-http-services",

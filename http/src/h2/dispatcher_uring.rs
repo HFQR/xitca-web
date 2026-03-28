@@ -81,139 +81,96 @@ struct DecodeContext<'a> {
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
-    flow: &'a SharedFlowControl,
-    writer_tx: &'a SharedWriterQueue,
+    ctx: &'a Shared,
     addr: SocketAddr,
 }
 
 /// Tracks the expected number of DATA bytes remaining for RFC 7540 §8.1.2.6.
-enum ContentLength {
-    /// No `content-length` header was present; no enforcement.
-    Omitted,
-    /// Bytes still expected before END_STREAM.
-    Remaining(u64),
+struct ContentLength {
+    rem: u64,
 }
 
 impl ContentLength {
     fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Self {
-        if !is_end_stream {
-            headers
-                .get(CONTENT_LENGTH)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.trim().parse::<u64>().ok())
-                .map_or(ContentLength::Omitted, ContentLength::Remaining)
-        } else {
-            ContentLength::Omitted
-        }
+        let rem = (!is_end_stream)
+            .then(|| {
+                headers
+                    .get(CONTENT_LENGTH)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.trim().parse::<u64>().ok())
+            })
+            .flatten()
+            .unwrap_or(0);
+        Self { rem }
     }
 
     /// Subtract `len` bytes received in a DATA frame.
     /// Returns `Err(())` if this would underflow (overflow: more data than declared).
     fn dec(&mut self, len: usize) -> Result<(), ()> {
-        match self {
-            ContentLength::Omitted => Ok(()),
-            ContentLength::Remaining(rem) => {
-                *rem = rem.checked_sub(len as u64).ok_or(())?;
-                Ok(())
-            }
-        }
+        self.rem = self.rem.checked_sub(len as u64).ok_or(())?;
+        Ok(())
     }
 
     /// Returns `Err(())` if remaining != 0 at END_STREAM (underflow: less data than declared).
     fn ensure_zero(&self) -> Result<(), ()> {
-        match self {
-            ContentLength::Omitted => Ok(()),
-            ContentLength::Remaining(0) => Ok(()),
-            ContentLength::Remaining(_) => Err(()),
+        match self.rem {
+            0 => Ok(()),
+            _ => Err(()),
         }
     }
 }
 
 struct StreamState {
-    /// Receive side: body sender + receive window.
-    /// Closed after request END_STREAM or trailer.
-    body_tx: BodyChannel,
-    /// Send side: flow control for the response body.
-    /// Kept alive for the lifetime of the stream so that WINDOW_UPDATE overflow
-    /// can always be detected (RFC 7540 §6.9.1), even after the response is done.
-    send_flow: Option<StreamControlFlow>,
-    /// Set to `true` by `StreamGuard::drop` once the response task has finished.
-    /// Used by `is_empty` instead of `send_flow.is_none()` so that `send_flow`
-    /// can remain `Some` for window-overflow tracking after the response is done.
-    send_done: bool,
+    recv_state: RecvState,
+    send_state: SendState,
+}
+
+struct RecvState {
+    /// Buffered DATA / Trailers frames for the request body, pushed by the
+    /// decode path and drained by `RequestBody::poll_next`.
+    body_queue: VecDeque<Frame>,
+    /// Waker stored by `RequestBody::poll_next` when the queue is empty;
+    /// woken by the decode path after pushing new data.
+    body_waker: Option<Waker>,
+    /// Remaining bytes the client may send on this stream (RFC 7540 §6.9).
+    window: usize,
+    /// Set when the receive side is closed: END_STREAM received, trailer
+    /// accepted, or `RequestBody` dropped.
+    body_closed: bool,
+    /// Terminal error set when the stream is reset by the peer (RST_STREAM)
+    /// while `RequestBody` is still alive. Delivered as `Err` on the next
+    /// `poll_next` call so the caller knows the body was truncated.
+    body_error: Option<BodyError>,
     /// RFC 7540 §8.1.2.6: tracks remaining expected DATA bytes.
     content_length: ContentLength,
 }
 
+struct SendState {
+    /// Remaining send window for this stream. Signed because a SETTINGS change
+    /// reducing INITIAL_WINDOW_SIZE can drive it negative; the stream must not
+    /// send until WINDOW_UPDATE brings it back above zero (RFC 7540 §6.9.2).
+    window: i64,
+    frame_size: usize,
+    waker: Option<Waker>,
+    /// Set when the response task finishes (half-closed local). Kept alive so
+    /// WINDOW_UPDATE overflow can still be detected (RFC §6.9.1).
+    send_closed: bool,
+}
+
+impl SendState {
+    fn wake(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
 impl StreamState {
     fn is_empty(&self) -> bool {
-        self.body_tx.is_closed() && self.send_done
-    }
-}
-
-struct BodyChannelInner {
-    tx: RequestBodySender,
-    /// Remaining bytes the client may send on this stream (RFC 7540 §6.9).
-    recv_window: usize,
-}
-
-/// Encapsulates the receive-side state for a single request stream:
-/// the sender half of the body channel and the remaining flow-control window.
-/// Closed internally means the client has finished sending (END_STREAM received
-/// or trailer accepted).
-struct BodyChannel(Option<BodyChannelInner>);
-
-impl BodyChannel {
-    fn open(tx: RequestBodySender, recv_window: usize) -> Self {
-        Self(Some(BodyChannelInner { tx, recv_window }))
-    }
-
-    fn closed() -> Self {
-        Self(None)
-    }
-
-    fn is_closed(&self) -> bool {
-        self.0.is_none()
-    }
-
-    fn close(&mut self) {
-        self.0 = None;
-    }
-
-    /// Forward a DATA payload. Returns `None` on success, or the `Reason`
-    /// for a RST_STREAM if the stream window is exceeded, the receiver has
-    /// gone away, or the stream was already half-closed.
-    fn forward(&mut self, payload: Bytes) -> Option<Reason> {
-        let payload_len = payload.len();
-        let inner = self.0.as_mut()?;
-        if payload_len > inner.recv_window {
-            Some(Reason::FLOW_CONTROL_ERROR)
-        } else {
-            inner.recv_window -= payload_len;
-            // Skip sending empty chunks — zero-length DATA is
-            // valid on the wire but needless noise for the service.
-            if payload_len > 0 && inner.tx.send(Ok(Frame::Data(payload))).is_err() {
-                Some(Reason::CANCEL)
-            } else {
-                None
-            }
-        }
-    }
-
-    /// Send trailers and close. Returns `false` if already closed
-    /// (caller should treat as STREAM_CLOSED).
-    fn send_trailer(&mut self, headers: HeaderMap) -> bool {
-        let Some(inner) = self.0.take() else {
-            return false;
-        };
-        let _ = inner.tx.send(Ok(Frame::Trailers(Box::new(headers))));
-        true
-    }
-
-    fn replenish_window(&mut self, size: usize) {
-        if let Some(inner) = &mut self.0 {
-            inner.recv_window += size;
-        }
+        self.recv_state.body_closed
+            && self.recv_state.body_queue.is_empty()
+            && self.recv_state.body_error.is_none()
+            && self.send_state.send_closed
     }
 }
 
@@ -248,14 +205,6 @@ struct FlowControl {
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
     stream_map: HashMap<StreamId, StreamState, NoHashBuilder>,
-    /// State of the server-initiated keepalive PING. Replaces the old
-    /// `pending_ack` boolean; see `KeepalivePing` for the state transitions.
-    keepalive_ping: KeepalivePing,
-    /// A client-initiated PING whose ACK we must send. Stored outside the
-    /// write queue so queue depth is permanently bounded (CVE-2019-9512).
-    /// Always overwritten by the latest client PING; poll_encode takes and
-    /// clears it after encoding the ACK.
-    pending_client_ping: Option<[u8; 8]>,
     /// The peer's latest SETTINGS frame, pending an ACK (CVE-2019-9515).
     /// A well-behaved peer sends one SETTINGS and waits for the ACK before
     /// sending another (RFC 7540 §6.5.3). A second SETTINGS arriving while
@@ -309,15 +258,48 @@ impl RemoteSettings {
 }
 
 impl FlowControl {
-    /// Remove all state for a stream. Drops the body sender (so `RequestBody`
-    /// sees EOF) and wakes any blocked response task so it can exit cleanly.
+    /// Force-remove a stream regardless of state. Used for unrecoverable
+    /// protocol errors where immediate teardown is required. Both wakers are
+    /// fired so blocked tasks can exit.
     fn remove_stream(&mut self, id: StreamId) -> Option<StreamState> {
         self.stream_map.remove(&id).map(|mut state| {
-            if let Some(ref mut sf) = state.send_flow {
-                sf.wake();
+            state.send_state.wake();
+            if let Some(w) = state.recv_state.body_waker.take() {
+                w.wake();
             }
             state
         })
+    }
+
+    /// Close the receive side of a stream. Sets `body_closed`, wakes any
+    /// parked `RequestBody`, then removes the stream if both sides are done.
+    fn remove_recv(&mut self, id: StreamId) {
+        if let Some(state) = self.stream_map.get_mut(&id) {
+            state.recv_state.body_closed = true;
+            if let Some(w) = state.recv_state.body_waker.take() {
+                w.wake();
+            }
+            if state.is_empty() {
+                self.stream_map.remove(&id);
+            }
+        }
+    }
+
+    /// Close the send side of a stream. Sets `send_closed`, wakes any parked
+    /// response task, then removes the stream if both sides are done.
+    /// Returns `true` if the stream was present in the map (used by
+    /// `StreamGuard::drop` to decide whether to credit back a premature reset).
+    fn remove_send(&mut self, id: StreamId) -> bool {
+        if let Some(state) = self.stream_map.get_mut(&id) {
+            state.send_state.send_closed = true;
+            state.send_state.wake();
+            if state.is_empty() {
+                self.stream_map.remove(&id);
+            }
+            true
+        } else {
+            false
+        }
     }
 
     /// Look up a stream by ID, distinguishing three cases:
@@ -337,11 +319,10 @@ impl FlowControl {
     /// windows (e.g. after a connection-level WINDOW_UPDATE).
     fn update_and_wake_send_streams(&mut self, delta: i64) {
         for state in self.stream_map.values_mut() {
-            if let Some(ref mut sf) = state.send_flow {
-                sf.window += delta;
-                if sf.window > 0 {
-                    sf.wake();
-                }
+            let sf = &mut state.send_state;
+            sf.window += delta;
+            if sf.window > 0 {
+                sf.wake();
             }
         }
     }
@@ -350,17 +331,28 @@ impl FlowControl {
     // the response task is running or the request body is still being
     // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
     fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
-        if self.remove_stream(id).is_some() {
-            self.premature_reset_count += 1;
-            if self.premature_reset_count > PREMATURE_RESET_LIMIT {
-                return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
+        if let Some(state) = self.stream_map.get_mut(&id) {
+            if !state.recv_state.body_closed {
+                // RequestBody is still alive: signal a truncation error so the
+                // caller knows the body was cut short, rather than seeing a
+                // silent EOF.
+                state.recv_state.body_error = Some(Box::new(io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    "h2 stream reset by peer",
+                )));
             }
+        } else {
+            return Ok(());
         }
+        self.premature_reset_count += 1;
+        if self.premature_reset_count > PREMATURE_RESET_LIMIT {
+            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
+        }
+        self.remove_recv(id);
+        self.remove_send(id);
         Ok(())
     }
 }
-
-type SharedFlowControl = RefCell<FlowControl>;
 
 enum Message {
     Head(headers::Headers<ResponsePseudo>),
@@ -381,9 +373,28 @@ struct WriterQueue {
     /// because they are bounded by `max_concurrent_streams`.
     resets: VecDeque<(StreamId, Reason)>,
     closed: bool,
+    /// Accumulated connection-level WINDOW_UPDATE increment. Mutated at push
+    /// time by all callers; flushed to a single connection frame after
+    /// `poll_encode` drains the queue.
+    pending_conn_window: usize,
+    /// State of the server-initiated keepalive PING. Replaces the old
+    /// `pending_ack` boolean; see `KeepalivePing` for the state transitions.
+    keepalive_ping: KeepalivePing,
+    /// A client-initiated PING whose ACK we must send. Stored outside the
+    /// write queue so queue depth is permanently bounded (CVE-2019-9512).
+    /// Always overwritten by the latest client PING; poll_encode takes and
+    /// clears it after encoding the ACK.
+    pending_client_ping: Option<[u8; 8]>,
 }
 
-type SharedWriterQueue = Rc<RefCell<WriterQueue>>;
+/// All per-connection mutable state, shared between the read path, write path,
+/// and any live `RequestBody` handles via a single `Rc<RefCell<…>>`.
+struct ConnectionInner {
+    flow: FlowControl,
+    queue: WriterQueue,
+}
+
+type Shared = Rc<RefCell<ConnectionInner>>;
 
 impl WriterQueue {
     fn new() -> Self {
@@ -391,11 +402,26 @@ impl WriterQueue {
             messages: VecDeque::new(),
             resets: VecDeque::new(),
             closed: false,
+            pending_conn_window: 0,
+            keepalive_ping: KeepalivePing::Idle,
+            pending_client_ping: None,
         }
     }
 
     fn push(&mut self, msg: Message) {
         self.messages.push_back(msg);
+    }
+
+    /// Accumulate a WINDOW_UPDATE into `pending_conn_window` and, for non-zero
+    /// stream IDs, queue a per-stream message so `poll_encode` can emit the
+    /// stream-level frame and replenish the body sender. Connection-only updates
+    /// (stream_id == 0) skip the queue entirely; they are flushed as a single
+    /// connection frame after `poll_encode` drains the queue.
+    fn push_window_update(&mut self, stream_id: StreamId, size: usize) {
+        self.pending_conn_window += size;
+        if stream_id != StreamId::zero() {
+            self.messages.push_back(Message::WindowUpdate { stream_id, size });
+        }
     }
 
     /// Push a RST_STREAM caused by a client protocol error. Returns `true` if
@@ -465,7 +491,8 @@ impl<'a> DecodeContext<'a> {
 
     fn on_data_payload(&self, id: StreamId, payload: Bytes) -> Result<(), Error> {
         let payload_len = payload.len();
-        let mut flow = self.flow.borrow_mut();
+        let mut inner = self.ctx.borrow_mut();
+        let flow = &mut inner.flow;
 
         if payload_len > flow.recv_connection_window {
             return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
@@ -478,18 +505,26 @@ impl<'a> DecodeContext<'a> {
         //   Ok(None)       → fully closed stream → STREAM_CLOSED.
         // For the error cases the window is restored via the Reset handler in try_decode.
         let reason = match flow.get_stream_mut(id, self.last_stream_id)? {
-            Some(state) if !state.body_tx.is_closed() => {
+            Some(state) if !state.recv_state.body_closed => {
                 // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
-                if state.content_length.dec(payload_len).is_err() {
+                if state.recv_state.content_length.dec(payload_len).is_err() {
                     let _ = flow.remove_stream(id);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
-                match state.body_tx.forward(payload) {
-                    None => return Ok(()),
-                    Some(reason) => reason,
+                if payload_len > state.recv_state.window {
+                    Reason::FLOW_CONTROL_ERROR
+                } else {
+                    state.recv_state.window -= payload_len;
+                    if payload_len > 0 {
+                        state.recv_state.body_queue.push_back(Frame::Data(payload));
+                        if let Some(w) = state.recv_state.body_waker.take() {
+                            w.wake();
+                        }
+                    }
+                    return Ok(());
                 }
             }
-            // body_tx closed: half-closed (remote); any further DATA is STREAM_CLOSED.
+            // body closed: half-closed (remote); any further DATA is STREAM_CLOSED.
             // stream not in map: fully closed; same error.
             _ => Reason::STREAM_CLOSED,
         };
@@ -498,12 +533,7 @@ impl<'a> DecodeContext<'a> {
         Err(Error::Reset(id, reason, (payload_len > 0).then_some(payload_len)))
     }
 
-    fn new(
-        flow: &'a SharedFlowControl,
-        writer_tx: &'a SharedWriterQueue,
-        max_concurrent_streams: usize,
-        addr: SocketAddr,
-    ) -> Self {
+    fn new(ctx: &'a Shared, max_concurrent_streams: usize, addr: SocketAddr) -> Self {
         Self {
             max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
             max_concurrent_streams,
@@ -511,8 +541,7 @@ impl<'a> DecodeContext<'a> {
             decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
             next_frame_len: 0,
             continuation: None,
-            flow,
-            writer_tx,
+            ctx,
             addr,
         }
     }
@@ -546,15 +575,13 @@ impl<'a> DecodeContext<'a> {
             match self.decode_frame(head, frame, on_msg) {
                 Ok(()) => {}
                 Err(Error::Reset(id, reason, window)) => {
-                    let mut tx = self.writer_tx.borrow_mut();
+                    let mut inner = self.ctx.borrow_mut();
+                    let tx = &mut inner.queue;
                     if tx.push_client_reset(id, reason) {
                         return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
                     }
                     if let Some(size) = window {
-                        tx.push(Message::WindowUpdate {
-                            stream_id: StreamId::zero(),
-                            size,
-                        });
+                        tx.push_window_update(StreamId::zero(), size);
                     }
                 }
                 Err(e) => return Err(e),
@@ -594,19 +621,17 @@ impl<'a> DecodeContext<'a> {
                 self.on_data_payload(id, payload)?;
 
                 if is_end {
-                    let mut flow = self.flow.borrow_mut();
+                    let mut inner = self.ctx.borrow_mut();
+                    let flow = &mut inner.flow;
                     if let Some(state) = flow.stream_map.get_mut(&id) {
                         // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-                        if state.content_length.ensure_zero().is_err() {
+                        if state.recv_state.content_length.ensure_zero().is_err() {
                             let _ = flow.remove_stream(id);
-                            drop(flow);
+                            drop(inner);
                             return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                         }
-                        state.body_tx.close();
-                        if state.is_empty() {
-                            flow.stream_map.remove(&id);
-                        }
                     }
+                    flow.remove_recv(id);
                 }
             }
             (head::Kind::WindowUpdate, _) => {
@@ -616,12 +641,13 @@ impl<'a> DecodeContext<'a> {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
                         self.check_not_idle(id)?;
-                        let _ = self.flow.borrow_mut().remove_stream(id);
+                        let _ = self.ctx.borrow_mut().flow.remove_stream(id);
                         return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                     }
                     (incr, StreamId::ZERO) => {
                         let incr = incr as usize;
-                        let mut flow = self.flow.borrow_mut();
+                        let mut inner = self.ctx.borrow_mut();
+                        let flow = &mut inner.flow;
 
                         if flow.send_connection_window + incr > settings::MAX_INITIAL_WINDOW_SIZE {
                             return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
@@ -638,19 +664,19 @@ impl<'a> DecodeContext<'a> {
                     }
                     (incr, id) => {
                         let incr = incr as i64;
-                        let mut flow = self.flow.borrow_mut();
+                        let mut inner = self.ctx.borrow_mut();
+                        let flow = &mut inner.flow;
                         let window = flow.send_connection_window;
                         if let Some(state) = flow.get_stream_mut(id, self.last_stream_id)? {
-                            if let Some(ref mut sf) = state.send_flow {
-                                if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                    let _ = flow.remove_stream(id);
-                                    drop(flow);
-                                    return Err(Error::Reset(id, Reason::FLOW_CONTROL_ERROR, None));
-                                } else {
-                                    sf.window += incr;
-                                    if window > 0 {
-                                        sf.wake();
-                                    }
+                            let sf = &mut state.send_state;
+                            if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
+                                let _ = flow.remove_stream(id);
+                                drop(inner);
+                                return Err(Error::Reset(id, Reason::FLOW_CONTROL_ERROR, None));
+                            } else {
+                                sf.window += incr;
+                                if window > 0 {
+                                    sf.wake();
                                 }
                             }
                         }
@@ -662,10 +688,10 @@ impl<'a> DecodeContext<'a> {
                 if ping.is_ack {
                     // ACK for our keepalive PING: return to Idle so `PingPong::tick`
                     // does not time out on the next tick.
-                    self.flow.borrow_mut().keepalive_ping = KeepalivePing::Idle;
+                    self.ctx.borrow_mut().queue.keepalive_ping = KeepalivePing::Idle;
                 } else {
                     // Client-initiated PING: always overwrite; we reply with ACK.
-                    self.flow.borrow_mut().pending_client_ping = Some(ping.payload);
+                    self.ctx.borrow_mut().queue.pending_client_ping = Some(ping.payload);
                 }
             }
             (head::Kind::Reset, _) => {
@@ -675,8 +701,7 @@ impl<'a> DecodeContext<'a> {
                     return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
                 }
                 self.check_not_idle(id)?;
-                let mut flow = self.flow.borrow_mut();
-                flow.try_reset_stream(id)?;
+                self.ctx.borrow_mut().flow.try_reset_stream(id)?;
             }
             (head::Kind::GoAway, _) => {
                 // The peer is shutting down. Always respond with graceful
@@ -729,7 +754,8 @@ impl<'a> DecodeContext<'a> {
             return Ok(());
         }
 
-        let mut flow = self.flow.borrow_mut();
+        let mut inner = self.ctx.borrow_mut();
+        let flow = &mut inner.flow;
 
         if let Some(new_window) = setting.initial_window_size() {
             let new_window = new_window as i64;
@@ -740,8 +766,7 @@ impl<'a> DecodeContext<'a> {
                 let overflow = flow
                     .stream_map
                     .values()
-                    .filter_map(|s| s.send_flow.as_ref())
-                    .any(|sf| sf.window + delta > settings::MAX_INITIAL_WINDOW_SIZE as i64);
+                    .any(|s| s.send_state.window + delta > settings::MAX_INITIAL_WINDOW_SIZE as i64);
                 if overflow {
                     return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
                 }
@@ -756,9 +781,7 @@ impl<'a> DecodeContext<'a> {
             let frame_size = frame_size as usize;
             flow.max_frame_size = frame_size;
             for state in flow.stream_map.values_mut() {
-                if let Some(ref mut sf) = state.send_flow {
-                    sf.frame_size = frame_size;
-                }
+                state.send_state.frame_size = frame_size;
             }
         }
 
@@ -814,21 +837,24 @@ impl<'a> DecodeContext<'a> {
         let (pseudo, headers) = headers.into_parts();
 
         {
-            let mut flow = self.flow.borrow_mut();
+            let mut inner = self.ctx.borrow_mut();
+            let flow = &mut inner.flow;
             if let Some(state) = flow.stream_map.get_mut(&id) {
                 // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
                 if !is_end_stream {
-                    state.body_tx.close();
-                    drop(flow);
+                    flow.remove_recv(id);
+                    drop(inner);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
-                if !state.body_tx.send_trailer(headers) {
-                    drop(flow);
+                if state.recv_state.body_closed {
+                    drop(inner);
                     return Err(Error::Reset(id, Reason::STREAM_CLOSED, None));
                 }
-                if state.is_empty() {
-                    flow.stream_map.remove(&id);
-                }
+                state
+                    .recv_state
+                    .body_queue
+                    .push_back(Frame::Trailers(Box::new(headers)));
+                flow.remove_recv(id);
                 return Ok(());
             }
         }
@@ -843,22 +869,24 @@ impl<'a> DecodeContext<'a> {
             return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
         };
 
-        let mut flow = self.flow.borrow_mut();
+        let mut inner = self.ctx.borrow_mut();
+        let flow = &mut inner.flow;
         // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
         // Do NOT update last_stream_id: REFUSED_STREAM means no application
         // processing occurred and the client should retry (RFC 7540 §8.1.4).
         if flow.open_streams >= self.max_concurrent_streams {
-            drop(flow);
+            drop(inner);
             return Err(Error::Reset(id, Reason::REFUSED_STREAM, None));
         }
         flow.open_streams += 1;
 
         // Initialize send_flow at stream creation so any WINDOW_UPDATE that
         // arrives before response_task starts its body loop is not lost.
-        let sf = StreamControlFlow {
+        let sf = SendState {
             window: flow.stream_window,
             frame_size: flow.max_frame_size,
             waker: None,
+            send_closed: false,
         };
 
         self.last_stream_id = id;
@@ -872,26 +900,28 @@ impl<'a> DecodeContext<'a> {
         *req.headers_mut() = headers;
         *req.method_mut() = method;
 
-        let (body, tx) = RequestBody::new_pair(id, Rc::clone(self.writer_tx));
-
-        let body_tx = if is_end_stream {
-            drop(tx);
-            BodyChannel::closed()
-        } else {
-            BodyChannel::open(tx, settings::DEFAULT_INITIAL_WINDOW_SIZE as usize)
-        };
+        let body = RequestBody::new(id, Rc::clone(self.ctx));
 
         flow.stream_map.insert(
             id,
             StreamState {
-                body_tx,
-                send_flow: Some(sf),
-                send_done: false,
-                content_length,
+                recv_state: RecvState {
+                    body_queue: VecDeque::new(),
+                    body_waker: None,
+                    window: if is_end_stream {
+                        0
+                    } else {
+                        settings::DEFAULT_INITIAL_WINDOW_SIZE as usize
+                    },
+                    body_closed: is_end_stream,
+                    body_error: None,
+                    content_length,
+                },
+                send_state: sf,
             },
         );
 
-        drop(flow);
+        drop(inner);
 
         let req = req.map(|ext| ext.map_body(|_| body));
 
@@ -937,94 +967,53 @@ async fn write_io(buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, By
     (res, buf)
 }
 
-struct StreamControlFlow {
-    /// Remaining send window for this stream. Signed because a SETTINGS change
-    /// reducing INITIAL_WINDOW_SIZE can drive it negative; the stream must not
-    /// send until WINDOW_UPDATE brings it back above zero (RFC 7540 §6.9.2).
-    window: i64,
-    frame_size: usize,
-    waker: Option<Waker>,
-}
-
-impl StreamControlFlow {
-    fn wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
-}
-
 struct EncodeContext<'a> {
     encoder: hpack::Encoder,
-    flow: &'a SharedFlowControl,
-    write_queue: &'a SharedWriterQueue,
-    /// Accumulated connection-level WINDOW_UPDATE increment, flushed once
-    /// before yielding to the IO layer.
-    pending_conn_window: usize,
+    ctx: &'a Shared,
 }
 
 impl<'a> EncodeContext<'a> {
-    fn new(flow: &'a SharedFlowControl, write_queue: &'a SharedWriterQueue) -> Self {
+    fn new(ctx: &'a Shared) -> Self {
         Self {
             encoder: hpack::Encoder::new(65535, 4096),
-            flow,
-            write_queue,
-            pending_conn_window: 0,
+            ctx,
         }
     }
 
     fn poll_encode(&mut self, write_buf: &mut BytesMut) -> Poll<bool> {
-        let mut flow = self.flow.borrow_mut();
+        let mut inner = self.ctx.borrow_mut();
 
-        flow.remote_settings.encode(&mut self.encoder, write_buf);
-
-        let mut queue = self.write_queue.borrow_mut();
+        inner.flow.remote_settings.encode(&mut self.encoder, write_buf);
 
         let is_eof = loop {
-            match queue.poll_recv() {
+            match inner.queue.poll_recv() {
                 Poll::Ready(Some(msg)) => match msg {
                     Message::Head(headers) => {
-                        let frame_size = flow.max_frame_size;
+                        let frame_size = inner.flow.max_frame_size;
                         let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
                         while let Some(c) = cont {
                             cont = c.encode(&mut write_buf.limit(frame_size));
                         }
                     }
                     Message::Trailer(headers) => {
-                        let frame_size = flow.max_frame_size;
+                        let frame_size = inner.flow.max_frame_size;
                         let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
                         while let Some(c) = cont {
                             cont = c.encode(&mut write_buf.limit(frame_size));
                         }
                     }
-                    Message::Data(mut data) => {
-                        data.encode_chunk(write_buf);
-                    }
-                    Message::Reset { stream_id, reason } => {
-                        let reset = Reset::new(stream_id, reason);
-                        reset.encode(write_buf);
-                    }
+                    Message::Data(mut data) => data.encode_chunk(write_buf),
+                    Message::Reset { stream_id, reason } => Reset::new(stream_id, reason).encode(write_buf),
                     Message::WindowUpdate { stream_id, size } => {
                         debug_assert!(size > 0, "window update size must not be 0");
-
-                        flow.recv_connection_window += size;
-                        if let Some(state) = flow.stream_map.get_mut(&stream_id) {
-                            state.body_tx.replenish_window(size);
+                        if let Some(state) = inner.flow.stream_map.get_mut(&stream_id) {
+                            state.recv_state.window += size;
                         }
-
-                        self.pending_conn_window += size;
-                        // Stream 0 = connection-only replenishment (e.g. closed
-                        // stream). Only accumulate into pending_conn_window;
-                        // flush_conn_window will emit the frame.
-                        if stream_id != StreamId::zero() {
-                            let update = WindowUpdate::new(stream_id, size as _);
-                            update.encode(write_buf);
-                        }
+                        WindowUpdate::new(stream_id, size as _).encode(write_buf);
                     }
                     Message::GoAway { last_stream_id, reason } => {
-                        self.pending_conn_window = 0;
-                        let go_away = GoAway::new(last_stream_id, reason);
-                        go_away.encode(write_buf);
+                        inner.queue.pending_conn_window = 0;
+                        GoAway::new(last_stream_id, reason).encode(write_buf);
                         // Do NOT break with is_eof=true here. The graceful-drain
                         // path needs the write task to keep running after sending
                         // GOAWAY so that in-flight response frames (DATA, HEADERS,
@@ -1039,22 +1028,24 @@ impl<'a> EncodeContext<'a> {
             }
         };
 
-        self.flush_conn_window(write_buf);
+        let pending = mem::replace(&mut inner.queue.pending_conn_window, 0);
+        if pending > 0 {
+            inner.flow.recv_connection_window += pending;
+            WindowUpdate::new(StreamId::zero(), pending as _).encode(write_buf);
+        }
 
         // Encode a client PING ACK if one is waiting (take-and-clear).
-        if let Some(payload) = flow.pending_client_ping.take() {
-            let head = head::Head::new(head::Kind::Ping, 0x1, StreamId::zero());
-            head.encode(8, write_buf);
+        if let Some(payload) = inner.queue.pending_client_ping.take() {
+            head::Head::new(head::Kind::Ping, 0x1, StreamId::zero()).encode(8, write_buf);
             write_buf.put_slice(&payload);
         }
 
         // Encode our keepalive PING if it is queued but not yet sent, then
         // transition to InFlight so we do not re-send it on the next pass.
-        if flow.keepalive_ping == KeepalivePing::Pending {
-            let head = head::Head::new(head::Kind::Ping, 0x0, StreamId::zero());
-            head.encode(8, write_buf);
+        if inner.queue.keepalive_ping == KeepalivePing::Pending {
+            head::Head::new(head::Kind::Ping, 0x0, StreamId::zero()).encode(8, write_buf);
             write_buf.put_slice(&[0u8; 8]);
-            flow.keepalive_ping = KeepalivePing::InFlight;
+            inner.queue.keepalive_ping = KeepalivePing::InFlight;
         }
 
         // Return Pending only when there is nothing to write AND the queue is
@@ -1067,23 +1058,13 @@ impl<'a> EncodeContext<'a> {
             Poll::Ready(is_eof)
         }
     }
-
-    #[inline]
-    fn flush_conn_window(&mut self, write_buf: &mut BytesMut) {
-        let pending = mem::replace(&mut self.pending_conn_window, 0);
-        if pending > 0 {
-            let update = WindowUpdate::new(StreamId::zero(), pending as _);
-            update.encode(write_buf);
-        }
-    }
 }
 
 async fn response_task<S, ResB, ResBE>(
     req: Request<RequestExt<RequestBody>>,
     stream_id: StreamId,
     service: &S,
-    writer_tx: SharedWriterQueue,
-    flow: &SharedFlowControl,
+    ctx: Shared,
     date: &DateTimeHandle,
 ) where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
@@ -1093,35 +1074,30 @@ async fn response_task<S, ResB, ResBE>(
 {
     struct StreamGuard<'a> {
         stream_id: StreamId,
-        flow: &'a SharedFlowControl,
+        ctx: &'a Shared,
     }
 
     impl Drop for StreamGuard<'_> {
         fn drop(&mut self) {
-            let mut flow = self.flow.borrow_mut();
+            let mut inner = self.ctx.borrow_mut();
+            let flow = &mut inner.flow;
             flow.open_streams -= 1;
-            if let Some(state) = flow.stream_map.get_mut(&self.stream_id) {
-                // Mark response done. Keep send_flow alive so WINDOW_UPDATE
-                // overflow can still be detected for this stream (RFC §6.9.1).
-                state.send_done = true;
-                if state.is_empty() {
-                    flow.stream_map.remove(&self.stream_id);
-                }
-                // Stream was still in the map: it completed normally (not evicted
-                // by RST_STREAM). Credit back one premature reset so well-behaved
-                // connections never accumulate toward the limit over time.
+            // Stream was still in the map: it completed normally (not evicted
+            // by RST_STREAM). Credit back one premature reset so well-behaved
+            // connections never accumulate toward the limit over time.
+            if flow.remove_send(self.stream_id) {
                 flow.premature_reset_count = flow.premature_reset_count.saturating_sub(1);
             }
         }
     }
 
-    let _guard = StreamGuard { stream_id, flow };
+    let _guard = StreamGuard { stream_id, ctx: &ctx };
 
     let res = match service.call(req).await {
         Ok(res) => res,
         Err(e) => {
             error!("service error: {:?}", e);
-            writer_tx.borrow_mut().push(Message::Reset {
+            ctx.borrow_mut().queue.push(Message::Reset {
                 stream_id,
                 // TODO: service error reason is hardcoded.
                 // need proper documentation or more flexible reason handling from service
@@ -1151,7 +1127,7 @@ async fn response_task<S, ResB, ResBE>(
     if !has_body {
         headers.set_end_stream();
     }
-    writer_tx.borrow_mut().push(Message::Head(headers));
+    ctx.borrow_mut().queue.push(Message::Head(headers));
 
     if has_body {
         let mut body = pin!(body);
@@ -1159,12 +1135,12 @@ async fn response_task<S, ResB, ResBE>(
         'body: loop {
             match poll_fn(|cx| body.as_mut().poll_next(cx)).await {
                 None => {
-                    writer_tx.borrow_mut().push_end_stream(stream_id);
+                    ctx.borrow_mut().queue.push_end_stream(stream_id);
                     break;
                 }
                 Some(Err(e)) => {
                     error!("body error: {:?}", e);
-                    writer_tx.borrow_mut().push(Message::Reset {
+                    ctx.borrow_mut().queue.push(Message::Reset {
                         stream_id,
                         reason: Reason::INTERNAL_ERROR,
                     });
@@ -1176,15 +1152,16 @@ async fn response_task<S, ResB, ResBE>(
                             let len = bytes.len();
 
                             let aval = poll_fn(|cx| {
-                                let mut f = flow.borrow_mut();
-                                let f = &mut *f;
+                                let mut inner = ctx.borrow_mut();
+                                let f = &mut inner.flow;
 
                                 let Some(state) = f.stream_map.get_mut(&stream_id) else {
                                     return Poll::Ready(None);
                                 };
-                                let Some(ref mut sf) = state.send_flow else {
+                                let sf = &mut state.send_state;
+                                if sf.send_closed {
                                     return Poll::Ready(None);
-                                };
+                                }
 
                                 if f.send_connection_window == 0 || sf.window <= 0 {
                                     sf.waker = Some(cx.waker().clone());
@@ -1206,12 +1183,12 @@ async fn response_task<S, ResB, ResBE>(
 
                             let chunk = bytes.split_to(aval);
                             let data = data::Data::new(stream_id, chunk);
-                            writer_tx.borrow_mut().push(Message::Data(data));
+                            ctx.borrow_mut().queue.push(Message::Data(data));
                         }
                     }
                     Frame::Trailers(header_map) => {
                         let trailer = headers::Headers::trailers(stream_id, *header_map);
-                        writer_tx.borrow_mut().push(Message::Trailer(trailer));
+                        ctx.borrow_mut().queue.push(Message::Trailer(trailer));
                         break;
                     }
                 },
@@ -1222,21 +1199,16 @@ async fn response_task<S, ResB, ResBE>(
 
 struct PingPong<'a> {
     timer: Pin<&'a mut KeepAlive>,
-    flow: &'a SharedFlowControl,
+    ctx: &'a Shared,
     date: &'a DateTimeHandle,
     ka_dur: Duration,
 }
 
 impl<'a> PingPong<'a> {
-    fn new(
-        timer: Pin<&'a mut KeepAlive>,
-        flow: &'a SharedFlowControl,
-        date: &'a DateTimeHandle,
-        ka_dur: Duration,
-    ) -> Self {
+    fn new(timer: Pin<&'a mut KeepAlive>, ctx: &'a Shared, date: &'a DateTimeHandle, ka_dur: Duration) -> Self {
         Self {
             timer,
-            flow,
+            ctx,
             date,
             ka_dur,
         }
@@ -1249,12 +1221,12 @@ impl<'a> PingPong<'a> {
         // and reset — write_task sees KeepalivePing::Pending on the next
         // select iteration with no explicit wake() required.
         {
-            let mut flow = self.flow.borrow_mut();
+            let mut inner = self.ctx.borrow_mut();
 
-            if flow.keepalive_ping != KeepalivePing::Idle {
+            if inner.queue.keepalive_ping != KeepalivePing::Idle {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout"));
             }
-            flow.keepalive_ping = KeepalivePing::Pending;
+            inner.queue.keepalive_ping = KeepalivePing::Pending;
         }
 
         self.timer.as_mut().update(self.date.now() + self.ka_dur);
@@ -1305,34 +1277,33 @@ where
 
     let mut read_task = pin!(read_io(read_buf, &io));
 
-    let writer_queue: SharedWriterQueue = Rc::new(RefCell::new(WriterQueue::new()));
-
     let recv_initial_window_size = settings
         .initial_window_size()
         .unwrap_or(settings::DEFAULT_INITIAL_WINDOW_SIZE);
     let max_frame_size = settings.max_frame_size().unwrap_or(settings::DEFAULT_MAX_FRAME_SIZE);
     let max_concurrent_streams = settings.max_concurrent_streams().unwrap_or(u32::MAX) as usize;
 
-    let flow = RefCell::new(FlowControl {
-        open_streams: 0,
-        // Send windows start at RFC 7540 §6.9.2 default (65535) until the
-        // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
-        send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
-        stream_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
-        max_frame_size: max_frame_size as usize,
-        recv_connection_window: recv_initial_window_size as usize,
-        stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
-        keepalive_ping: KeepalivePing::Idle,
-        pending_client_ping: None,
-        remote_settings: RemoteSettings::default(),
-        premature_reset_count: 0,
-    });
-    let mut ctx = DecodeContext::new(&flow, &writer_queue, max_concurrent_streams, addr);
+    let shared: Shared = Rc::new(RefCell::new(ConnectionInner {
+        flow: FlowControl {
+            open_streams: 0,
+            // Send windows start at RFC 7540 §6.9.2 default (65535) until the
+            // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
+            send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
+            stream_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
+            max_frame_size: max_frame_size as usize,
+            recv_connection_window: recv_initial_window_size as usize,
+            stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
+            remote_settings: RemoteSettings::default(),
+            premature_reset_count: 0,
+        },
+        queue: WriterQueue::new(),
+    }));
+    let mut ctx = DecodeContext::new(&shared, max_concurrent_streams, addr);
     let mut queue = Queue::new();
-    let mut ping_pong = PingPong::new(ka, &flow, date, ka_dur);
+    let mut ping_pong = PingPong::new(ka, &shared, date, ka_dur);
 
     let mut write_task = pin!(async {
-        let mut enc = EncodeContext::new(&flow, &writer_queue);
+        let mut enc = EncodeContext::new(&shared);
 
         loop {
             let is_eof = poll_fn(|_| enc.poll_encode(&mut write_buf)).await;
@@ -1362,8 +1333,7 @@ where
                 }
 
                 let res = ctx.try_decode(&mut read_buf.buf, &mut |req, stream_id| {
-                    let t = Rc::clone(&writer_queue);
-                    queue.push(response_task(req, stream_id, service, t, &flow, date));
+                    queue.push(response_task(req, stream_id, service, Rc::clone(&shared), date));
                 });
 
                 let reason = match res {
@@ -1377,11 +1347,14 @@ where
                     Err(Error::Reset(..)) => unreachable!(),
                 };
                 if let Some(reason) = reason {
-                    writer_queue.borrow_mut().push(Message::GoAway {
-                        last_stream_id: ctx.last_stream_id,
-                        reason,
-                    });
-                    writer_queue.borrow_mut().close();
+                    {
+                        let mut inner = shared.borrow_mut();
+                        inner.queue.push(Message::GoAway {
+                            last_stream_id: ctx.last_stream_id,
+                            reason,
+                        });
+                        inner.queue.close();
+                    }
                     if reason == Reason::NO_ERROR {
                         loop {
                             match queue.next().select(write_task.as_mut()).await {
@@ -1414,7 +1387,7 @@ where
     }
 
     drop(queue);
-    writer_queue.borrow_mut().close();
+    shared.borrow_mut().queue.close();
 
     Ok(())
 }
@@ -1465,125 +1438,45 @@ async fn prefix_check(io: &impl AsyncBufRead, buf: BytesMut, timer: Pin<&mut Kee
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 preface timeout"))?
 }
 
-mod spsc {
-    //! Single-producer single-consumer channel for single-threaded use.
-
-    use core::task::{Context, Poll, Waker};
-    use std::{collections::VecDeque, rc::Rc};
-
-    use super::*;
-
-    struct Inner<T> {
-        queue: VecDeque<T>,
-        waker: Option<Waker>,
-        tx_closed: bool,
-        rx_closed: bool,
-    }
-
-    pub(super) struct Sender<T>(Rc<RefCell<Inner<T>>>);
-    pub(super) struct Receiver<T>(Rc<RefCell<Inner<T>>>);
-
-    pub(super) fn channel<T>() -> (Sender<T>, Receiver<T>) {
-        let inner = Rc::new(RefCell::new(Inner {
-            queue: VecDeque::new(),
-            waker: None,
-            tx_closed: false,
-            rx_closed: false,
-        }));
-        (Sender(Rc::clone(&inner)), Receiver(inner))
-    }
-
-    impl<T> Sender<T> {
-        /// Returns `Err(val)` if the receiver has been dropped.
-        pub(super) fn send(&self, val: T) -> Result<(), T> {
-            let waker = {
-                let mut inner = self.0.borrow_mut();
-                if inner.rx_closed {
-                    return Err(val);
-                }
-                inner.queue.push_back(val);
-                inner.waker.take()
-            };
-            // Wake outside the borrow to avoid re-entrant RefCell panics.
-            if let Some(w) = waker {
-                w.wake();
-            }
-            Ok(())
-        }
-    }
-
-    impl<T> Drop for Sender<T> {
-        fn drop(&mut self) {
-            let waker = {
-                let mut inner = self.0.borrow_mut();
-                inner.tx_closed = true;
-                inner.waker.take()
-            };
-            if let Some(w) = waker {
-                w.wake();
-            }
-        }
-    }
-
-    impl<T> Drop for Receiver<T> {
-        fn drop(&mut self) {
-            self.0.borrow_mut().rx_closed = true;
-        }
-    }
-
-    impl<T> Receiver<T> {
-        pub(super) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
-            let mut inner = self.0.borrow_mut();
-            if let Some(val) = inner.queue.pop_front() {
-                return Poll::Ready(Some(val));
-            }
-            if inner.tx_closed {
-                return Poll::Ready(None);
-            }
-            inner.waker = Some(cx.waker().clone());
-            Poll::Pending
-        }
-    }
-}
-
 pub struct RequestBody {
     stream_id: StreamId,
-    rx: spsc::Receiver<Result<Frame, BodyError>>,
-    writer_tx: SharedWriterQueue,
+    ctx: Shared,
     /// Bytes consumed but not yet reported back as a WINDOW_UPDATE.
     /// Flushed as a single message when the channel has no more items
     /// ready, batching updates across consecutive chunks.
     pending_window: usize,
 }
 
-type RequestBodySender = spsc::Sender<Result<Frame, BodyError>>;
-
 impl RequestBody {
-    fn new_pair(stream_id: StreamId, writer_tx: SharedWriterQueue) -> (Self, RequestBodySender) {
-        let (tx, rx) = spsc::channel();
-        (
-            Self {
-                stream_id,
-                rx,
-                writer_tx,
-                pending_window: 0,
-            },
-            tx,
-        )
+    fn new(stream_id: StreamId, ctx: Shared) -> Self {
+        Self {
+            stream_id,
+            ctx,
+            pending_window: 0,
+        }
     }
 }
 
 impl Drop for RequestBody {
     fn drop(&mut self) {
+        let mut inner = self.ctx.borrow_mut();
+        // Mark receive side closed so the decode path stops buffering data
+        // for a body nobody is reading. Clear any pending error (caller
+        // dropped without consuming it) then remove the stream if both
+        // sides are done.
+        // Clear any pending error the caller dropped without consuming, then
+        // close the recv side. `remove_recv` wakes any parked waker and removes
+        // the stream entry if both sides are now closed.
+        if let Some(state) = inner.flow.stream_map.get_mut(&self.stream_id) {
+            state.recv_state.body_error = None;
+        }
+        inner.flow.remove_recv(self.stream_id);
         // Replenish any bytes consumed but not yet acknowledged. The stream
         // itself may already be gone (e.g. RST_STREAM), so only the connection
         // window is restored (stream 0).
         if self.pending_window > 0 {
             let size = mem::replace(&mut self.pending_window, 0);
-            self.writer_tx.borrow_mut().push(Message::WindowUpdate {
-                stream_id: StreamId::zero(),
-                size,
-            });
+            inner.queue.push_window_update(StreamId::zero(), size);
         }
     }
 }
@@ -1594,37 +1487,40 @@ impl Stream for RequestBody {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        let (stream_id, res) = match this.rx.poll_recv(cx) {
-            Poll::Ready(Some(Ok(frame))) => {
-                let mut stream_id = None;
-                if let Frame::Data(ref bytes) = frame {
-                    this.pending_window += bytes.len();
-                    // Flush when the remaining window would drop below 25% of the
-                    // initial size (i.e. 75% consumed). This mirrors nginx's
-                    // threshold, which is widely deployed and clients are tuned
-                    // to work well against it. It is more eager than the common
-                    // window/2 practice, reducing the chance of the peer stalling
-                    // while still batching small chunks effectively.
-                    if this.pending_window >= settings::DEFAULT_INITIAL_WINDOW_SIZE as usize * 3 / 4 {
-                        stream_id = Some(this.stream_id);
-                    }
+        let mut inner = this.ctx.borrow_mut();
+        match inner.flow.stream_map.get_mut(&this.stream_id) {
+            Some(state) => {
+                if let Some(frame) = state.recv_state.body_queue.pop_front() {
+                    if let Frame::Data(ref bytes) = frame {
+                        this.pending_window += bytes.len();
+
+                        // Flush when the remaining window would drop below 25% of the
+                        // initial size (i.e. 75% consumed). This mirrors nginx's
+                        // threshold, which is widely deployed and clients are tuned
+                        // to work well against it. It is more eager than the common
+                        // window/2 practice, reducing the chance of the peer stalling
+                        // while still batching small chunks effectively.
+                        if this.pending_window >= settings::DEFAULT_INITIAL_WINDOW_SIZE as usize * 3 / 4 {
+                            let window = mem::replace(&mut this.pending_window, 0);
+                            this.ctx.borrow_mut().queue.push_window_update(this.stream_id, window);
+                        }
+                    };
+                    Poll::Ready(Some(Ok(frame)))
+                } else if let Some(e) = state.recv_state.body_error.take() {
+                    // Peer reset the stream while body was in progress.
+                    Poll::Ready(Some(Err(e)))
+                } else if state.recv_state.body_closed {
+                    // Stream closed (graceful EOF): only replenish the
+                    // connection receive window since the stream itself
+                    // no longer needs flow-control capacity.
+                    Poll::Ready(None)
+                } else {
+                    state.recv_state.body_waker = Some(cx.waker().clone());
+                    Poll::Pending
                 }
-                (stream_id, Poll::Ready(Some(Ok(frame))))
             }
-            Poll::Pending => ((this.pending_window > 0).then_some(this.stream_id), Poll::Pending),
-            // Stream closed (error or graceful EOF): only replenish the
-            // connection receive window (stream 0) since the stream itself
-            // no longer needs flow-control capacity.
-            poll => ((this.pending_window > 0).then_some(StreamId::zero()), poll),
-        };
-
-        if let Some(stream_id) = stream_id {
-            let size = mem::replace(&mut this.pending_window, 0);
-            this.writer_tx
-                .borrow_mut()
-                .push(Message::WindowUpdate { stream_id, size });
+            // Stream fully removed (both sides done): clean EOF.
+            None => Poll::Ready(None),
         }
-
-        res
     }
 }
