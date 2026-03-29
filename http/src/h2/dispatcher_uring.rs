@@ -418,21 +418,6 @@ impl FlowControl {
     }
 }
 
-/// Result of `try_decode` after draining all complete frames from the buffer.
-enum DecodeOutcome {
-    /// All frames processed successfully; caller should continue reading.
-    Continue,
-    /// Graceful shutdown (peer sent GOAWAY NO_ERROR). GoAway + queue close
-    /// already applied; caller should drain in-flight responses then close.
-    GracefulShutdown,
-    /// Error shutdown (protocol violation detected). GoAway + queue close
-    /// already applied; caller should drop response tasks and drain write task.
-    ErrorShutdown,
-    /// Peer accused us of a protocol error. Queue closed; caller should
-    /// stop immediately without sending a GOAWAY reply.
-    PeerAccused,
-}
-
 enum Message {
     Head(headers::Headers<ResponsePseudo>),
     Data(data::Data),
@@ -553,6 +538,8 @@ impl WriterQueue {
     }
 }
 
+type Decoded = (Request<RequestExt<RequestBody>>, StreamId);
+
 impl<'a> DecodeContext<'a> {
     fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
         if id > self.last_stream_id {
@@ -638,24 +625,21 @@ impl<'a> DecodeContext<'a> {
         }
     }
 
-    fn try_decode<F>(&mut self, buf: &mut BytesMut, on_msg: &mut F) -> DecodeOutcome
-    where
-        F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
-    {
+    fn try_decode(&mut self, buf: &mut BytesMut) -> Result<Option<Decoded>, Error> {
         loop {
             if self.next_frame_len == 0 {
                 if buf.len() < 3 {
-                    return DecodeOutcome::Continue;
+                    return Ok(None);
                 }
                 let payload_len = buf.get_uint(3) as usize;
                 if payload_len > settings::DEFAULT_MAX_FRAME_SIZE as usize {
-                    return self.go_away(Reason::FRAME_SIZE_ERROR);
+                    return Err(Error::GoAway(Reason::FRAME_SIZE_ERROR));
                 }
                 self.next_frame_len = payload_len + 6;
             }
 
             if buf.len() < self.next_frame_len {
-                return DecodeOutcome::Continue;
+                return Ok(None);
             }
 
             let len = mem::replace(&mut self.next_frame_len, 0);
@@ -664,27 +648,16 @@ impl<'a> DecodeContext<'a> {
 
             // TODO: Make Head::parse auto advance the frame?
             frame.advance(6);
-            match self.decode_frame(head, frame, on_msg) {
-                Ok(()) => {}
-                Err(Error::Reset(id, reason, window)) => match self.handle_stream_reset(id, reason, window) {
-                    Ok(()) => {}
-                    Err(Error::GoAway(reason)) => return self.go_away(reason),
-                    Err(_) => unreachable!(),
-                },
-                Err(Error::GoAway(reason)) => return self.go_away(reason),
-                Err(Error::Hpack(_)) => return self.go_away(Reason::COMPRESSION_ERROR),
-                Err(Error::MalformedMessage) => return self.go_away(Reason::PROTOCOL_ERROR),
-                Err(Error::PeerAccused) => {
-                    self.ctx.borrow_mut().queue.close();
-                    return DecodeOutcome::PeerAccused;
-                }
+            match self.decode_frame(head, frame)? {
+                Some(decoded) => return Ok(Some(decoded)),
+                None => {}
             }
         }
     }
 
     /// Queue a GOAWAY frame with the given reason, close the write queue,
-    /// and return the appropriate `DecodeOutcome`.
-    fn go_away(&self, reason: Reason) -> DecodeOutcome {
+    /// and return the appropriate `ShutDown` variant.
+    fn go_away(&self, reason: Reason) -> ShutDown {
         let mut inner = self.ctx.borrow_mut();
         inner.queue.push(Message::GoAway {
             last_stream_id: self.last_stream_id,
@@ -692,18 +665,15 @@ impl<'a> DecodeContext<'a> {
         });
         inner.queue.close();
         if reason == Reason::NO_ERROR {
-            DecodeOutcome::GracefulShutdown
+            ShutDown::Graceful
         } else {
-            DecodeOutcome::ErrorShutdown
+            ShutDown::DrainWrite
         }
     }
 
-    fn decode_frame<F>(&mut self, head: head::Head, frame: BytesMut, on_msg: &mut F) -> Result<(), Error>
-    where
-        F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
-    {
+    fn decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
         match (head.kind(), &self.continuation) {
-            (head::Kind::Continuation, _) => self.handle_continuation(head, frame, on_msg)?,
+            (head::Kind::Continuation, _) => return self.handle_continuation(head, frame),
             // RFC 7540 §6.10: while a header block is in progress, the peer
             // MUST NOT send any frame type other than CONTINUATION.  Any
             // other frame on any stream is a connection error PROTOCOL_ERROR.
@@ -711,7 +681,7 @@ impl<'a> DecodeContext<'a> {
             (head::Kind::Headers, _) => {
                 let (headers, payload) = headers::Headers::load(head, frame)?;
                 let is_end_headers = headers.is_end_headers();
-                self.decode_header_block(headers, payload, is_end_headers, on_msg)?;
+                return self.decode_header_block(headers, payload, is_end_headers);
             }
             (head::Kind::Data, _) => {
                 let data = data::Data::load(head, frame.freeze())?;
@@ -835,15 +805,12 @@ impl<'a> DecodeContext<'a> {
             (head::Kind::Settings, _) => self.handle_settings(head, &frame)?,
             (head::Kind::Unknown, _) => {}
         }
-        Ok(())
+        Ok(None)
     }
 
     #[cold]
     #[inline(never)]
-    fn handle_continuation<F>(&mut self, head: head::Head, frame: BytesMut, on_msg: &mut F) -> Result<(), Error>
-    where
-        F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
-    {
+    fn handle_continuation(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
         let is_end_headers = (head.flag() & 0x4) == 0x4;
 
         // RFC 7540 §6.10: CONTINUATION without a preceding incomplete HEADERS
@@ -855,7 +822,7 @@ impl<'a> DecodeContext<'a> {
         }
 
         payload.extend_from_slice(&frame);
-        self.decode_header_block(headers, payload, is_end_headers, on_msg)
+        self.decode_header_block(headers, payload, is_end_headers)
     }
 
     #[cold]
@@ -903,23 +870,19 @@ impl<'a> DecodeContext<'a> {
         flow.remote_settings.try_update(setting)
     }
 
-    fn decode_header_block<F>(
+    fn decode_header_block(
         &mut self,
         mut headers: headers::Headers,
         mut payload: BytesMut,
         is_end_headers: bool,
-        on_msg: &mut F,
-    ) -> Result<(), Error>
-    where
-        F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
-    {
+    ) -> Result<Option<Decoded>, Error> {
         if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
             return match e {
                 // NeedMore on a multi-frame header block is normal; accumulate and wait
                 // for CONTINUATION frames (RFC 7540 §6.10).
                 Error::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
                     self.continuation = Some((headers, payload));
-                    Ok(())
+                    Ok(None)
                 }
                 // Pseudo-header validation errors are stream-level (RFC 7540 §8.1.2).
                 // The HPACK context was decoded successfully so no compression error.
@@ -934,17 +897,14 @@ impl<'a> DecodeContext<'a> {
 
         if !is_end_headers {
             self.continuation = Some((headers, payload));
-            return Ok(());
+            return Ok(None);
         }
 
         let id = headers.stream_id();
-        self.handle_header_frame(id, headers, on_msg)
+        self.handle_header_frame(id, headers)
     }
 
-    fn handle_header_frame<F>(&mut self, id: StreamId, headers: headers::Headers, on_msg: &mut F) -> Result<(), Error>
-    where
-        F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
-    {
+    fn handle_header_frame(&mut self, id: StreamId, headers: headers::Headers) -> Result<Option<Decoded>, Error> {
         let is_end_stream = headers.is_end_stream();
 
         let (pseudo, headers) = headers.into_parts();
@@ -972,7 +932,7 @@ impl<'a> DecodeContext<'a> {
                 }
                 state.try_push_frame(Frame::Trailers(Box::new(headers)));
                 flow.remove_recv(id);
-                return Ok(());
+                return Ok(None);
             }
         }
 
@@ -1047,8 +1007,7 @@ impl<'a> DecodeContext<'a> {
 
         let req = req.map(|ext| ext.map_body(|_| body));
 
-        on_msg(req, id);
-        Ok(())
+        Ok(Some((req, id)))
     }
 }
 
@@ -1069,10 +1028,7 @@ async fn read_io(mut rbuf: ReadBuf, io: &impl AsyncBufRead) -> (io::Result<usize
         return core::future::pending().await;
     }
     let len = rbuf.buf.len();
-    let remaining = rbuf.buf.capacity() - len;
-    if remaining < 4096 {
-        rbuf.buf.reserve(4096 - remaining);
-    }
+    rbuf.buf.reserve(4096);
     let (res, buf) = io.read(rbuf.buf.slice(len..)).await;
     (
         res,
@@ -1383,15 +1339,13 @@ where
     let (buf, mut write_buf) = handshake(&io, &settings, ka.as_mut()).await?;
     let mut read_buf = ReadBuf { buf, cap: READ_BUF_CAP };
 
-    let mut read_task = pin!(read_io(read_buf, &io));
-
     let recv_initial_window_size = settings
         .initial_window_size()
         .unwrap_or(settings::DEFAULT_INITIAL_WINDOW_SIZE);
     let max_frame_size = settings.max_frame_size().unwrap_or(settings::DEFAULT_MAX_FRAME_SIZE);
     let max_concurrent_streams = settings.max_concurrent_streams().unwrap_or(u32::MAX) as usize;
 
-    let shared: Shared = Rc::new(RefCell::new(ConnectionInner {
+    let shared = Rc::new(RefCell::new(ConnectionInner {
         flow: FlowControl {
             open_streams: 0,
             // Send windows start at RFC 7540 §6.9.2 default (65535) until the
@@ -1406,9 +1360,12 @@ where
         },
         queue: WriterQueue::new(),
     }));
+
     let mut ctx = DecodeContext::new(&shared, max_concurrent_streams, addr);
     let mut queue = Queue::new();
     let mut ping_pong = PingPong::new(ka, &shared, date, ka_dur);
+
+    let mut read_task = pin!(read_io(read_buf, &io));
 
     let mut write_task = pin!(async {
         let mut enc = EncodeContext::new(&shared);
@@ -1417,6 +1374,7 @@ where
             let is_eof = poll_fn(|_| enc.poll_encode(&mut write_buf)).await;
 
             let (res, buf) = write_io(write_buf, &io).await;
+
             write_buf = buf;
             res?;
 
@@ -1426,7 +1384,7 @@ where
         }
     });
 
-    let outcome = loop {
+    let shutdown = 'chain: loop {
         match read_task
             .as_mut()
             .select(async {
@@ -1442,18 +1400,30 @@ where
                 read_buf = buf;
 
                 match res {
-                    Ok(n) if n > 0 => {}
+                    Ok(n) if n > 0 => loop {
+                        match ctx.try_decode(&mut read_buf.buf) {
+                            Ok(None) => break,
+                            Ok(Some((req, id))) => {
+                                queue.push(response_task(req, id, service, Rc::clone(&shared), date));
+                            }
+                            Err(Error::Reset(id, reason, window)) => {
+                                match ctx.handle_stream_reset(id, reason, window) {
+                                    Ok(()) => {}
+                                    Err(Error::GoAway(reason)) => break 'chain ctx.go_away(reason),
+                                    Err(_) => unreachable!(),
+                                }
+                            }
+                            Err(Error::GoAway(reason)) => break 'chain ctx.go_away(reason),
+                            Err(Error::Hpack(_)) => break 'chain ctx.go_away(Reason::COMPRESSION_ERROR),
+                            Err(Error::MalformedMessage) => break 'chain ctx.go_away(Reason::PROTOCOL_ERROR),
+                            Err(Error::PeerAccused) => {
+                                ctx.ctx.borrow_mut().queue.close();
+                                break 'chain ShutDown::Forced;
+                            }
+                        }
+                    },
                     res => break ShutDown::ReadClosed(res.map(|_| ())),
-                }
-
-                match ctx.try_decode(&mut read_buf.buf, &mut |req, stream_id| {
-                    queue.push(response_task(req, stream_id, service, Rc::clone(&shared), date));
-                }) {
-                    DecodeOutcome::Continue => {}
-                    DecodeOutcome::GracefulShutdown => break ShutDown::Graceful,
-                    DecodeOutcome::ErrorShutdown => break ShutDown::DrainWrite,
-                    DecodeOutcome::PeerAccused => break ShutDown::Forced,
-                }
+                };
 
                 read_task.set(read_io(read_buf, &io));
             }
@@ -1464,7 +1434,7 @@ where
         }
     };
 
-    outcome.shutdown(queue, &shared, write_task, &io, ping_pong).await
+    shutdown.shutdown(queue, &shared, write_task, &io, ping_pong).await
 }
 
 enum ShutDown {
