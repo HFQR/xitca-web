@@ -39,5 +39,10 @@ mod queue {
         pub(crate) async fn drain(&mut self) {
             while self.0.next().await.is_some() {}
         }
+
+        #[allow(dead_code)]
+        pub(crate) fn clear(&mut self) {
+            self.0.clear();
+        }
     }
 }

@@ -39,6 +39,13 @@ async fn handler(_: Request<RequestExt<RequestBody>>) -> Result<Response<Once>, 
         .unwrap())
 }
 
+// async fn handler(_: Request<RequestExt<xitca_http::h2::RequestBody>>) -> Result<Response<xitca_http::body::Once<Bytes>>, Infallible> {
+//     Ok(Response::builder()
+//         .header(CONTENT_TYPE, TEXT_UTF8)
+//         .body(xitca_http::body::Once::new(Bytes::from_static(b"Hello World!")))
+//         .unwrap())
+// }
+
 struct Once(Option<Frame>);
 
 impl Once {

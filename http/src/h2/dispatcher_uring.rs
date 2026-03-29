@@ -185,11 +185,15 @@ impl StreamState {
     }
 
     /// Push a frame to the recv queue, waking the body reader. No-op if the
-    /// service already dropped `RequestBody` (RECV_CANCELED).
-    fn try_push_frame(&mut self, frame: Frame) {
+    /// service already dropped `RequestBody` (RECV_CANCELED) or recv is closed.
+    /// Returns `true` if the frame was actually enqueued.
+    fn try_push_frame(&mut self, frame: Frame) -> bool {
         if !self.recv_closed() && !self.recv_canceled() {
             self.recv_state.queue.push_back(frame);
             self.recv_state.wake();
+            true
+        } else {
+            false
         }
     }
 
@@ -335,9 +339,8 @@ impl FlowControl {
         self.remove_send(id);
     }
 
-    /// Close the receive side of a stream. Sets `RECV_CLOSED | BODY_CLOSED`,
-    /// wakes any parked `RequestBody`, then removes the stream if both sides
-    /// are done.
+    /// Close the receive side of a stream. Sets `RECV_CLOSED`, wakes any
+    /// parked `RequestBody`, then removes the stream if both sides are done.
     fn remove_recv(&mut self, id: StreamId) {
         if let Some(state) = self.stream_map.get_mut(&id) {
             state.add_flag(StreamState::RECV_CLOSED);
@@ -415,6 +418,21 @@ impl FlowControl {
     }
 }
 
+/// Result of `try_decode` after draining all complete frames from the buffer.
+enum DecodeOutcome {
+    /// All frames processed successfully; caller should continue reading.
+    Continue,
+    /// Graceful shutdown (peer sent GOAWAY NO_ERROR). GoAway + queue close
+    /// already applied; caller should drain in-flight responses then close.
+    GracefulShutdown,
+    /// Error shutdown (protocol violation detected). GoAway + queue close
+    /// already applied; caller should drop response tasks and drain write task.
+    ErrorShutdown,
+    /// Peer accused us of a protocol error. Queue closed; caller should
+    /// stop immediately without sending a GOAWAY reply.
+    PeerAccused,
+}
+
 enum Message {
     Head(headers::Headers<ResponsePseudo>),
     Data(data::Data),
@@ -473,16 +491,10 @@ impl WriterQueue {
         self.messages.push_back(msg);
     }
 
-    /// Accumulate a WINDOW_UPDATE into `pending_conn_window` and, for non-zero
-    /// stream IDs, queue a per-stream message so `poll_encode` can emit the
-    /// stream-level frame and replenish the body sender. Connection-only updates
-    /// (stream_id == 0) skip the queue entirely; they are flushed as a single
-    /// connection frame after `poll_encode` drains the queue.
-    fn push_window_update(&mut self, stream_id: StreamId, size: usize) {
+    /// Accumulate a connection-level WINDOW_UPDATE into `pending_conn_window`.
+    /// Flushed as a single connection frame after `poll_encode` drains the queue.
+    fn push_window_update(&mut self, size: usize) {
         self.pending_conn_window += size;
-        if stream_id != StreamId::zero() {
-            self.messages.push_back(Message::WindowUpdate { stream_id, size });
-        }
     }
 
     /// Push a RST_STREAM caused by a client protocol error. Returns `true` if
@@ -550,6 +562,21 @@ impl<'a> DecodeContext<'a> {
         }
     }
 
+    /// Handle a stream-level error: queue RST_STREAM and replenish any
+    /// connection window bytes consumed by the offending frame.
+    /// Returns `Err(GoAway)` if the client has triggered too many resets.
+    fn handle_stream_reset(&self, id: StreamId, reason: Reason, window: Option<usize>) -> Result<(), Error> {
+        let mut inner = self.ctx.borrow_mut();
+        let tx = &mut inner.queue;
+        if tx.push_client_reset(id, reason) {
+            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
+        }
+        if let Some(size) = window {
+            tx.push_window_update(size);
+        }
+        Ok(())
+    }
+
     fn on_data_payload(&self, id: StreamId, payload: Bytes) -> Result<(), Error> {
         let payload_len = payload.len();
         let mut inner = self.ctx.borrow_mut();
@@ -578,7 +605,11 @@ impl<'a> DecodeContext<'a> {
                     state.recv_state.window -= payload_len;
                     // Service may have dropped RequestBody early (RECV_CANCELED).
                     // Still track content-length above, but discard the payload.
-                    state.try_push_frame(Frame::Data(payload));
+                    if !state.try_push_frame(Frame::Data(payload)) {
+                        // Data discarded (RECV_CANCELED): replenish connection
+                        // window so other streams don't stall.
+                        inner.queue.push_window_update(payload_len);
+                    }
                     return Ok(());
                 };
 
@@ -607,24 +638,24 @@ impl<'a> DecodeContext<'a> {
         }
     }
 
-    fn try_decode<F>(&mut self, buf: &mut BytesMut, on_msg: &mut F) -> Result<(), Error>
+    fn try_decode<F>(&mut self, buf: &mut BytesMut, on_msg: &mut F) -> DecodeOutcome
     where
         F: FnMut(Request<RequestExt<RequestBody>>, StreamId),
     {
         loop {
             if self.next_frame_len == 0 {
                 if buf.len() < 3 {
-                    return Ok(());
+                    return DecodeOutcome::Continue;
                 }
                 let payload_len = buf.get_uint(3) as usize;
                 if payload_len > settings::DEFAULT_MAX_FRAME_SIZE as usize {
-                    return Err(Error::GoAway(Reason::FRAME_SIZE_ERROR));
+                    return self.go_away(Reason::FRAME_SIZE_ERROR);
                 }
                 self.next_frame_len = payload_len + 6;
             }
 
             if buf.len() < self.next_frame_len {
-                return Ok(());
+                return DecodeOutcome::Continue;
             }
 
             let len = mem::replace(&mut self.next_frame_len, 0);
@@ -635,18 +666,35 @@ impl<'a> DecodeContext<'a> {
             frame.advance(6);
             match self.decode_frame(head, frame, on_msg) {
                 Ok(()) => {}
-                Err(Error::Reset(id, reason, window)) => {
-                    let mut inner = self.ctx.borrow_mut();
-                    let tx = &mut inner.queue;
-                    if tx.push_client_reset(id, reason) {
-                        return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
-                    }
-                    if let Some(size) = window {
-                        tx.push_window_update(StreamId::zero(), size);
-                    }
+                Err(Error::Reset(id, reason, window)) => match self.handle_stream_reset(id, reason, window) {
+                    Ok(()) => {}
+                    Err(Error::GoAway(reason)) => return self.go_away(reason),
+                    Err(_) => unreachable!(),
+                },
+                Err(Error::GoAway(reason)) => return self.go_away(reason),
+                Err(Error::Hpack(_)) => return self.go_away(Reason::COMPRESSION_ERROR),
+                Err(Error::MalformedMessage) => return self.go_away(Reason::PROTOCOL_ERROR),
+                Err(Error::PeerAccused) => {
+                    self.ctx.borrow_mut().queue.close();
+                    return DecodeOutcome::PeerAccused;
                 }
-                Err(e) => return Err(e),
             }
+        }
+    }
+
+    /// Queue a GOAWAY frame with the given reason, close the write queue,
+    /// and return the appropriate `DecodeOutcome`.
+    fn go_away(&self, reason: Reason) -> DecodeOutcome {
+        let mut inner = self.ctx.borrow_mut();
+        inner.queue.push(Message::GoAway {
+            last_stream_id: self.last_stream_id,
+            reason,
+        });
+        inner.queue.close();
+        if reason == Reason::NO_ERROR {
+            DecodeOutcome::GracefulShutdown
+        } else {
+            DecodeOutcome::ErrorShutdown
         }
     }
 
@@ -915,6 +963,13 @@ impl<'a> DecodeContext<'a> {
                     drop(inner);
                     return Err(Error::Reset(id, Reason::STREAM_CLOSED, None));
                 }
+                // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
+                if let Err(err) = state.recv_state.content_length.ensure_zero() {
+                    state.try_set_err(err);
+                    flow.remove_stream(id);
+                    drop(inner);
+                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+                }
                 state.try_push_frame(Frame::Trailers(Box::new(headers)));
                 flow.remove_recv(id);
                 return Ok(());
@@ -1072,11 +1127,7 @@ impl<'a> EncodeContext<'a> {
                     Message::Data(mut data) => data.encode_chunk(write_buf),
                     Message::Reset { stream_id, reason } => Reset::new(stream_id, reason).encode(write_buf),
                     Message::WindowUpdate { stream_id, size } => {
-                        debug_assert!(size > 0, "window update size must not be 0");
-                        if let Some(state) = inner.flow.stream_map.get_mut(&stream_id) {
-                            state.recv_state.window += size;
-                        }
-                        WindowUpdate::new(stream_id, size as _).encode(write_buf);
+                        WindowUpdate::new(stream_id, size as _).encode(write_buf)
                     }
                     Message::GoAway { last_stream_id, reason } => {
                         inner.queue.pending_conn_window = 0;
@@ -1166,8 +1217,6 @@ async fn response_task<S, ResB, ResBE>(
             error!("service error: {:?}", e);
             ctx.borrow_mut().queue.push(Message::Reset {
                 stream_id,
-                // TODO: service error reason is hardcoded.
-                // need proper documentation or more flexible reason handling from service
                 reason: Reason::PROTOCOL_ERROR,
             });
             return;
@@ -1318,7 +1367,7 @@ const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64
 pub(super) async fn run<Io, S, ResB, ResBE>(
     io: Io,
     addr: SocketAddr,
-    keep_alive: Pin<&mut KeepAlive>,
+    mut ka: Pin<&mut KeepAlive>,
     ka_dur: Duration,
     service: &S,
     date: &DateTimeHandle,
@@ -1331,16 +1380,8 @@ where
     ResB: Stream<Item = Result<Frame, ResBE>>,
     ResBE: fmt::Debug,
 {
-    let mut write_buf = BytesMut::new();
-    let mut ka = keep_alive;
-
-    let buf = prefix_check(&io, BytesMut::new(), ka.as_mut()).await?;
+    let (buf, mut write_buf) = handshake(&io, &settings, ka.as_mut()).await?;
     let mut read_buf = ReadBuf { buf, cap: READ_BUF_CAP };
-
-    settings.encode(&mut write_buf);
-    let (res, buf) = write_io(write_buf, &io).await;
-    write_buf = buf;
-    res?;
 
     let mut read_task = pin!(read_io(read_buf, &io));
 
@@ -1385,78 +1426,113 @@ where
         }
     });
 
-    loop {
+    let outcome = loop {
         match read_task
             .as_mut()
-            .select(queue.next())
+            .select(async {
+                loop {
+                    let _ = queue.next().await;
+                }
+            })
             .select(write_task.as_mut())
             .select(ping_pong.tick())
             .await
         {
             SelectOutput::A(SelectOutput::A(SelectOutput::A((res, buf)))) => {
                 read_buf = buf;
-                if res? == 0 {
-                    break;
+
+                match res {
+                    Ok(n) if n > 0 => {}
+                    res => break ShutDown::ReadClosed(res.map(|_| ())),
                 }
 
-                let res = ctx.try_decode(&mut read_buf.buf, &mut |req, stream_id| {
+                match ctx.try_decode(&mut read_buf.buf, &mut |req, stream_id| {
                     queue.push(response_task(req, stream_id, service, Rc::clone(&shared), date));
-                });
-
-                let reason = match res {
-                    Ok(()) => None,
-                    Err(Error::GoAway(reason)) => Some(reason),
-                    Err(Error::Hpack(_)) => Some(Reason::COMPRESSION_ERROR),
-                    Err(Error::MalformedMessage) => Some(Reason::PROTOCOL_ERROR),
-                    Err(Error::Io(e)) => return Err(e),
-                    Err(Error::PeerAccused) => break,
-                    // StreamError is always handled inside try_decode and never propagates.
-                    Err(Error::Reset(..)) => unreachable!(),
-                };
-                if let Some(reason) = reason {
-                    {
-                        let mut inner = shared.borrow_mut();
-                        inner.queue.push(Message::GoAway {
-                            last_stream_id: ctx.last_stream_id,
-                            reason,
-                        });
-                        inner.queue.close();
-                    }
-                    if reason == Reason::NO_ERROR {
-                        loop {
-                            match queue.next().select(write_task.as_mut()).await {
-                                SelectOutput::A(_) => {}
-                                SelectOutput::B(res) => {
-                                    res?;
-                                    // Send FIN so the peer sees a clean connection
-                                    // close rather than RST (RFC 7540 §6.8).
-                                    let _ = io.shutdown(Shutdown::Write);
-                                    return Ok(());
-                                }
-                            }
-                        }
-                    } else {
-                        drop(queue);
-                        write_task.as_mut().await?;
-                        return Ok(());
-                    }
+                }) {
+                    DecodeOutcome::Continue => {}
+                    DecodeOutcome::GracefulShutdown => break ShutDown::Graceful,
+                    DecodeOutcome::ErrorShutdown => break ShutDown::DrainWrite,
+                    DecodeOutcome::PeerAccused => break ShutDown::Forced,
                 }
 
                 read_task.set(read_io(read_buf, &io));
             }
             SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => {}
-            SelectOutput::A(SelectOutput::B(res)) => {
-                res?;
-                break;
-            }
-            SelectOutput::B(res) => res?,
+            SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
+            SelectOutput::B(Ok(_)) => {}
+            SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
         }
+    };
+
+    outcome.shutdown(queue, &shared, write_task, &io, ping_pong).await
+}
+
+enum ShutDown {
+    ReadClosed(io::Result<()>),
+    Graceful,
+    WriteClosed(io::Result<()>),
+    Timeout(io::Error),
+    DrainWrite,
+    Forced,
+}
+
+impl ShutDown {
+    #[cold]
+    #[inline(never)]
+    fn shutdown<'a, T, F>(
+        self,
+        mut queue: Queue<T>,
+        shared: &'a Shared,
+        mut write_task: Pin<&'a mut F>,
+        io: &'a impl AsyncBufWrite,
+        mut pin_pong: PingPong<'a>,
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + 'a>>
+    where
+        T: Future + 'a,
+        F: Future<Output = io::Result<()>> + 'a,
+    {
+        Box::pin(async move {
+            let mut read_res = Ok(());
+
+            match self {
+                Self::WriteClosed(res) => return res,
+                Self::Timeout(err) => return Err(err),
+                Self::ReadClosed(res) => {
+                    {
+                        let mut inner = shared.borrow_mut();
+                        for state in inner.flow.stream_map.values_mut() {
+                            state.try_set_err(io::Error::new(
+                                io::ErrorKind::ConnectionReset,
+                                "h2 connection closed by peer",
+                            ));
+                            state.add_flag(StreamState::RECV_CLOSED);
+                            state.recv_state.wake();
+                        }
+                        inner.queue.close();
+                    }
+
+                    read_res = res;
+                }
+                Self::Graceful => {}
+                Self::DrainWrite => queue.clear(),
+                Self::Forced => return Ok(()),
+            }
+
+            loop {
+                match queue.next().select(write_task.as_mut()).select(pin_pong.tick()).await {
+                    SelectOutput::A(SelectOutput::A(_)) => {}
+                    SelectOutput::A(SelectOutput::B(res)) => {
+                        res?;
+                        // Send FIN so the peer sees a clean connection
+                        // close rather than RST (RFC 7540 §6.8).
+                        let _ = io.shutdown(Shutdown::Write);
+                        return read_res;
+                    }
+                    SelectOutput::B(res) => res?,
+                }
+            }
+        })
     }
-
-    drop(queue);
-    shared.borrow_mut().queue.close();
-
-    Ok(())
 }
 
 /// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).
@@ -1466,43 +1542,56 @@ where
 #[inline(never)]
 fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), Error> {
     if id.is_zero() {
-        return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+        Err(Error::GoAway(Reason::PROTOCOL_ERROR))
+    } else if payload.len() != 5 {
+        Err(Error::Reset(id, Reason::FRAME_SIZE_ERROR, None))
+    } else if id == StreamId::parse(&payload[..4]).0 {
+        Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None))
+    } else {
+        Ok(())
     }
-    if payload.len() != 5 {
-        return Err(Error::Reset(id, Reason::FRAME_SIZE_ERROR, None));
-    }
-    let dep_id = StreamId::parse(&payload[..4]).0;
-    if dep_id == id {
-        return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
-    }
-    Ok(())
 }
 
+/// Perform the HTTP/2 connection handshake: validate the client preface,
+/// then send our SETTINGS frame. Returns the read buffer (with preface
+/// consumed) and the write buffer (ready for reuse).
 #[cold]
 #[inline(never)]
-async fn prefix_check(io: &impl AsyncBufRead, buf: BytesMut, timer: Pin<&mut KeepAlive>) -> io::Result<BytesMut> {
+async fn handshake(
+    io: &(impl AsyncBufRead + AsyncBufWrite),
+    settings: &settings::Settings,
+    timer: Pin<&mut KeepAlive>,
+) -> io::Result<(BytesMut, BytesMut)> {
     async {
         // No cap during preface: the buffer is tiny and always fully drained.
-        let mut rbuf = ReadBuf { buf, cap: usize::MAX };
+        let mut rbuf = ReadBuf {
+            buf: BytesMut::new(),
+            cap: usize::MAX,
+        };
         while rbuf.buf.len() < PREFACE.len() {
             let (res, b) = read_io(rbuf, io).await;
             rbuf = b;
             res?;
         }
-        if rbuf.buf.starts_with(PREFACE) {
-            rbuf.buf.advance(PREFACE.len());
-            Ok(rbuf.buf)
-        } else {
+        if !rbuf.buf.starts_with(PREFACE) {
             // No GOAWAY is sent because our own preface has not been exchanged yet.
-            Err(io::Error::new(
+            return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid HTTP/2 client preface",
-            ))
+            ));
         }
+        rbuf.buf.advance(PREFACE.len());
+
+        let mut write_buf = BytesMut::new();
+        settings.encode(&mut write_buf);
+        let (res, write_buf) = write_io(write_buf, io).await;
+        res?;
+
+        Ok((rbuf.buf, write_buf))
     }
     .timeout(timer)
     .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 preface timeout"))?
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
 }
 
 pub struct RequestBody {
@@ -1549,7 +1638,7 @@ impl Drop for RequestBody {
         // window is restored (stream 0).
         if self.pending_window > 0 {
             let size = mem::replace(&mut self.pending_window, 0);
-            inner.queue.push_window_update(StreamId::zero(), size);
+            inner.queue.push_window_update(size);
         }
     }
 }
@@ -1575,7 +1664,12 @@ impl Stream for RequestBody {
                         // while still batching small chunks effectively.
                         if this.pending_window >= settings::DEFAULT_INITIAL_WINDOW_SIZE as usize * 3 / 4 {
                             let window = mem::replace(&mut this.pending_window, 0);
-                            this.ctx.borrow_mut().queue.push_window_update(this.stream_id, window);
+                            state.recv_state.window += window;
+                            inner.queue.push_window_update(window);
+                            inner.queue.messages.push_back(Message::WindowUpdate {
+                                stream_id: this.stream_id,
+                                size: window,
+                            });
                         }
                     };
                     Poll::Ready(Some(Ok(frame)))
