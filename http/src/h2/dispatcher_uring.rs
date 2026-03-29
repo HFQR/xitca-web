@@ -648,9 +648,9 @@ impl<'a> DecodeContext<'a> {
 
             // TODO: Make Head::parse auto advance the frame?
             frame.advance(6);
-            match self.decode_frame(head, frame)? {
-                Some(decoded) => return Ok(Some(decoded)),
-                None => {}
+
+            if let Some(decoded) = self.decode_frame(head, frame)? {
+                return Ok(Some(decoded));
             }
         }
     }
