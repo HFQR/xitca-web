@@ -131,6 +131,56 @@ impl ContentLength {
 struct StreamState {
     recv_state: RecvState,
     send_state: SendState,
+    /// Bitfield tracking closure state for both directions. See the associated
+    /// constants below for the individual bit meanings.
+    flag: u8,
+}
+
+impl StreamState {
+    /// Stream is open in both receive and send direction
+    const OPEN: u8 = 0;
+    /// Peer sent END_STREAM or RST_STREAM: no more inbound DATA will arrive.
+    /// `is_empty` uses this bit so the stream stays in the map until the peer
+    /// is truly done, even if the service dropped `RequestBody` early.
+    /// Also signals `poll_next` EOF on the graceful close path.
+    const RECV_CLOSED: u8 = 1 << 0;
+    /// Service dropped `RequestBody` without consuming it to EOF. The body
+    /// consumer is gone but the peer may still be sending DATA frames that
+    /// must be accounted for (content-length enforcement, window management).
+    /// Also signals `poll_next` EOF on the early-cancel path.
+    const RECV_CANCELED: u8 = 1 << 1;
+    /// Response task finished (half-closed local). Stream stays in the map
+    /// until `RECV_CLOSED` is also set so WINDOW_UPDATE overflow can still
+    /// be detected (RFC §6.9.1).
+    const SEND_CLOSED: u8 = 1 << 2;
+
+    fn recv_canceled(&self) -> bool {
+        self.flag & Self::RECV_CANCELED == Self::RECV_CANCELED
+    }
+
+    fn recv_closed(&self) -> bool {
+        self.flag & Self::RECV_CLOSED == Self::RECV_CLOSED
+    }
+
+    fn send_closed(&self) -> bool {
+        self.flag & Self::SEND_CLOSED == Self::SEND_CLOSED
+    }
+
+    fn add_flag(&mut self, flag: u8) {
+        self.flag |= flag;
+    }
+
+    fn closed(&self) -> bool {
+        const CLOSED: u8 = StreamState::RECV_CLOSED | StreamState::SEND_CLOSED;
+        self.flag & CLOSED == CLOSED
+    }
+
+    fn is_empty(&self) -> bool {
+        // Both directions must be closed at the protocol level before the
+        // entry can be removed. RECV_CANCELED is a consumer-side signal and
+        // does not gate removal.
+        self.closed() && self.recv_state.body_queue.is_empty() && self.recv_state.body_error.is_none()
+    }
 }
 
 struct RecvState {
@@ -142,9 +192,6 @@ struct RecvState {
     body_waker: Option<Waker>,
     /// Remaining bytes the client may send on this stream (RFC 7540 §6.9).
     window: usize,
-    /// Set when the receive side is closed: END_STREAM received, trailer
-    /// accepted, or `RequestBody` dropped.
-    body_closed: bool,
     /// Terminal error set when the stream is reset by the peer (RST_STREAM)
     /// while `RequestBody` is still alive. Delivered as `Err` on the next
     /// `poll_next` call so the caller knows the body was truncated.
@@ -160,9 +207,6 @@ struct SendState {
     window: i64,
     frame_size: usize,
     waker: Option<Waker>,
-    /// Set when the response task finishes (half-closed local). Kept alive so
-    /// WINDOW_UPDATE overflow can still be detected (RFC §6.9.1).
-    send_closed: bool,
 }
 
 impl SendState {
@@ -170,15 +214,6 @@ impl SendState {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
-    }
-}
-
-impl StreamState {
-    fn is_empty(&self) -> bool {
-        self.recv_state.body_closed
-            && self.recv_state.body_queue.is_empty()
-            && self.recv_state.body_error.is_none()
-            && self.send_state.send_closed
     }
 }
 
@@ -279,11 +314,12 @@ impl FlowControl {
         })
     }
 
-    /// Close the receive side of a stream. Sets `body_closed`, wakes any
-    /// parked `RequestBody`, then removes the stream if both sides are done.
+    /// Close the receive side of a stream. Sets `RECV_CLOSED | BODY_CLOSED`,
+    /// wakes any parked `RequestBody`, then removes the stream if both sides
+    /// are done.
     fn remove_recv(&mut self, id: StreamId) {
         if let Some(state) = self.stream_map.get_mut(&id) {
-            state.recv_state.body_closed = true;
+            state.add_flag(StreamState::RECV_CLOSED);
             if let Some(w) = state.recv_state.body_waker.take() {
                 w.wake();
             }
@@ -293,13 +329,13 @@ impl FlowControl {
         }
     }
 
-    /// Close the send side of a stream. Sets `send_closed`, wakes any parked
+    /// Close the send side of a stream. Sets `SEND_CLOSED`, wakes any parked
     /// response task, then removes the stream if both sides are done.
     /// Returns `true` if the stream was present in the map (used by
     /// `StreamGuard::drop` to decide whether to credit back a premature reset).
     fn remove_send(&mut self, id: StreamId) -> bool {
         if let Some(state) = self.stream_map.get_mut(&id) {
-            state.send_state.send_closed = true;
+            state.add_flag(StreamState::SEND_CLOSED);
             state.send_state.wake();
             if state.is_empty() {
                 self.stream_map.remove(&id);
@@ -340,7 +376,7 @@ impl FlowControl {
     // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
     fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
         if let Some(state) = self.stream_map.get_mut(&id) {
-            if !state.recv_state.body_closed {
+            if state.recv_closed() {
                 // RequestBody is still alive: signal a truncation error so the
                 // caller knows the body was cut short, rather than seeing a
                 // silent EOF.
@@ -513,7 +549,7 @@ impl<'a> DecodeContext<'a> {
         //   Ok(None)       → fully closed stream → STREAM_CLOSED.
         // For the error cases the window is restored via the Reset handler in try_decode.
         let reason = match flow.get_stream_mut(id, self.last_stream_id)? {
-            Some(state) if !state.recv_state.body_closed => {
+            Some(state) if !state.recv_closed() => {
                 // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
                 if state.recv_state.content_length.dec(payload_len).is_err() {
                     let _ = flow.remove_stream(id);
@@ -523,7 +559,9 @@ impl<'a> DecodeContext<'a> {
                     Reason::FLOW_CONTROL_ERROR
                 } else {
                     state.recv_state.window -= payload_len;
-                    if payload_len > 0 {
+                    // Service may have dropped RequestBody early (RECV_CANCELED).
+                    // Still track content-length above, but discard the payload.
+                    if payload_len > 0 && !state.recv_canceled() {
                         state.recv_state.body_queue.push_back(Frame::Data(payload));
                         if let Some(w) = state.recv_state.body_waker.take() {
                             w.wake();
@@ -532,7 +570,7 @@ impl<'a> DecodeContext<'a> {
                     return Ok(());
                 }
             }
-            // body closed: half-closed (remote); any further DATA is STREAM_CLOSED.
+            // RECV_CLOSED: half-closed (remote); any further DATA is STREAM_CLOSED.
             // stream not in map: fully closed; same error.
             _ => Reason::STREAM_CLOSED,
         };
@@ -854,7 +892,7 @@ impl<'a> DecodeContext<'a> {
                     drop(inner);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
-                if state.recv_state.body_closed {
+                if state.recv_closed() {
                     drop(inner);
                     return Err(Error::Reset(id, Reason::STREAM_CLOSED, None));
                 }
@@ -894,7 +932,6 @@ impl<'a> DecodeContext<'a> {
             window: flow.stream_window,
             frame_size: flow.max_frame_size,
             waker: None,
-            send_closed: false,
         };
 
         self.last_stream_id = id;
@@ -910,6 +947,12 @@ impl<'a> DecodeContext<'a> {
 
         let body = RequestBody::new(id, Rc::clone(self.ctx));
 
+        let flag = if is_end_stream {
+            StreamState::RECV_CLOSED
+        } else {
+            StreamState::OPEN
+        };
+
         flow.stream_map.insert(
             id,
             StreamState {
@@ -921,11 +964,11 @@ impl<'a> DecodeContext<'a> {
                     } else {
                         settings::DEFAULT_INITIAL_WINDOW_SIZE as usize
                     },
-                    body_closed: is_end_stream,
                     body_error: None,
                     content_length,
                 },
                 send_state: sf,
+                flag,
             },
         );
 
@@ -1166,11 +1209,11 @@ async fn response_task<S, ResB, ResBE>(
                                 let Some(state) = f.stream_map.get_mut(&stream_id) else {
                                     return Poll::Ready(None);
                                 };
-                                let sf = &mut state.send_state;
-                                if sf.send_closed {
+                                if state.send_closed() {
                                     return Poll::Ready(None);
                                 }
 
+                                let sf = &mut state.send_state;
                                 if f.send_connection_window == 0 || sf.window <= 0 {
                                     sf.waker = Some(cx.waker().clone());
                                     return Poll::Pending;
@@ -1468,17 +1511,23 @@ impl RequestBody {
 impl Drop for RequestBody {
     fn drop(&mut self) {
         let mut inner = self.ctx.borrow_mut();
-        // Mark receive side closed so the decode path stops buffering data
-        // for a body nobody is reading. Clear any pending error (caller
-        // dropped without consuming it) then remove the stream if both
-        // sides are done.
-        // Clear any pending error the caller dropped without consuming, then
-        // close the recv side. `remove_recv` wakes any parked waker and removes
-        // the stream entry if both sides are now closed.
+        // Service dropped RequestBody without consuming it to EOF. Set
+        // RECV_CANCELED | BODY_CLOSED so poll_next returns None and the decode
+        // path stops buffering, but keep the stream in the map until the peer
+        // sends END_STREAM (RECV_CLOSED) so content-length enforcement still
+        // runs. Also clear any pending error the caller dropped without reading.
         if let Some(state) = inner.flow.stream_map.get_mut(&self.stream_id) {
-            state.recv_state.body_error = None;
+            if !state.recv_closed() {
+                state.recv_state.body_queue.clear();
+                state.recv_state.body_error = None;
+                state.add_flag(StreamState::RECV_CANCELED);
+            }
+
+            // Only remove if RECV_CLOSED is also set (peer already done).
+            if state.is_empty() {
+                inner.flow.stream_map.remove(&self.stream_id);
+            }
         }
-        inner.flow.remove_recv(self.stream_id);
         // Replenish any bytes consumed but not yet acknowledged. The stream
         // itself may already be gone (e.g. RST_STREAM), so only the connection
         // window is restored (stream 0).
@@ -1517,10 +1566,8 @@ impl Stream for RequestBody {
                 } else if let Some(e) = state.recv_state.body_error.take() {
                     // Peer reset the stream while body was in progress.
                     Poll::Ready(Some(Err(e)))
-                } else if state.recv_state.body_closed {
-                    // Stream closed (graceful EOF): only replenish the
-                    // connection receive window since the stream itself
-                    // no longer needs flow-control capacity.
+                } else if state.recv_closed() {
+                    // Stream closed: graceful EOF (RECV_CLOSED).
                     Poll::Ready(None)
                 } else {
                     state.recv_state.body_waker = Some(cx.waker().clone());
