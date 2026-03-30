@@ -11,12 +11,12 @@ use xitca_http::{
     bytes::{Bytes, BytesMut},
     h1,
     http::{
-        header::{self, HeaderValue, CONNECTION},
         Method, Request, RequestExt, Response, Version,
+        header::{self, CONNECTION, HeaderValue},
     },
 };
 use xitca_service::fn_service;
-use xitca_test::{test_h1_server, Error};
+use xitca_test::{Error, test_h1_server};
 
 #[tokio::test]
 async fn h1_get() -> Result<(), Error> {

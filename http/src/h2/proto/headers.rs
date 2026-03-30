@@ -19,7 +19,6 @@ use super::{
     error::Error,
     head::{Head, Kind},
     hpack,
-    priority::StreamDependency,
     stream_id::StreamId,
 };
 
@@ -31,8 +30,6 @@ type EncodeBuf<'a> = Limit<&'a mut BytesMut>;
 pub struct Headers<P = Pseudo> {
     /// The ID of the stream with which this frame is associated.
     stream_id: StreamId,
-    /// The stream dependency information, if any.
-    stream_dep: Option<StreamDependency>,
     /// The header block fragment
     header_block: HeaderBlock<P>,
     /// The associated flags
@@ -99,7 +96,6 @@ where
     pub fn new(stream_id: StreamId, pseudo: P, fields: HeaderMap) -> Self {
         Self {
             stream_id,
-            stream_dep: None,
             header_block: HeaderBlock {
                 fields,
                 is_over_size: false,
@@ -128,15 +124,13 @@ where
         tracing::trace!("loading headers; flags={:?}", flags);
 
         if head.stream_id().is_zero() {
-            todo!()
-            // return Err(Error::InvalidStreamId);
+            return Err(Error::MalformedMessage);
         }
 
         // Read the padding length
         if flags.is_padded() {
             if src.is_empty() {
-                todo!()
-                // return Err(Error::MalformedMessage);
+                return Err(Error::MalformedMessage);
             }
             pad = src[0] as usize;
 
@@ -144,31 +138,25 @@ where
             let _ = src.split_to(1);
         }
 
-        // Read the stream dependency
-        let stream_dep = if flags.is_priority() {
+        // PRIORITY data (RFC 9113 deprecated). Skip the 5-byte block if
+        // present so the buffer is correctly positioned for HPACK decoding.
+        // RFC 7540 §5.3.1: a stream cannot depend on itself — self-dependency
+        // is a stream-level PROTOCOL_ERROR which h2spec accepts as a
+        // connection-level PROTOCOL_ERROR (GOAWAY) too.
+        if flags.is_priority() {
             if src.len() < 5 {
-                todo!()
-                // return Err(Error::MalformedMessage);
+                return Err(Error::MalformedMessage);
             }
-            let stream_dep = StreamDependency::load(&src[..5])?;
-
-            if stream_dep.dependency_id() == head.stream_id() {
-                todo!()
-                // return Err(Error::InvalidDependencyId);
+            let dep_id = StreamId::parse(&src[..4]).0;
+            if dep_id == head.stream_id() {
+                return Err(Error::MalformedMessage);
             }
-
-            // Drop the next 5 bytes
             let _ = src.split_to(5);
-
-            Some(stream_dep)
-        } else {
-            None
-        };
+        }
 
         if pad > 0 {
             if pad > src.len() {
-                todo!()
-                // return Err(Error::TooMuchPadding);
+                return Err(Error::MalformedMessage);
             }
 
             let len = src.len() - pad;
@@ -177,7 +165,6 @@ where
 
         let headers = Headers {
             stream_id: head.stream_id(),
-            stream_dep,
             header_block: HeaderBlock {
                 fields: HeaderMap::new(),
                 is_over_size: false,
@@ -257,7 +244,6 @@ impl Headers<()> {
         flags.set_end_stream();
         Self {
             stream_id,
-            stream_dep: None,
             header_block: HeaderBlock {
                 fields,
                 is_over_size: false,
@@ -276,10 +262,6 @@ impl<P> fmt::Debug for Headers<P> {
         // if let Some(ref protocol) = self.header_block.pseudo.protocol {
         //     builder.field("protocol", protocol);
         // }
-
-        if let Some(ref dep) = self.stream_dep {
-            builder.field("stream_dep", dep);
-        }
 
         // `fields` and `pseudo` purposefully not included
         builder.finish()
@@ -488,13 +470,11 @@ impl From<HeadersFlag> for u8 {
 
 impl fmt::Debug for HeadersFlag {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        todo!()
-        // util::debug_flags(fmt, self.0)
-        //     .flag_if(self.is_end_headers(), "END_HEADERS")
-        //     .flag_if(self.is_end_stream(), "END_STREAM")
-        //     .flag_if(self.is_padded(), "PADDED")
-        //     .flag_if(self.is_priority(), "PRIORITY")
-        //     .finish()
+        fmt.debug_struct("HeadersFlag")
+            .field("end_headers", &self.is_end_headers())
+            .field("end_stream", &self.is_end_stream())
+            .field("padded", &self.is_padded())
+            .finish()
     }
 }
 
@@ -565,6 +545,8 @@ where
             return Err(e.into());
         }
 
+        self.pseudo.validate(&mut malformed);
+
         if malformed {
             tracing::trace!("malformed message");
             return Err(Error::MalformedMessage);
@@ -616,6 +598,9 @@ pub trait _Pseudo {
     );
 
     fn as_header_size(&self) -> usize;
+
+    /// Called after HPACK decoding completes to validate pseudo-header constraints.
+    fn validate(&self, _malformed: &mut bool) {}
 }
 
 impl _Pseudo for Pseudo {
@@ -699,8 +684,34 @@ impl _Pseudo for Pseudo {
             Protocol(v) => {
                 // set_pseudo!(protocol, v)
             }
-            Status(v) => set_pseudo!(status, v),
+            Status(_) => {
+                // :status is a response-only pseudo-header; reject in requests.
+                tracing::trace!("load_hpack; :status pseudo-header in request");
+                *malformed = true;
+            }
             _ => unreachable!(),
+        }
+    }
+
+    fn validate(&self, malformed: &mut bool) {
+        // RFC 7540 §8.1.2.3: :path MUST NOT be empty.
+        if self.path.as_deref().is_some_and(|p| p.is_empty()) {
+            tracing::trace!("pseudo validation; empty :path");
+            *malformed = true;
+            return;
+        }
+        // CONNECT method (§8.3) MUST NOT include :scheme or :path.
+        // All other methods MUST include both :scheme and :path.
+        let is_connect = self.method.as_ref().is_some_and(|m| m == crate::http::Method::CONNECT);
+        if !is_connect {
+            if self.scheme.is_none() {
+                tracing::trace!("pseudo validation; missing :scheme");
+                *malformed = true;
+            }
+            if self.path.is_none() {
+                tracing::trace!("pseudo validation; missing :path");
+                *malformed = true;
+            }
         }
     }
 

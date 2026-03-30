@@ -1,10 +1,10 @@
 use futures_util::{SinkExt, Stream, StreamExt};
-use http_ws::{ws, Message};
+use http_ws::{Message, ws};
 use xitca_client::Client;
-use xitca_http::{body::ResponseBody, http::Response, Request};
+use xitca_http::{Request, body::ResponseBody, http::Response};
 use xitca_io::bytes::Bytes;
 use xitca_service::fn_service;
-use xitca_test::{test_h2_server, Error};
+use xitca_test::{Error, test_h2_server};
 
 #[tokio::test]
 async fn message() -> Result<(), Error> {

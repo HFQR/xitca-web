@@ -12,7 +12,7 @@ use crate::{
     util::timer::Timeout,
 };
 
-use super::{body::RequestBody, proto::Dispatcher};
+use super::{body::RequestBody, dispatcher::Dispatcher};
 
 pub type H2Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
     HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
@@ -49,6 +49,10 @@ where
 
         let mut conn = ::h2::server::Builder::new()
             .enable_connect_protocol()
+            .max_concurrent_streams(self.config.h2_max_concurrent_streams)
+            .initial_window_size(self.config.h2_initial_window_size)
+            .max_frame_size(self.config.h2_max_frame_size)
+            .max_header_list_size(self.config.h2_max_header_list_size)
             .handshake(PollIoAdapter(tls_stream))
             .timeout(timer.as_mut())
             .await
@@ -85,6 +89,10 @@ mod io_uring {
     use crate::{
         config::HttpServiceConfig,
         date::{DateTime, DateTimeService},
+        h2::{
+            dispatcher_uring::{Frame, RequestBody, run},
+            proto::settings::Settings,
+        },
         util::timer::KeepAlive,
     };
 
@@ -123,19 +131,18 @@ mod io_uring {
     impl<S, B, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
         Service<(TcpStream, SocketAddr)> for H2UringService<S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     where
-        S: Service<Request<RequestExt<crate::h2::proto::RequestBody>>, Response = Response<B>>,
+        S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
         A: Service<TcpStream>,
         A::Response: AsyncBufRead + AsyncBufWrite + 'static,
-        B: Stream<Item = Result<Bytes, BE>>,
+        B: Stream<Item = Result<Frame, BE>>,
         HttpServiceError<S::Error, BE>: From<A::Error>,
         S::Error: fmt::Debug,
         BE: fmt::Debug,
     {
         type Response = ();
         type Error = HttpServiceError<S::Error, BE>;
-        async fn call(&self, (io, _): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
-            let accept_dur = self.config.tls_accept_timeout;
-            let deadline = self.date.get().now() + accept_dur;
+        async fn call(&self, (io, addr): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+            let deadline = self.date.get().now() + self.config.tls_accept_timeout;
             let mut timer = pin!(KeepAlive::new(deadline));
 
             let io = self
@@ -145,7 +152,28 @@ mod io_uring {
                 .await
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-            crate::h2::proto::run(io, &self.service).await.unwrap();
+            // update timer to first request timeout.
+            let deadline = self.date.get().now() + self.config.request_head_timeout;
+            timer.as_mut().update(deadline);
+
+            let mut settings = Settings::default();
+            settings.set_max_concurrent_streams(Some(self.config.h2_max_concurrent_streams));
+            settings.set_initial_window_size(Some(self.config.h2_initial_window_size));
+            settings.set_max_frame_size(Some(self.config.h2_max_frame_size));
+            settings.set_max_header_list_size(Some(self.config.h2_max_header_list_size));
+            settings.set_enable_connect_protocol(Some(1));
+
+            run(
+                io,
+                addr,
+                timer,
+                self.config.keep_alive_timeout,
+                &self.service,
+                self.date.get(),
+                settings,
+            )
+            .await
+            .unwrap();
 
             Ok(())
         }

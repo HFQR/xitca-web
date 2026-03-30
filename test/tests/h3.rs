@@ -4,10 +4,10 @@ use xitca_http::{
     body::ResponseBody,
     bytes::{Bytes, BytesMut},
     h3,
-    http::{header, Method, Request, RequestExt, Response, Version},
+    http::{Method, Request, RequestExt, Response, Version, header},
 };
 use xitca_service::fn_service;
-use xitca_test::{test_h3_server, Error};
+use xitca_test::{Error, test_h3_server};
 
 #[tokio::test]
 async fn h3_get() -> Result<(), Error> {

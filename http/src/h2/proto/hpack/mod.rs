@@ -6,6 +6,6 @@ mod header;
 mod huffman;
 mod table;
 
-pub(super) use self::decoder::{Decoder, DecoderError};
-pub(super) use self::encoder::Encoder;
-pub(super) use self::header::Header;
+pub(crate) use self::decoder::{Decoder, DecoderError};
+pub(crate) use self::encoder::Encoder;
+pub(crate) use self::header::Header;

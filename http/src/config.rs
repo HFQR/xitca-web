@@ -30,6 +30,10 @@ pub struct HttpServiceConfig<
     pub(crate) request_head_timeout: Duration,
     pub(crate) tls_accept_timeout: Duration,
     pub(crate) peek_protocol: bool,
+    pub(crate) h2_max_concurrent_streams: u32,
+    pub(crate) h2_initial_window_size: u32,
+    pub(crate) h2_max_frame_size: u32,
+    pub(crate) h2_max_header_list_size: u32,
 }
 
 impl Default for HttpServiceConfig {
@@ -46,6 +50,10 @@ impl HttpServiceConfig {
             request_head_timeout: Duration::from_secs(5),
             tls_accept_timeout: Duration::from_secs(3),
             peek_protocol: false,
+            h2_max_concurrent_streams: 256,
+            h2_initial_window_size: 65_535,
+            h2_max_frame_size: 16_384,
+            h2_max_header_list_size: 16 * 1024 * 1024,
         }
     }
 }
@@ -118,6 +126,34 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
         self.mutate_const_generic::<HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT>()
     }
 
+    /// Define the maximum number of concurrent HTTP/2 streams per connection.
+    pub fn h2_max_concurrent_streams(mut self, val: u32) -> Self {
+        self.h2_max_concurrent_streams = val;
+        self
+    }
+
+    /// Define the initial flow-control window size for HTTP/2 streams.
+    ///
+    /// Must not exceed 2^31-1 (2,147,483,647).
+    pub fn h2_initial_window_size(mut self, val: u32) -> Self {
+        self.h2_initial_window_size = val;
+        self
+    }
+
+    /// Define the maximum HTTP/2 frame size the server is willing to receive.
+    ///
+    /// Must be between 16,384 and 16,777,215 (inclusive).
+    pub fn h2_max_frame_size(mut self, val: u32) -> Self {
+        self.h2_max_frame_size = val;
+        self
+    }
+
+    /// Define the maximum size of HTTP/2 header list the server is willing to accept.
+    pub fn h2_max_header_list_size(mut self, val: u32) -> Self {
+        self.h2_max_header_list_size = val;
+        self
+    }
+
     /// Enable peek into connection to figure out it's protocol regardless the outcome
     /// of alpn negotiation.
     ///
@@ -143,6 +179,10 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
             request_head_timeout: self.request_head_timeout,
             tls_accept_timeout: self.tls_accept_timeout,
             peek_protocol: self.peek_protocol,
+            h2_max_concurrent_streams: self.h2_max_concurrent_streams,
+            h2_initial_window_size: self.h2_initial_window_size,
+            h2_max_frame_size: self.h2_max_frame_size,
+            h2_max_header_list_size: self.h2_max_header_list_size,
         }
     }
 }
