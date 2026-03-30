@@ -4,10 +4,7 @@ use std::{io, net::Shutdown, sync::Arc};
 
 use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
 use xitca_service::Service;
-use xitca_tls::{
-    rustls::{ServerConfig, ServerConnection},
-    rustls_uring::TlsStream as _TlsStream,
-};
+use xitca_tls::rustls_uring::{ServerConfig, TlsStream as _TlsStream, UnbufferedServerConnection};
 
 use crate::{http::Version, version::AsVersion};
 
@@ -15,7 +12,7 @@ use super::rustls::RustlsError;
 
 /// A stream managed by rustls for tls read/write.
 pub struct TlsStream<Io> {
-    inner: _TlsStream<ServerConnection, Io>,
+    inner: _TlsStream<UnbufferedServerConnection, Io>,
 }
 
 impl<Io> AsVersion for TlsStream<Io> {
@@ -60,7 +57,7 @@ where
     type Error = RustlsError;
 
     async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
-        let conn = ServerConnection::new(self.acceptor.clone())?;
+        let conn = UnbufferedServerConnection::new(self.acceptor.clone())?;
         let inner = _TlsStream::handshake(io, conn).await?;
         Ok(TlsStream { inner })
     }
