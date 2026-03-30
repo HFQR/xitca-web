@@ -72,7 +72,7 @@ pub enum Frame {
     Trailers(Box<HeaderMap>),
 }
 
-struct DecodeContext<'a> {
+struct DecodeContext<'a, S> {
     max_header_list_size: usize,
     max_concurrent_streams: usize,
     /// Highest stream ID fully accepted by the server. Sent in GOAWAY frames
@@ -81,8 +81,10 @@ struct DecodeContext<'a> {
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
+    service: &'a S,
     ctx: &'a Shared,
     addr: SocketAddr,
+    date: &'a DateTimeHandle,
 }
 
 /// Tracks the expected number of DATA bytes remaining for RFC 7540 §8.1.2.6.
@@ -540,7 +542,7 @@ impl WriterQueue {
 
 type Decoded = (Request<RequestExt<RequestBody>>, StreamId);
 
-impl<'a> DecodeContext<'a> {
+impl<'a, S> DecodeContext<'a, S> {
     fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
         if id > self.last_stream_id {
             Err(Error::GoAway(Reason::PROTOCOL_ERROR))
@@ -612,7 +614,13 @@ impl<'a> DecodeContext<'a> {
         Err(Error::Reset(id, reason, Some(payload_len)))
     }
 
-    fn new(ctx: &'a Shared, max_concurrent_streams: usize, addr: SocketAddr) -> Self {
+    fn new(
+        ctx: &'a Shared,
+        service: &'a S,
+        max_concurrent_streams: usize,
+        addr: SocketAddr,
+        date: &'a DateTimeHandle,
+    ) -> Self {
         Self {
             max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
             max_concurrent_streams,
@@ -621,8 +629,33 @@ impl<'a> DecodeContext<'a> {
             next_frame_len: 0,
             continuation: None,
             ctx,
+            service,
             addr,
+            date,
         }
+    }
+
+    fn decode(&mut self, buf: &mut ReadBuf, mut on_msg: impl FnMut(&Self, Decoded)) -> Result<(), ShutDown> {
+        let reason = loop {
+            match self.try_decode(&mut buf.buf) {
+                Ok(Some(res)) => on_msg(self, res),
+                Ok(None) => return Ok(()),
+                Err(Error::Reset(id, reason, window)) => match self.handle_stream_reset(id, reason, window) {
+                    Ok(()) => {}
+                    Err(Error::GoAway(reason)) => break reason,
+                    Err(_) => unreachable!(),
+                },
+                Err(Error::GoAway(reason)) => break reason,
+                Err(Error::Hpack(_)) => break Reason::COMPRESSION_ERROR,
+                Err(Error::MalformedMessage) => break Reason::PROTOCOL_ERROR,
+                Err(Error::PeerAccused) => {
+                    self.ctx.borrow_mut().queue.close();
+                    return Err(ShutDown::Forced);
+                }
+            }
+        };
+
+        Err(self.go_away(reason))
     }
 
     fn try_decode(&mut self, buf: &mut BytesMut) -> Result<Option<Decoded>, Error> {
@@ -1138,7 +1171,7 @@ async fn response_task<S, ResB, ResBE>(
     req: Request<RequestExt<RequestBody>>,
     stream_id: StreamId,
     service: &S,
-    ctx: Shared,
+    ctx: &Shared,
     date: &DateTimeHandle,
 ) where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
@@ -1165,7 +1198,7 @@ async fn response_task<S, ResB, ResBE>(
         }
     }
 
-    let _guard = StreamGuard { stream_id, ctx: &ctx };
+    let _guard = StreamGuard { stream_id, ctx };
 
     let res = match service.call(req).await {
         Ok(res) => res,
@@ -1361,15 +1394,15 @@ where
         queue: WriterQueue::new(),
     }));
 
-    let mut ctx = DecodeContext::new(&shared, max_concurrent_streams, addr);
+    let mut ctx = DecodeContext::new(&shared, service, max_concurrent_streams, addr, date);
+    let mut enc = EncodeContext::new(&shared);
+
     let mut queue = Queue::new();
     let mut ping_pong = PingPong::new(ka, &shared, date, ka_dur);
 
     let mut read_task = pin!(read_io(read_buf, &io));
 
     let mut write_task = pin!(async {
-        let mut enc = EncodeContext::new(&shared);
-
         loop {
             let is_eof = poll_fn(|_| enc.poll_encode(&mut write_buf)).await;
 
@@ -1379,12 +1412,12 @@ where
             res?;
 
             if is_eof {
-                return Ok::<_, io::Error>(());
+                return Ok(());
             }
         }
     });
 
-    let shutdown = 'chain: loop {
+    let shutdown = loop {
         match read_task
             .as_mut()
             .select(async {
@@ -1400,28 +1433,13 @@ where
                 read_buf = buf;
 
                 match res {
-                    Ok(n) if n > 0 => loop {
-                        match ctx.try_decode(&mut read_buf.buf) {
-                            Ok(None) => break,
-                            Ok(Some((req, id))) => {
-                                queue.push(response_task(req, id, service, Rc::clone(&shared), date));
-                            }
-                            Err(Error::Reset(id, reason, window)) => {
-                                match ctx.handle_stream_reset(id, reason, window) {
-                                    Ok(()) => {}
-                                    Err(Error::GoAway(reason)) => break 'chain ctx.go_away(reason),
-                                    Err(_) => unreachable!(),
-                                }
-                            }
-                            Err(Error::GoAway(reason)) => break 'chain ctx.go_away(reason),
-                            Err(Error::Hpack(_)) => break 'chain ctx.go_away(Reason::COMPRESSION_ERROR),
-                            Err(Error::MalformedMessage) => break 'chain ctx.go_away(Reason::PROTOCOL_ERROR),
-                            Err(Error::PeerAccused) => {
-                                ctx.ctx.borrow_mut().queue.close();
-                                break 'chain ShutDown::Forced;
-                            }
+                    Ok(n) if n > 0 => {
+                        if let Err(shutdown) = ctx.decode(&mut read_buf, |decoder, (req, id)| {
+                            queue.push(response_task(req, id, decoder.service, decoder.ctx, decoder.date));
+                        }) {
+                            break shutdown;
                         }
-                    },
+                    }
                     res => break ShutDown::ReadClosed(res.map(|_| ())),
                 };
 
@@ -1436,6 +1454,8 @@ where
 
     shutdown.shutdown(queue, &shared, write_task, &io, ping_pong).await
 }
+
+type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 enum ShutDown {
     ReadClosed(io::Result<()>),
@@ -1456,7 +1476,7 @@ impl ShutDown {
         mut write_task: Pin<&'a mut F>,
         io: &'a impl AsyncBufWrite,
         mut pin_pong: PingPong<'a>,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + 'a>>
+    ) -> BoxedFuture<'a, io::Result<()>>
     where
         T: Future + 'a,
         F: Future<Output = io::Result<()>> + 'a,
@@ -1527,41 +1547,43 @@ fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), Error> {
 /// consumed) and the write buffer (ready for reuse).
 #[cold]
 #[inline(never)]
-async fn handshake(
-    io: &(impl AsyncBufRead + AsyncBufWrite),
-    settings: &settings::Settings,
-    timer: Pin<&mut KeepAlive>,
-) -> io::Result<(BytesMut, BytesMut)> {
-    async {
-        // No cap during preface: the buffer is tiny and always fully drained.
-        let mut rbuf = ReadBuf {
-            buf: BytesMut::new(),
-            cap: usize::MAX,
-        };
-        while rbuf.buf.len() < PREFACE.len() {
-            let (res, b) = read_io(rbuf, io).await;
-            rbuf = b;
+fn handshake<'a>(
+    io: &'a (impl AsyncBufRead + AsyncBufWrite),
+    settings: &'a settings::Settings,
+    timer: Pin<&'a mut KeepAlive>,
+) -> BoxedFuture<'a, io::Result<(BytesMut, BytesMut)>> {
+    Box::pin(async {
+        async {
+            // No cap during preface: the buffer is tiny and always fully drained.
+            let mut rbuf = ReadBuf {
+                buf: BytesMut::new(),
+                cap: usize::MAX,
+            };
+            while rbuf.buf.len() < PREFACE.len() {
+                let (res, b) = read_io(rbuf, io).await;
+                rbuf = b;
+                res?;
+            }
+            if !rbuf.buf.starts_with(PREFACE) {
+                // No GOAWAY is sent because our own preface has not been exchanged yet.
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid HTTP/2 client preface",
+                ));
+            }
+            rbuf.buf.advance(PREFACE.len());
+
+            let mut write_buf = BytesMut::new();
+            settings.encode(&mut write_buf);
+            let (res, write_buf) = write_io(write_buf, io).await;
             res?;
-        }
-        if !rbuf.buf.starts_with(PREFACE) {
-            // No GOAWAY is sent because our own preface has not been exchanged yet.
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid HTTP/2 client preface",
-            ));
-        }
-        rbuf.buf.advance(PREFACE.len());
 
-        let mut write_buf = BytesMut::new();
-        settings.encode(&mut write_buf);
-        let (res, write_buf) = write_io(write_buf, io).await;
-        res?;
-
-        Ok((rbuf.buf, write_buf))
-    }
-    .timeout(timer)
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
+            Ok((rbuf.buf, write_buf))
+        }
+        .timeout(timer)
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
+    })
 }
 
 pub struct RequestBody {

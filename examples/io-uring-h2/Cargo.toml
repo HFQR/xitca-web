@@ -10,3 +10,9 @@ xitca-server = { version = "0.6.1", features = ["io-uring"] }
 xitca-service = "0.3"
 
 futures-core = "0.3"
+
+mimalloc = { version = "0.1.48", default-features = false, features = ["v3"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"

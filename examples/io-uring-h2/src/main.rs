@@ -3,6 +3,9 @@
 //! *. use h2c prior knowledge as protocol.
 //! *. io_uring is a linux OS feature.
 
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::{
     convert::Infallible,
     io,
