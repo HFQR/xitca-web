@@ -24,7 +24,12 @@ pub(crate) fn base_service() -> HttpService {
             #[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
             use crate::{error::TimeoutError, timeout::Timeout};
 
-            let ServiceRequest { req, client, timeout } = req;
+            let ServiceRequest {
+                req,
+                client,
+                request_timeout,
+                response_timeout,
+            } = req;
 
             let uri = Uri::try_parse(req.uri())?;
 
@@ -41,7 +46,7 @@ pub(crate) fn base_service() -> HttpService {
                 match version {
                     Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
                         shared::AcquireOutput::Conn(mut _conn) => {
-                            let mut _timer = Box::pin(tokio::time::sleep(timeout));
+                            let mut _timer = Box::pin(tokio::time::sleep(request_timeout));
                             *req.version_mut() = version;
                             #[allow(unreachable_code)]
                             return match _conn.conn {
@@ -51,10 +56,7 @@ pub(crate) fn base_service() -> HttpService {
                                         .timeout(_timer.as_mut())
                                         .await
                                     {
-                                        Ok(Ok(res)) => {
-                                            let timeout = client.timeout_config.response_timeout;
-                                            Ok(Response::new(res, _timer, timeout))
-                                        }
+                                        Ok(Ok(res)) => Ok(Response::new(res, _timer, response_timeout)),
                                         Ok(Err(e)) => {
                                             _conn.destroy_on_drop();
                                             Err(e.into())
@@ -72,8 +74,7 @@ pub(crate) fn base_service() -> HttpService {
                                         .await
                                         .map_err(|_| TimeoutError::Request)??;
 
-                                    let timeout = client.timeout_config.response_timeout;
-                                    Ok(Response::new(res, _timer, timeout))
+                                    Ok(Response::new(res, _timer, response_timeout))
                                 }
                             };
                         }
@@ -157,7 +158,7 @@ pub(crate) fn base_service() -> HttpService {
 
                             #[cfg(feature = "http1")]
                             {
-                                let mut timer = Box::pin(tokio::time::sleep(timeout));
+                                let mut timer = Box::pin(tokio::time::sleep(request_timeout));
                                 let res = crate::h1::proto::send(&mut *_conn, _date, req)
                                     .timeout(timer.as_mut())
                                     .await;
@@ -169,8 +170,8 @@ pub(crate) fn base_service() -> HttpService {
                                         }
                                         let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
                                         let res = res.map(|_| crate::body::ResponseBody::H1(body));
-                                        let timeout = client.timeout_config.response_timeout;
-                                        Ok(Response::new(res, timer, timeout))
+
+                                        Ok(Response::new(res, timer, response_timeout))
                                     }
                                     Ok(Err(e)) => {
                                         _conn.destroy_on_drop();
