@@ -4,9 +4,9 @@ use core::{cell::RefCell, slice};
 
 use std::{io, net::Shutdown, rc::Rc};
 
-pub use rustls::*;
+pub use rustls_crate::*;
 
-use rustls::{
+use rustls_crate::{
     client::UnbufferedClientConnection,
     server::UnbufferedServerConnection,
     unbuffered::UnbufferedConnectionCommon,
