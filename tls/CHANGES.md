@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.5.2
+## Change
+- internal change to reduce memory copy when `io-uring` feature enabled
 
 # 0.5.1
 ## Add

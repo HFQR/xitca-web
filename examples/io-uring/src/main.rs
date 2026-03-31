@@ -45,7 +45,7 @@ fn tls_config() -> Arc<ServerConfig> {
         .with_no_client_auth()
         .with_single_cert(
             vec![cert.cert.into()],
-            cert.key_pair.serialize_der().try_into().unwrap(),
+            cert.signing_key.serialize_der().try_into().unwrap(),
         )
         .unwrap();
 

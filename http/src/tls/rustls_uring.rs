@@ -4,7 +4,7 @@ use std::{io, net::Shutdown, sync::Arc};
 
 use xitca_io::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
 use xitca_service::Service;
-use xitca_tls::rustls_uring::{ServerConfig, TlsStream as _TlsStream, UnbufferedServerConnection};
+use xitca_tls::rustls_uring::{ServerConfig, TlsStream as _TlsStream, server::UnbufferedServerConnection};
 
 use crate::{http::Version, version::AsVersion};
 

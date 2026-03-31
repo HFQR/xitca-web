@@ -7,7 +7,7 @@ use core::{
 
 use std::io;
 
-pub use rustls_crate::*;
+pub use rustls::*;
 
 use xitca_io::io::{AsyncIo, Interest, Ready};
 

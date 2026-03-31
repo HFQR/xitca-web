@@ -1096,7 +1096,7 @@ impl<'a> EncodeContext<'a> {
 
         inner.flow.remote_settings.encode(&mut self.encoder, write_buf);
 
-        let is_eof = loop {
+        let writable = loop {
             match inner.queue.poll_recv() {
                 Poll::Ready(Some(msg)) => match msg {
                     Message::Head(headers) => {
@@ -1127,11 +1127,11 @@ impl<'a> EncodeContext<'a> {
                         // TRAILERS) queued by response tasks are still delivered.
                         // The write task exits naturally when the queue is both
                         // empty and closed (Poll::Ready(None) below).
-                        break false;
+                        break true;
                     }
                 },
-                Poll::Pending => break false,
-                Poll::Ready(None) => break true,
+                Poll::Pending => break true,
+                Poll::Ready(None) => break false,
             }
         };
 
@@ -1155,14 +1155,12 @@ impl<'a> EncodeContext<'a> {
             inner.queue.keepalive_ping = KeepalivePing::InFlight;
         }
 
-        // Return Pending only when there is nothing to write AND the queue is
-        // still open. If is_eof is true (queue closed+empty), return Ready even
-        // with an empty buffer: poll_recv returns Poll::Ready(None) without
-        // storing a waker, so returning Pending here would stall forever.
-        if write_buf.is_empty() && !is_eof {
-            Poll::Pending
+        if !write_buf.is_empty() {
+            Poll::Ready(true)
+        } else if !writable {
+            Poll::Ready(false)
         } else {
-            Poll::Ready(is_eof)
+            Poll::Pending
         }
     }
 }
@@ -1403,18 +1401,19 @@ where
     let mut read_task = pin!(read_io(read_buf, &io));
 
     let mut write_task = pin!(async {
-        loop {
-            let is_eof = poll_fn(|_| enc.poll_encode(&mut write_buf)).await;
-
-            let (res, buf) = write_io(write_buf, &io).await;
+        while poll_fn(|_| enc.poll_encode(&mut write_buf)).await {
+            let (res, buf) = io.write(write_buf).await;
 
             write_buf = buf;
-            res?;
 
-            if is_eof {
-                return Ok(());
+            match res {
+                Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                Ok(n) => write_buf.advance(n),
+                Err(e) => return Err(e),
             }
         }
+
+        Ok(())
     });
 
     let shutdown = loop {

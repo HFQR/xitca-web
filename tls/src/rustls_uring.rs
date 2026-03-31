@@ -4,9 +4,9 @@ use core::{cell::RefCell, slice};
 
 use std::{io, net::Shutdown, rc::Rc};
 
-pub use rustls_crate::*;
+pub use rustls::*;
 
-use rustls_crate::{
+use rustls::{
     client::UnbufferedClientConnection,
     server::UnbufferedServerConnection,
     unbuffered::UnbufferedConnectionCommon,
@@ -53,60 +53,6 @@ impl ProcessTlsRecords for UnbufferedClientConnection {
 
 /// Reduced `ConnectionState` that doesn't borrow the connection or incoming buffer.
 /// Created by draining all needed data from the borrowed state variants.
-enum State {
-    /// Read traffic was processed (plaintext drained by caller).
-    ReadTraffic,
-    /// Handshake data was encoded into write_buf.
-    EncodedTlsData,
-    /// Encoded data needs to be transmitted, then call done.
-    TransmitTlsData,
-    /// Need more ciphertext.
-    BlockedHandshake,
-    /// Handshake complete, ready to send app data.
-    WriteTraffic,
-    /// Peer sent close_notify or connection fully closed.
-    Closed,
-    /// Peer closed (edge-triggered).
-    PeerClosed,
-}
-
-/// Process one round of TLS records and return an owned State plus the discard count.
-/// This function handles `EncodeTlsData` inline (encoding into write_buf) and
-/// `ReadTraffic` inline (draining plaintext into a BytesMut).
-fn process_once<C: ProcessTlsRecords>(
-    conn: &mut C,
-    read_buf: &mut BytesMut,
-    write_buf: &mut BytesMut,
-) -> io::Result<State> {
-    let UnbufferedStatus { discard, state } = conn.process_tls_records(read_buf.as_mut());
-
-    let state = match state.map_err(tls_err)? {
-        ConnectionState::ReadTraffic(_) => State::ReadTraffic,
-        ConnectionState::EncodeTlsData(mut state) => {
-            encode_tls_data(&mut state, write_buf)?;
-            State::EncodedTlsData
-        }
-        ConnectionState::TransmitTlsData(state) => {
-            state.done();
-            State::TransmitTlsData
-        }
-        ConnectionState::WriteTraffic(_) => {
-            // WriteTraffic may have pending TLS data (key updates).
-            // We don't encrypt here — caller decides.
-            State::WriteTraffic
-        }
-        ConnectionState::BlockedHandshake => State::BlockedHandshake,
-        ConnectionState::PeerClosed => State::PeerClosed,
-        ConnectionState::Closed => State::Closed,
-        _ => State::BlockedHandshake, // Unknown variants treated as needing more data.
-    };
-
-    // Discard consumed bytes from read_buf after all borrows are released.
-    read_buf.advance(discard);
-
-    Ok(state)
-}
-
 /// A TLS stream type that supports concurrent async read/write through [AsyncBufRead] and
 /// [AsyncBufWrite] traits.
 ///
@@ -171,28 +117,52 @@ where
         let mut proto_write_buf = session.proto_write_buf.split();
 
         let res = loop {
-            let res = match process_once(&mut session.conn, &mut read_buf, &mut proto_write_buf) {
-                Err(e) => Err(e),
+            let UnbufferedStatus { discard, state } = session.conn.process_tls_records(read_buf.as_mut());
 
-                // Continue processing — more handshake data may follow.
-                Ok(State::EncodedTlsData) => continue,
+            let res = match state.map_err(tls_err) {
+                Err(e) => {
+                    read_buf.advance(discard);
+                    Err(e)
+                }
 
-                Ok(State::TransmitTlsData) => {
+                Ok(ConnectionState::EncodeTlsData(mut state)) => {
+                    let enc_res = encode_tls_data(&mut state, &mut proto_write_buf);
+                    drop(state);
+                    read_buf.advance(discard);
+                    enc_res?;
+                    continue;
+                }
+
+                Ok(ConnectionState::TransmitTlsData(state)) => {
+                    state.done();
+                    read_buf.advance(discard);
+
                     let (res, b) = write_all_buf(&self.io, proto_write_buf).await;
                     proto_write_buf = b;
                     res
                 }
 
-                Ok(State::BlockedHandshake) => {
+                Ok(ConnectionState::BlockedHandshake) => {
+                    read_buf.advance(discard);
+
                     let (res, b) = read_to_buf(&self.io, read_buf).await;
                     read_buf = b;
                     res
                 }
 
-                Ok(State::WriteTraffic | State::ReadTraffic) => break Ok(()),
+                Ok(ConnectionState::WriteTraffic(_) | ConnectionState::ReadTraffic(_)) => {
+                    read_buf.advance(discard);
+                    break Ok(());
+                }
 
-                Ok(State::PeerClosed | State::Closed) => {
+                Ok(ConnectionState::PeerClosed | ConnectionState::Closed) => {
+                    read_buf.advance(discard);
                     Err(io::Error::new(io::ErrorKind::UnexpectedEof, "tls handshake eof"))
+                }
+
+                Ok(_) => {
+                    read_buf.advance(discard);
+                    continue;
                 }
             };
 
@@ -205,7 +175,13 @@ where
         session.proto_write_buf = proto_write_buf;
         res
     }
+}
 
+impl<C, Io> TlsStream<C, Io>
+where
+    C: ProcessTlsRecords,
+    Io: AsyncBufRead,
+{
     /// Read ciphertext from IO, decrypt, and return plaintext.
     async fn read_tls(&self, plain_buf: &mut impl BoundedBufMut) -> io::Result<usize> {
         let mut session = self.session.borrow_mut();
@@ -328,8 +304,14 @@ where
         session.read_buf.replace(read_buf);
         res
     }
+}
 
-    /// Encrypt plaintext and write ciphertext to IO.
+impl<C, Io> TlsStream<C, Io>
+where
+    C: ProcessTlsRecords,
+    Io: AsyncBufWrite,
+{
+    /// Encrypt plaintext and write all ciphertext to IO.
     async fn write_tls(&self, plain: &impl BoundedBuf) -> io::Result<usize> {
         let mut session = self.session.borrow_mut();
         let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
@@ -406,7 +388,7 @@ where
 impl<C, Io> AsyncBufRead for TlsStream<C, Io>
 where
     C: ProcessTlsRecords,
-    Io: AsyncBufRead + AsyncBufWrite,
+    Io: AsyncBufRead,
 {
     async fn read<B>(&self, mut buf: B) -> (io::Result<usize>, B)
     where
@@ -420,7 +402,7 @@ where
 impl<C, Io> AsyncBufWrite for TlsStream<C, Io>
 where
     C: ProcessTlsRecords,
-    Io: AsyncBufRead + AsyncBufWrite,
+    Io: AsyncBufWrite,
 {
     async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
     where
@@ -466,36 +448,28 @@ async fn read_to_buf(io: &impl AsyncBufRead, mut buf: BytesMut) -> (io::Result<(
 
 /// Write all bytes from a BytesMut to IO, then clear it.
 async fn write_all_buf(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
-    while !buf.is_empty() {
-        let (res, b) = io.write(buf).await;
-        buf = b;
-        match res {
-            Ok(0) => return (Err(io::ErrorKind::UnexpectedEof.into()), buf),
-            Ok(n) => buf.advance(n),
-            Err(e) => return (Err(e), buf),
-        }
+    let (res, b) = xitca_io::io_uring::write_all(io, buf).await;
+    buf = b;
+    if res.is_ok() {
+        buf.clear();
     }
-    (Ok(()), buf)
+    (res, buf)
 }
 
 /// Encode TLS handshake data into the write buffer, resizing if needed.
 fn encode_tls_data<Data>(state: &mut unbuffered::EncodeTlsData<'_, Data>, write_buf: &mut BytesMut) -> io::Result<()> {
-    loop {
-        let spare = write_buf.spare_capacity_mut();
-        // SAFETY: encode writes into the spare capacity; we track how many bytes.
-        let dst = unsafe { slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), spare.len()) };
-        match state.encode(dst) {
-            Ok(n) => {
-                // SAFETY: encode wrote n bytes into the spare capacity.
-                unsafe { write_buf.set_len(write_buf.len() + n) };
-                return Ok(());
-            }
-            Err(unbuffered::EncodeError::InsufficientSize(unbuffered::InsufficientSizeError { required_size })) => {
+    // SAFETY: EncodeTlsData::encode copies a single chunk contiguously from index 0.
+    // On Ok(n), exactly n bytes are written. On InsufficientSize or AlreadyEncoded,
+    // the size check happens before any write so the slice is untouched.
+    while let Err(e) = unsafe { SpareCapBuf::new(write_buf).with_mut_slice(|slice| state.encode(slice)) } {
+        match e {
+            unbuffered::EncodeError::InsufficientSize(unbuffered::InsufficientSizeError { required_size }) => {
                 write_buf.reserve(required_size);
             }
-            Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
+            e => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
         }
     }
+    Ok(())
 }
 
 /// Encrypt plaintext into the write buffer, resizing if needed.
@@ -504,24 +478,100 @@ fn encrypt_to_buf<Data>(
     plaintext: &[u8],
     write_buf: &mut BytesMut,
 ) -> io::Result<()> {
-    let needed = plaintext.len() + 64;
-    if write_buf.capacity() - write_buf.len() < needed {
-        write_buf.reserve(needed);
-    }
-
-    loop {
-        let spare = write_buf.spare_capacity_mut();
-        let dst = unsafe { slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), spare.len()) };
-        match traffic.encrypt(plaintext, dst) {
-            Ok(n) => {
-                unsafe { write_buf.set_len(write_buf.len() + n) };
-                return Ok(());
-            }
-            Err(EncryptError::InsufficientSize(unbuffered::InsufficientSizeError { required_size })) => {
+    write_buf.reserve(plaintext.len() + 64);
+    // SAFETY: WriteTraffic::encrypt writes TLS records contiguously from index 0 via
+    // write_fragments. On Ok(n), exactly n bytes are written. On InsufficientSize,
+    // check_required_size returns before any write. On EncryptExhausted, the error
+    // is returned during pre-encryption checks before any write.
+    while let Err(err) =
+        unsafe { SpareCapBuf::new(write_buf).with_mut_slice(|spare| traffic.encrypt(plaintext, spare)) }
+    {
+        match err {
+            EncryptError::InsufficientSize(unbuffered::InsufficientSizeError { required_size }) => {
                 write_buf.reserve(required_size);
             }
-            Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
+            e => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
         }
+    }
+    Ok(())
+}
+
+/// Wraps a `BytesMut`'s spare capacity as a mutable byte slice.
+///
+/// Encapsulates the unsafe operations of interpreting spare capacity as `&mut [u8]`
+/// and committing written bytes via `set_len`.
+struct SpareCapBuf<'a> {
+    buf: &'a mut BytesMut,
+}
+
+impl<'a> SpareCapBuf<'a> {
+    fn new(buf: &'a mut BytesMut) -> Self {
+        Self { buf }
+    }
+
+    /// # Safety
+    ///
+    /// The callback `func` must uphold the following contract:
+    /// - Writes must be sequential and contiguous, starting from index 0 of the slice.
+    /// - On `Ok(n)`, exactly `n` bytes must have been written to `slice[..n]`.
+    /// - On `Err`, zero bytes must have been written into the slice.
+    unsafe fn with_mut_slice<F, E>(self, func: F) -> Result<(), E>
+    where
+        F: FnOnce(&mut [u8]) -> Result<usize, E>,
+    {
+        let spare = self.buf.spare_capacity_mut();
+
+        // SAFETY: the caller must write into the slice before reading.
+        // We only expose this for write-before-read patterns (TLS encode/encrypt).
+        let slice = unsafe { slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), spare.len()) };
+
+        let n = func(slice)?;
+
+        // SAFETY: caller guarantees n bytes were written into the spare capacity.
+        unsafe { self.buf.set_len(self.buf.len() + n) };
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spare_cap_buf_write_and_commit() {
+        let mut buf = BytesMut::with_capacity(64);
+        buf.extend_from_slice(b"hello");
+
+        let res = unsafe {
+            SpareCapBuf::new(&mut buf).with_mut_slice(|slice| {
+                assert!(slice.len() >= 59);
+                slice[..5].copy_from_slice(b"world");
+                Ok::<_, ()>(5)
+            })
+        };
+        assert!(res.is_ok());
+        assert_eq!(&buf[..], b"helloworld");
+    }
+
+    #[test]
+    fn spare_cap_buf_commit_zero() {
+        let mut buf = BytesMut::with_capacity(16);
+        buf.extend_from_slice(b"abc");
+
+        let res = unsafe { SpareCapBuf::new(&mut buf).with_mut_slice(|_| Ok::<_, ()>(0)) };
+        assert!(res.is_ok());
+        assert_eq!(&buf[..], b"abc");
+    }
+
+    #[test]
+    fn spare_cap_buf_error_no_commit() {
+        let mut buf = BytesMut::with_capacity(16);
+        buf.extend_from_slice(b"abc");
+
+        let res = unsafe { SpareCapBuf::new(&mut buf).with_mut_slice(|_| Err::<usize, _>("too small")) };
+        assert!(res.is_err());
+        assert_eq!(&buf[..], b"abc");
     }
 }
 

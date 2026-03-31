@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.8.3
+## Change
+- update `xitca-tls` to `0.5.2`
 
 # 0.8.2
 ## Fix

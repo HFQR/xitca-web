@@ -1,7 +1,7 @@
 //! A Http/2 server returns Hello World String as Response.
 //!
-//! *. use h2c prior knowledge as protocol.
 //! *. io_uring is a linux OS feature.
+//! *. random self signed cert is used for tls certification.
 
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -69,3 +69,22 @@ impl Stream for Once {
         (len, Some(len))
     }
 }
+
+// // rustls configuration.
+// fn tls_config() -> std::sync::Arc<rustls::ServerConfig> {
+//     let subject_alt_names = vec!["127.0.0.1".to_string(), "localhost".to_string()];
+
+//     let cert = rcgen::generate_simple_self_signed(subject_alt_names).unwrap();
+
+//     let mut config = rustls::ServerConfig::builder()
+//         .with_no_client_auth()
+//         .with_single_cert(
+//             vec![cert.cert.into()],
+//             cert.signing_key.serialize_der().try_into().unwrap(),
+//         )
+//         .unwrap();
+
+//     config.alpn_protocols = vec![b"h2".to_vec()];
+
+//     std::sync::Arc::new(config)
+// }
