@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.6.0
+## Change
+- update `tokio-uring-xitca` to `0.2.0`
 
 # 0.5.1
 ## Fix
