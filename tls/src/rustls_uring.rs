@@ -534,6 +534,8 @@ impl<'a> SpareCapBuf<'a> {
     }
 }
 
+const POLL_TO_COMPLETE: &str = "previous call to future dropped before polling to completion";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -574,5 +576,3 @@ mod tests {
         assert_eq!(&buf[..], b"abc");
     }
 }
-
-const POLL_TO_COMPLETE: &str = "previous call to future dropped before polling to completion";
