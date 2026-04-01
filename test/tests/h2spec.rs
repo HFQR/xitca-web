@@ -14,6 +14,7 @@ mod inner {
         convert::Infallible,
         pin::Pin,
         task::{Context, Poll},
+        time::Duration,
     };
 
     use std::{net::TcpListener, process::Command};
@@ -77,9 +78,12 @@ mod inner {
 
         std::thread::spawn(move || {
             let service = fn_service(handler).enclosed(
-                HttpServiceBuilder::h2()
-                    .io_uring()
-                    .config(HttpServiceConfig::new().h2_max_concurrent_streams(2)),
+                HttpServiceBuilder::h2().io_uring().config(
+                    HttpServiceConfig::new()
+                        .request_head_timeout(Duration::from_mins(1))
+                        .keep_alive_timeout(Duration::from_mins(1))
+                        .h2_max_concurrent_streams(2),
+                ),
             );
 
             let server = xitca_server::Builder::new()

@@ -66,7 +66,7 @@ where
     /// use std::sync::Arc;
     ///
     /// use xitca_io::net::TcpStream;
-    /// use xitca_tls::rustls::{pki_types::ServerName, ClientConfig, ClientConnection, TlsStream};
+    /// use xitca_tls::rustls_poll::{pki_types::ServerName, ClientConfig, ClientConnection, TlsStream};
     ///
     /// async fn client_connect(io: TcpStream, cfg: Arc<ClientConfig>, server_name: ServerName<'static>) {
     ///     let conn = ClientConnection::new(cfg, server_name).unwrap();
