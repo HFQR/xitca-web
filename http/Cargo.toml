@@ -23,11 +23,11 @@ http2 = ["h2", "fnv", "futures-util/alloc", "runtime", "slab"]
 # http3 specific feature.
 http3 = ["xitca-io/quic", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
 # openssl as server side tls.
-openssl = ["xitca-tls/openssl"]
+openssl = ["xitca-tls/openssl", "runtime"]
 # rustls as server side tls.
-rustls = ["xitca-tls/rustls"]
+rustls = ["xitca-tls/rustls", "runtime"]
 # rustls as server side tls.
-native-tls = ["xitca-tls/native-tls"]
+native-tls = ["xitca-tls/native-tls", "runtime"]
 # async runtime feature.
 runtime = ["xitca-io/runtime", "tokio"]
 
