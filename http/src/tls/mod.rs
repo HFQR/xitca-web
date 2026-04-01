@@ -17,6 +17,8 @@ pub use error::TlsError;
 
 use xitca_service::Service;
 
+// TODO: remove this allow
+#[allow(dead_code)]
 /// A NoOp Tls Acceptor pass through input Stream type.
 #[derive(Copy, Clone)]
 pub struct NoOpTlsAcceptorBuilder;
