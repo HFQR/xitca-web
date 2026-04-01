@@ -11,13 +11,15 @@ readme= "README.md"
 
 [features]
 openssl = ["dep:openssl"]
+openssl-poll = ["openssl", "xitca-io/runtime"]
 native-tls = ["dep:native_tls_crate"]
+native-tls-poll = ["dep:native_tls_crate", "xitca-io/runtime"]
 # rustls with no default crypto provider
 rustls = ["dep:rustls_crate"]
 # rustls with aws-lc as crypto provider (default provider from `rustls` crate)
-rustls-aws-crypto = ["rustls", "rustls_crate/aws-lc-rs", "xitca-io/runtime"]
+rustls-poll-aws-crypto = ["dep:rustls_crate", "rustls_crate/aws-lc-rs", "xitca-io/runtime"]
 # rustls with ring as crypto provider
-rustls-ring-crypto = ["rustls", "rustls_crate/ring", "xitca-io/runtime"]
+rustls-poll-ring-crypto = ["dep:rustls_crate", "rustls_crate/ring", "xitca-io/runtime"]
 
 [dependencies]
 xitca-io = { version = "0.6.0" }

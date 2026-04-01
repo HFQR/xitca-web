@@ -1,10 +1,10 @@
 use core::{convert::Infallible, error, fmt};
 
-use std::{io, net::Shutdown, sync::Arc};
+use std::{io, sync::Arc};
 
-use xitca_io::io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
+use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 use xitca_service::Service;
-use xitca_tls::rustls_complete::{Error, ServerConfig, TlsStream as _TlsStream, server::UnbufferedServerConnection};
+use xitca_tls::rustls::{Error, ServerConfig, TlsStream as _TlsStream, server::UnbufferedServerConnection};
 
 use crate::{http::Version, version::AsVersion};
 
@@ -13,17 +13,14 @@ use super::error::TlsError;
 pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
 /// A stream managed by rustls for tls read/write.
-pub struct TlsStream<Io> {
-    inner: _TlsStream<UnbufferedServerConnection, Io>,
-}
+pub type TlsStream<Io> = _TlsStream<UnbufferedServerConnection, Io>;
 
 impl<Io> AsVersion for TlsStream<Io> {
     fn as_version(&self) -> Version {
-        Version::HTTP_11
-        //     self.inner.session()
-        // .alpn_protocol()
-        // .map(Self::from_alpn)
-        // .unwrap_or(Version::HTTP_11)
+        self.session()
+            .alpn_protocol()
+            .map(Self::from_alpn)
+            .unwrap_or(Version::HTTP_11)
     }
 }
 
@@ -64,38 +61,7 @@ where
 
     async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
         let conn = UnbufferedServerConnection::new(self.acceptor.clone())?;
-        let inner = _TlsStream::handshake(io, conn).await?;
-        Ok(TlsStream { inner })
-    }
-}
-
-impl<Io> AsyncBufRead for TlsStream<Io>
-where
-    Io: AsyncBufRead,
-{
-    #[inline]
-    async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
-    where
-        B: BoundedBufMut,
-    {
-        self.inner.read(buf).await
-    }
-}
-
-impl<Io> AsyncBufWrite for TlsStream<Io>
-where
-    Io: AsyncBufWrite,
-{
-    #[inline]
-    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
-    where
-        B: BoundedBuf,
-    {
-        self.inner.write(buf).await
-    }
-
-    async fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
-        self.inner.shutdown(direction).await
+        _TlsStream::handshake(io, conn).await.map_err(Into::into)
     }
 }
 

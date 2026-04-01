@@ -1514,7 +1514,7 @@ impl ShutDown {
                         res?;
                         // Send FIN so the peer sees a clean connection
                         // close rather than RST (RFC 7540 §6.8).
-                        let _ = io.shutdown(Shutdown::Write);
+                        let _ = io.shutdown(Shutdown::Write).await;
                         return read_res;
                     }
                     SelectOutput::B(res) => res?,
