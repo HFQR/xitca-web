@@ -25,3 +25,10 @@ members = [
 
 [profile.dev]
 debug-assertions = false
+
+[patch.crates-io]
+tokio-uring-xitca = { path = "../tokio-uring" }
+xitca-tls= { path = "../tls" }
+xitca-io= { path = "../io" }
+xitca-server = { path = "../server" }
+xitca-http = { path = "../http" }

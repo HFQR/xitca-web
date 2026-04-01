@@ -1,8 +1,13 @@
+#[cfg(feature = "native-tls")]
+pub mod native_tls_complete;
 #[cfg(feature = "openssl")]
 pub mod openssl;
-// #[cfg(feature = "openssl-uring")]
-// pub mod openssl_uring;
-#[cfg(any(feature = "rustls", feature = "rustls-ring-crypto", feature = "rustls-no-crypto"))]
+#[cfg(feature = "openssl")]
+pub mod openssl_complete;
+#[cfg(any(feature = "rustls", feature = "rustls-ring-crypto", feature = "rustls-aws-crypto"))]
 pub mod rustls;
-#[cfg(any(feature = "rustls-uring", feature = "rustls-uring-no-crypto"))]
-pub mod rustls_uring;
+#[cfg(feature = "rustls")]
+pub mod rustls_complete;
+
+#[cfg(any(feature = "openssl", feature = "native-tls"))]
+pub(crate) mod bridge;

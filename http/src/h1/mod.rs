@@ -3,10 +3,7 @@
 pub mod dispatcher_unreal;
 pub mod proto;
 
-#[cfg(feature = "compio")]
-pub mod dispatcher_compio;
-
-pub(crate) mod dispatcher;
+pub mod dispatcher;
 
 mod body;
 mod builder;
@@ -16,6 +13,3 @@ mod service;
 pub use self::body::RequestBody;
 pub use self::error::Error;
 pub use self::service::H1Service;
-
-#[cfg(feature = "io-uring")]
-mod dispatcher_uring;

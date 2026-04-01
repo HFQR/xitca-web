@@ -19,7 +19,7 @@ use futures_core::stream::Stream;
 use tracing::error;
 use xitca_io::{
     bytes::{Buf, BufMut, BytesMut},
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
+    io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::{

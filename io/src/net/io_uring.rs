@@ -7,7 +7,7 @@ pub use tokio_uring_xitca::net::TcpStream;
 #[cfg(unix)]
 pub use tokio_uring_xitca::net::UnixStream;
 
-use crate::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
+use crate::io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
 
 use super::Stream;
 
@@ -51,7 +51,7 @@ impl AsyncBufWrite for TcpStream {
     }
 
     #[inline(always)]
-    fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
+    async fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
         TcpStream::shutdown(self, direction)
     }
 }
@@ -104,7 +104,7 @@ mod unix {
         }
 
         #[inline(always)]
-        fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
+        async fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
             UnixStream::shutdown(self, direction)
         }
     }

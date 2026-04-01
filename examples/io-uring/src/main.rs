@@ -7,11 +7,10 @@ use std::{convert::Infallible, io, sync::Arc};
 
 use rustls::ServerConfig;
 use xitca_http::{
-    h1,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, RequestExt, Response},
-    HttpServiceBuilder, ResponseBody,
+    HttpServiceBuilder, ResponseBody, h1,
+    http::{Request, RequestExt, Response, const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
 };
-use xitca_service::{fn_service, ServiceExt};
+use xitca_service::{ServiceExt, fn_service};
 
 fn main() -> io::Result<()> {
     xitca_server::Builder::new()
@@ -21,7 +20,7 @@ fn main() -> io::Result<()> {
             fn_service(handler).enclosed(
                 HttpServiceBuilder::h1()
                     .io_uring() // specify io_uring flavor of http service.
-                    .rustls_uring(tls_config()), // specify io_uring flavor of tls.
+                    .rustls(tls_config()), // specify io_uring flavor of tls.
             ),
         )?
         .build()

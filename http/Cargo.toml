@@ -1,6 +1,6 @@
 [package]
 name = "xitca-http"
-version = "0.8.3"
+version = "0.9.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "http library for xitca"
@@ -23,11 +23,9 @@ http2 = ["h2", "fnv", "futures-util/alloc", "runtime", "slab"]
 # http3 specific feature.
 http3 = ["xitca-io/quic", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
 # openssl as server side tls.
-openssl = ["xitca-tls/openssl", "runtime"]
+openssl = ["xitca-tls/openssl"]
 # rustls as server side tls.
-rustls = ["xitca-tls/rustls-no-crypto", "runtime"]
-# rustls as server side tls.
-rustls-uring = ["rustls", "xitca-tls/rustls-uring-no-crypto", "xitca-io/runtime-uring"]
+rustls = ["xitca-tls/rustls"]
 # rustls as server side tls.
 native-tls = ["dep:native-tls", "runtime"]
 # async runtime feature.
@@ -35,11 +33,10 @@ runtime = ["xitca-io/runtime", "tokio"]
 
 # unstable features that are subject to be changed at anytime.
 io-uring = ["xitca-io/runtime-uring"]
-compio = ["dep:compio-buf", "dep:compio-io", "dep:compio-net"]
 router = ["xitca-router"]
 
 [dependencies]
-xitca-io = "0.5.1"
+xitca-io = "0.6.0"
 xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
@@ -53,7 +50,7 @@ tracing = { version = "0.1.40", default-features = false }
 native-tls = { version = "0.2.7", features = ["alpn"], optional = true }
 
 # tls support shared
-xitca-tls = { version = "0.5.2", optional = true }
+xitca-tls = { version = "0.6.0", optional = true }
 
 # http/1 support
 httparse = { version = "1.8", optional = true }
@@ -75,16 +72,11 @@ tokio = { version = "1.48", features = ["rt", "time"], optional = true }
 # util service support
 xitca-router = { version = "0.4.1", optional = true }
 
-# compio optional. not officially supported only exist for possible benchmarking usage
-compio-buf = { version = "0.7", features = ["bytes"], optional = true }
-compio-io = { version = "0.8", optional = true }
-compio-net = { version = "0.10", optional = true }
-
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.6.0", features = ["all"] }
 
 [dev-dependencies]
-criterion = "0.7"
+criterion = "0.8"
 xitca-server = "0.6.1"
 
 [[bench]]

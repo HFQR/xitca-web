@@ -1,8 +1,8 @@
 #![allow(clippy::await_holding_refcell_ref)] // clippy is dumb
 
-use core::{cell::RefCell, slice};
+use core::{cell::RefCell, cmp, slice};
 
-use std::{io, net::Shutdown, rc::Rc};
+use std::{io, net::Shutdown};
 
 pub use rustls_crate::*;
 
@@ -15,7 +15,7 @@ use rustls_crate::{
 
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut},
+    io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut},
 };
 
 /// Trait to abstract over `UnbufferedServerConnection` and `UnbufferedClientConnection`,
@@ -65,19 +65,7 @@ impl ProcessTlsRecords for UnbufferedClientConnection {
 /// completes will leave internal buffers in a taken state, causing the next call to panic.
 pub struct TlsStream<C, Io> {
     io: Io,
-    session: Rc<RefCell<Session<C>>>,
-}
-
-impl<C, Io> Clone for TlsStream<C, Io>
-where
-    Io: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            io: self.io.clone(),
-            session: self.session.clone(),
-        }
-    }
+    session: RefCell<Session<C>>,
 }
 
 struct Session<C> {
@@ -99,13 +87,13 @@ where
     pub async fn handshake(io: Io, conn: C) -> io::Result<Self> {
         let stream = TlsStream {
             io,
-            session: Rc::new(RefCell::new(Session {
+            session: RefCell::new(Session {
                 conn,
                 read_buf: Some(BytesMut::new()),
                 write_buf: Some(BytesMut::new()),
                 proto_write_buf: BytesMut::new(),
                 pending_plaintext: BytesMut::new(),
-            })),
+            }),
         };
         stream._handshake().await?;
         Ok(stream)
@@ -188,12 +176,14 @@ where
 
         // Check for plaintext buffered from a previous read first.
         if !session.pending_plaintext.is_empty() {
-            let dst = io_ref_mut_slice(plain_buf);
-            let n = session.pending_plaintext.len().min(dst.len());
-            dst[..n].copy_from_slice(&session.pending_plaintext[..n]);
-            session.pending_plaintext.advance(n);
-            unsafe { plain_buf.set_init(n) };
-            return Ok(n);
+            let rem = plain_buf.bytes_total() - plain_buf.bytes_init();
+            let aval = session.pending_plaintext.len();
+            let len = cmp::min(rem, aval);
+
+            plain_buf.put_slice(&session.pending_plaintext[..len]);
+            session.pending_plaintext.advance(len);
+
+            return Ok(len);
         }
 
         let mut read_buf = session.read_buf.take().expect(POLL_TO_COMPLETE);
@@ -212,7 +202,7 @@ where
                 }
 
                 Ok(ConnectionState::ReadTraffic(mut traffic)) => {
-                    let dst = io_ref_mut_slice(plain_buf);
+                    let rem = plain_buf.bytes_total() - plain_buf.bytes_init();
                     let mut written = 0;
 
                     let mut err = None;
@@ -220,13 +210,15 @@ where
                         match res.map_err(tls_err) {
                             Ok(record) => {
                                 let payload = record.payload;
-                                let n = payload.len().min(dst.len() - written);
-                                dst[written..written + n].copy_from_slice(&payload[..n]);
-                                written += n;
+                                let len = payload.len().min(rem - written);
+
+                                let (head, tail) = payload.split_at(len);
+
+                                plain_buf.put_slice(head);
+                                written += len;
+
                                 // Buffer overflow into pending_plaintext.
-                                if n < payload.len() {
-                                    session_ref.pending_plaintext.extend_from_slice(&payload[n..]);
-                                }
+                                session_ref.pending_plaintext.extend_from_slice(tail);
                             }
                             Err(e) => {
                                 err = Some(e);
@@ -235,7 +227,6 @@ where
                         }
                     }
 
-                    drop(traffic);
                     read_buf.advance(discard);
 
                     if let Some(e) = err {
@@ -247,7 +238,6 @@ where
                         continue;
                     }
 
-                    unsafe { plain_buf.set_init(written) };
                     break Ok(written);
                 }
 
@@ -315,7 +305,7 @@ where
     async fn write_tls(&self, plain: &impl BoundedBuf) -> io::Result<usize> {
         let mut session = self.session.borrow_mut();
         let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
-        let plaintext = io_ref_slice(plain);
+        let plaintext = plain.chunk();
 
         // Flush protocol data buffered by read path (key updates, alerts).
         if !session.proto_write_buf.is_empty() {
@@ -412,19 +402,9 @@ where
         (res, buf)
     }
 
-    fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
-        self.io.shutdown(direction)
+    async fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
+        self.io.shutdown(direction).await
     }
-}
-
-fn io_ref_slice(buf: &impl BoundedBuf) -> &[u8] {
-    // SAFETY: trust BoundedBuf implementor to provide valid pointer and length.
-    unsafe { slice::from_raw_parts(buf.stable_ptr(), buf.bytes_init()) }
-}
-
-fn io_ref_mut_slice(buf: &mut impl BoundedBufMut) -> &mut [u8] {
-    // SAFETY: trust BoundedBufMut implementor to provide valid pointer and capacity.
-    unsafe { slice::from_raw_parts_mut(buf.stable_mut_ptr(), buf.bytes_total()) }
 }
 
 fn tls_err(e: Error) -> io::Error {
@@ -448,7 +428,7 @@ async fn read_to_buf(io: &impl AsyncBufRead, mut buf: BytesMut) -> (io::Result<(
 
 /// Write all bytes from a BytesMut to IO, then clear it.
 async fn write_all_buf(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
-    let (res, b) = xitca_io::io_uring::write_all(io, buf).await;
+    let (res, b) = xitca_io::io::write_all(io, buf).await;
     buf = b;
     if res.is_ok() {
         buf.clear();

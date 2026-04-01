@@ -1,5 +1,13 @@
-# unreleased 0.5.2
+# unreleased 0.6.0
+## Remove
+- removed `rustls-uring` feature. 
+
+## Add
+- `rustls` feature would always carries completion asyn IO trait impl from `xitca-io`
+
 ## Change
+- rename `rustls-no-crypto` feature to `rustls`
+- rename `rustls` feature to `rustls-aws-crypto`
 - internal change to reduce memory copy when `io-uring` feature enabled
 
 # 0.5.1

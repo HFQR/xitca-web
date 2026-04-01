@@ -1,6 +1,6 @@
 [package]
 name = "xitca-tls"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "tls utility for xitca"
@@ -11,24 +11,17 @@ readme= "README.md"
 
 [features]
 openssl = ["dep:openssl"]
-
-# openssl for xitca-io io-uring traits
-# openssl-uring = ["dep:openssl", "xitca-io/runtime-uring"]
-
+native-tls = ["dep:native_tls_crate"]
 # rustls with no default crypto provider
-rustls-no-crypto = ["dep:rustls_crate"]
+rustls = ["dep:rustls_crate"]
 # rustls with aws-lc as crypto provider (default provider from `rustls` crate)
-rustls = ["rustls-no-crypto", "rustls_crate/aws-lc-rs"]
+rustls-aws-crypto = ["rustls", "rustls_crate/aws-lc-rs", "xitca-io/runtime"]
 # rustls with ring as crypto provider
-rustls-ring-crypto = ["rustls-no-crypto", "rustls_crate/ring"]
-
-# rustls with no crypto provider for xitca-io io-uring traits
-rustls-uring-no-crypto = ["rustls-no-crypto", "xitca-io/runtime-uring"]
-# rustls with aws-lc as crypto provider for xitca-io io-uring trait (default provider from `rustls` crate)
-rustls-uring = ["rustls-uring-no-crypto", "rustls_crate/aws-lc-rs"]
+rustls-ring-crypto = ["rustls", "rustls_crate/ring", "xitca-io/runtime"]
 
 [dependencies]
-xitca-io = { version = "0.5.0", features = ["runtime"] }
+xitca-io = { version = "0.6.0" }
 
+native_tls_crate = { package = "native-tls", version = "0.2.7", features = ["alpn"], optional = true }
 openssl = { version = "0.10", optional = true }
 rustls_crate = { package = "rustls", version = "0.23", default-features = false, features = ["std", "tls12"], optional = true }

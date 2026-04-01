@@ -1,5 +1,4 @@
 use core::{
-    fmt,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -11,6 +10,8 @@ pub use openssl::*;
 
 use openssl::ssl::{ErrorCode, ShutdownResult, Ssl, SslRef, SslStream};
 use xitca_io::io::{AsyncIo, Interest, Ready};
+
+pub use super::openssl_complete::Error;
 
 /// A stream managed by `openssl` crate for tls read/write.
 pub struct TlsStream<Io> {
@@ -112,27 +113,3 @@ impl<Io: AsyncIo> io::Write for TlsStream<Io> {
         io::Write::flush(&mut self.io)
     }
 }
-
-/// Collection of 'openssl' error types.
-#[derive(Debug)]
-pub enum Error {
-    Io(io::Error),
-    Tls(openssl::ssl::Error),
-}
-
-impl From<openssl::error::ErrorStack> for Error {
-    fn from(e: openssl::error::ErrorStack) -> Self {
-        Self::Tls(e.into())
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(e) => fmt::Display::fmt(e, f),
-            Self::Tls(e) => fmt::Display::fmt(e, f),
-        }
-    }
-}
-
-impl std::error::Error for Error {}

@@ -2,7 +2,7 @@ use core::{fmt, marker::PhantomData, pin::pin};
 
 use futures_core::Stream;
 use xitca_io::{
-    io::AsyncIo,
+    io::{AsyncBufRead, AsyncBufWrite, AsyncIo},
     net::{Stream as ServerStream, TcpStream},
 };
 use xitca_service::{Service, ready::ReadyService};
@@ -74,7 +74,7 @@ impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     A: Service<TcpStream>,
-    A::Response: AsyncIo + AsVersion,
+    A::Response: AsyncIo + AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
     HttpServiceError<S::Error, BE>: From<A::Error>,
     S::Error: fmt::Debug,
     ResB: Stream<Item = Result<Bytes, BE>>,
@@ -113,16 +113,18 @@ where
 
                 match version {
                     #[cfg(feature = "http1")]
-                    super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::dispatcher::run(
-                        &mut _tls_stream,
-                        _addr,
-                        timer.as_mut(),
-                        self.config,
-                        &self.service,
-                        self.date.get(),
-                    )
-                    .await
-                    .map_err(From::from),
+                    super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => {
+                        super::h1::dispatcher::Dispatcher::run(
+                            _tls_stream,
+                            _addr,
+                            timer.as_mut(),
+                            self.config,
+                            &self.service,
+                            self.date.get(),
+                        )
+                        .await
+                        .map_err(From::from)
+                    }
                     #[cfg(feature = "http2")]
                     super::http::Version::HTTP_2 => {
                         // update timer to first request timeout.
@@ -159,10 +161,10 @@ where
 
                 #[cfg(feature = "http1")]
                 {
-                    let mut io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
+                    let io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
 
-                    super::h1::dispatcher::run(
-                        &mut io,
+                    super::h1::dispatcher::Dispatcher::run(
+                        io,
                         crate::unspecified_socket_addr(),
                         timer.as_mut(),
                         self.config,

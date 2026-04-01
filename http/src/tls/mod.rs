@@ -10,8 +10,6 @@ pub(crate) mod native_tls;
 pub(crate) mod openssl;
 #[cfg(feature = "rustls")]
 pub(crate) mod rustls;
-#[cfg(feature = "rustls-uring")]
-pub(crate) mod rustls_uring;
 
 mod error;
 

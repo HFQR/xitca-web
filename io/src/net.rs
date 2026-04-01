@@ -21,6 +21,87 @@ use core::net::SocketAddr;
 
 macro_rules! default_aio_impl {
     ($ty: ty) => {
+        impl crate::io::AsyncBufRead for $ty {
+            #[allow(unsafe_code)]
+            async fn read<B>(&self, mut buf: B) -> (::std::io::Result<usize>, B)
+            where
+                B: crate::io::BoundedBufMut,
+            {
+                let ready = self.0.ready(crate::io::Interest::READABLE).await;
+
+                if let Err(e) = ready {
+                    return (Err(e), buf);
+                }
+
+                let init = buf.bytes_init();
+                let total = buf.bytes_total();
+
+                // Safety: construct a mutable slice over the spare capacity.
+                // try_read writes contiguously from the start of the slice
+                // and returns the exact byte count written on Ok(n).
+                let spare = unsafe { ::core::slice::from_raw_parts_mut(buf.stable_mut_ptr().add(init), total - init) };
+
+                let mut written = 0;
+
+                let res = loop {
+                    if written == spare.len() {
+                        break Ok(written);
+                    }
+
+                    match self.0.try_read(&mut spare[written..]) {
+                        Ok(0) => break Ok(written),
+                        Ok(n) => written += n,
+                        Err(e) if e.kind() == ::std::io::ErrorKind::WouldBlock => break Ok(written),
+                        Err(e) => break Err(e),
+                    }
+                };
+
+                // SAFETY: TcpStream::try_read has put written bytes into buf.
+                unsafe {
+                    buf.set_init(init + written);
+                }
+
+                (res, buf)
+            }
+        }
+
+        impl crate::io::AsyncBufWrite for $ty {
+            async fn write<B>(&self, buf: B) -> (::std::io::Result<usize>, B)
+            where
+                B: crate::io::BoundedBuf,
+            {
+                let ready = self.0.ready(crate::io::Interest::WRITABLE).await;
+
+                if let Err(e) = ready {
+                    return (Err(e), buf);
+                }
+
+                let data = buf.chunk();
+
+                let mut written = 0;
+
+                let res = loop {
+                    if written == data.len() {
+                        break Ok(written);
+                    }
+
+                    match self.0.try_write(&data[written..]) {
+                        Ok(0) => break Ok(written),
+                        Ok(n) => written += n,
+                        Err(e) if e.kind() == ::std::io::ErrorKind::WouldBlock => break Ok(written),
+                        Err(e) => break Err(e),
+                    }
+                };
+
+                (res, buf)
+            }
+
+            async fn shutdown(&self, _direction: ::std::net::Shutdown) -> ::std::io::Result<()> {
+                // TODO: this is a no-op and shutdown is always handled by dropping the stream type
+                Ok(())
+            }
+        }
+
         impl crate::io::AsyncIo for $ty {
             #[inline]
             async fn ready(&mut self, interest: crate::io::Interest) -> ::std::io::Result<crate::io::Ready> {

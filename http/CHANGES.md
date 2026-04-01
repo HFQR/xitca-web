@@ -1,6 +1,8 @@
-# unreleased 0.8.3
+# unreleased 0.9.0
 ## Change
-- update `xitca-tls` to `0.5.2`
+- update `xitca-io` to `0.6.0`
+- update `xitca-tls` to `0.6.0`
+- use completion based API for all I/O operations
 
 # 0.8.2
 ## Fix
