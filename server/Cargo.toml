@@ -25,7 +25,7 @@ tokio = { version = "1.48", features = ["sync", "time"] }
 tracing = { version = "0.1.40", default-features = false }
 
 # io-uring support
-tokio-uring-xitca = { version = "0.2.0", optional = true }
+tokio-uring-xitca = { version = "0.2.0", features = ["runtime"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.6.0" }

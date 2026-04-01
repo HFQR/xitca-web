@@ -3,7 +3,7 @@
 - `BoundedBuf::put_slice` now extend to it's uninit part. Multiple calls to it would result in accumulation of bytes and not overwritting
 
 ## Change
-- `FixedBuf` would be cleared on check out to buffer pool (By setting is initialized count to zero)
+- `FixedBuf` would be cleared on check out to buffer pool (By setting its initialized size to zero)
 - remove runtime from default feature
 - perf improvement
 

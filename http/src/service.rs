@@ -113,18 +113,16 @@ where
 
                 match version {
                     #[cfg(feature = "http1")]
-                    super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => {
-                        super::h1::dispatcher::Dispatcher::run(
-                            _tls_stream,
-                            _addr,
-                            timer.as_mut(),
-                            self.config,
-                            &self.service,
-                            self.date.get(),
-                        )
-                        .await
-                        .map_err(From::from)
-                    }
+                    super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::Dispatcher::run(
+                        _tls_stream,
+                        _addr,
+                        timer.as_mut(),
+                        self.config,
+                        &self.service,
+                        self.date.get(),
+                    )
+                    .await
+                    .map_err(From::from),
                     #[cfg(feature = "http2")]
                     super::http::Version::HTTP_2 => {
                         // update timer to first request timeout.
@@ -163,7 +161,7 @@ where
                 {
                     let io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
 
-                    super::h1::dispatcher::Dispatcher::run(
+                    super::h1::Dispatcher::run(
                         io,
                         crate::unspecified_socket_addr(),
                         timer.as_mut(),
