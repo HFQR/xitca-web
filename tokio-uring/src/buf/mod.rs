@@ -4,7 +4,7 @@
 //! crate defines [`IoBuf`] and [`IoBufMut`] traits which are implemented by buffer
 //! types that respect the `io-uring` contract.
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 pub mod fixed;
 
 mod io_buf;

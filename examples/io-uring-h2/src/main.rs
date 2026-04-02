@@ -28,7 +28,7 @@ fn main() -> io::Result<()> {
             "http/2",
             "127.0.0.1:8080",
             fn_service(handler).enclosed(
-                HttpServiceBuilder::h2().io_uring(), // specify io_uring flavor of http service.
+                HttpServiceBuilder::h2().io_uring().openssl(tls_config()?), // specify io_uring flavor of http service.
             ),
         )?
         .build()
@@ -89,27 +89,27 @@ impl Stream for Once {
 //     std::sync::Arc::new(config)
 // }
 
-// use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
-// fn tls_config() -> io::Result<SslAcceptor> {
-//     // set up openssl and alpn protocol.
-//     let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
-//     builder.set_private_key_file("../cert/key.pem", SslFiletype::PEM)?;
-//     builder.set_certificate_chain_file("../cert/cert.pem")?;
+use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
+fn tls_config() -> io::Result<SslAcceptor> {
+    // set up openssl and alpn protocol.
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())?;
+    builder.set_private_key_file("../cert/key.pem", SslFiletype::PEM)?;
+    builder.set_certificate_chain_file("../cert/cert.pem")?;
 
-//     builder.set_alpn_select_callback(|_, protocols| {
-//         const H2: &[u8] = b"\x02h2";
-//         const H11: &[u8] = b"\x08http/1.1";
+    builder.set_alpn_select_callback(|_, protocols| {
+        const H2: &[u8] = b"\x02h2";
+        const H11: &[u8] = b"\x08http/1.1";
 
-//         if protocols.windows(3).any(|window| window == H2) {
-//             Ok(b"h2")
-//         } else if protocols.windows(9).any(|window| window == H11) {
-//             Ok(b"http/1.1")
-//         } else {
-//             Err(AlpnError::NOACK)
-//         }
-//     });
+        if protocols.windows(3).any(|window| window == H2) {
+            Ok(b"h2")
+        } else if protocols.windows(9).any(|window| window == H11) {
+            Ok(b"http/1.1")
+        } else {
+            Err(AlpnError::NOACK)
+        }
+    });
 
-//     builder.set_alpn_protos(b"\x08http/1.1\x02h2")?;
+    builder.set_alpn_protos(b"\x08http/1.1\x02h2")?;
 
-//     Ok(builder.build())
-// }
+    Ok(builder.build())
+}

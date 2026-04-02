@@ -47,19 +47,21 @@ where
         let mut tls = SslStream::new(ssl, bridge)?;
 
         loop {
-            let res = func(&mut tls);
-
-            bridge::drain_write_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
-            bridge::fill_read_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
-
-            match res {
+            match func(&mut tls) {
                 Ok(_) => {
+                    bridge::drain_write_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
                     return Ok(TlsStream {
                         io,
                         tls: RefCell::new(tls),
                     });
                 }
-                Err(ref e) if e.code() == ErrorCode::WANT_READ || e.code() == ErrorCode::WANT_WRITE => {}
+                Err(ref e) if e.code() == ErrorCode::WANT_WRITE => {
+                    bridge::drain_write_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
+                }
+                Err(ref e) if e.code() == ErrorCode::WANT_READ => {
+                    bridge::drain_write_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
+                    bridge::fill_read_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
+                }
                 Err(e) => return Err(Error::Tls(e)),
             }
         }
@@ -150,8 +152,12 @@ where
         (res, buf)
     }
 
-    async fn shutdown(&self, _direction: Shutdown) -> io::Result<()> {
-        Ok(())
+    async fn shutdown(mut self, direction: Shutdown) -> io::Result<()> {
+        let res = self.tls_shutdown().await;
+        let shutdown_res = self.io.shutdown(direction).await;
+
+        res?;
+        shutdown_res
     }
 }
 
@@ -189,6 +195,31 @@ where
                     res?;
                 }
                 Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn tls_shutdown(&mut self) -> io::Result<()> {
+        self.write_tls(&[]).await?;
+
+        let tls = self.tls.get_mut();
+
+        loop {
+            match tls.shutdown() {
+                Ok(ssl::ShutdownResult::Sent) | Ok(ssl::ShutdownResult::Received) => {
+                    bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
+                    return Ok(());
+                }
+                Err(ref e) if e.code() == ErrorCode::WANT_WRITE => {
+                    bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
+                }
+                Err(ref e) if e.code() == ErrorCode::WANT_READ => {
+                    bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
+                    bridge::fill_read_buf(&self.io, tls.get_mut()).await?;
+                }
+                Err(e) => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, e));
+                }
             }
         }
     }

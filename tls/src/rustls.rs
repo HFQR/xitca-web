@@ -338,9 +338,7 @@ where
                 Err(e) => break Err(e),
 
                 Ok(ConnectionState::WriteTraffic(mut traffic)) => {
-                    let enc_res = encrypt_to_buf(&mut traffic, plaintext, &mut write_buf);
-
-                    if let Err(e) = enc_res {
+                    if let Err(e) = encrypt_to_buf(&mut traffic, plaintext, &mut write_buf) {
                         break Err(e);
                     }
 
@@ -355,10 +353,7 @@ where
                 }
 
                 Ok(ConnectionState::EncodeTlsData(mut state)) => {
-                    let enc_res = encode_tls_data(&mut state, &mut write_buf);
-                    drop(state);
-
-                    if let Err(e) = enc_res {
+                    if let Err(e) = encode_tls_data(&mut state, &mut write_buf) {
                         break Err(e);
                     }
                 }
@@ -389,6 +384,53 @@ where
         session.write_buf.replace(write_buf);
         res
     }
+
+    /// Send a TLS close_notify alert, flushing any pending data first.
+    async fn tls_shutdown(&self) -> io::Result<()> {
+        // Flush pending application/protocol data.
+        self.write_tls(&Vec::new()).await?;
+
+        let mut session = self.session.borrow_mut();
+        let mut write_buf = session.write_buf.take().expect(POLL_TO_COMPLETE);
+
+        loop {
+            let UnbufferedStatus { state, .. } = session.conn.process_tls_records(&mut []);
+
+            match state.map_err(tls_err)? {
+                ConnectionState::WriteTraffic(mut traffic) => {
+                    write_buf.reserve(64);
+                    // SAFETY: queue_close_notify writes a single TLS alert record
+                    // contiguously from index 0. On Ok(n), exactly n bytes are written.
+                    // On InsufficientSize, no bytes are written.
+                    let res = unsafe {
+                        SpareCapBuf::new(&mut write_buf).with_mut_slice(|spare| traffic.queue_close_notify(spare))
+                    };
+
+                    if let Err(EncryptError::InsufficientSize(s)) = res {
+                        write_buf.reserve(s.required_size);
+                        continue;
+                    }
+
+                    drop(session);
+
+                    return write_all_buf(&self.io, write_buf).await.0;
+                }
+                ConnectionState::EncodeTlsData(mut state) => encode_tls_data(&mut state, &mut write_buf)?,
+                ConnectionState::TransmitTlsData(state) => {
+                    state.done();
+                    drop(session);
+
+                    let (res, b) = write_all_buf(&self.io, write_buf).await;
+                    write_buf = b;
+
+                    res?;
+                    session = self.session.borrow_mut();
+                }
+                ConnectionState::PeerClosed | ConnectionState::Closed => return Ok(()),
+                _ => {}
+            }
+        }
+    }
 }
 
 impl<C, Io> AsyncBufRead for TlsStream<C, Io>
@@ -418,8 +460,12 @@ where
         (res, buf)
     }
 
-    async fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
-        self.io.shutdown(direction).await
+    async fn shutdown(self, direction: Shutdown) -> io::Result<()> {
+        let res = self.tls_shutdown().await;
+        let shutdown_res = self.io.shutdown(direction).await;
+
+        res?;
+        shutdown_res
     }
 }
 
@@ -444,7 +490,7 @@ async fn read_to_buf(io: &impl AsyncBufRead, mut buf: BytesMut) -> (io::Result<(
 
 /// Write all bytes from a BytesMut to IO, then clear it.
 async fn write_all_buf(io: &impl AsyncBufWrite, mut buf: BytesMut) -> (io::Result<()>, BytesMut) {
-    let (res, b) = xitca_io::io::write_all(io, buf).await;
+    let (res, b) = io.write_all(buf).await;
     buf = b;
     if res.is_ok() {
         buf.clear();

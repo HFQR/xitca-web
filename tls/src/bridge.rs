@@ -108,7 +108,7 @@ pub(crate) async fn drain_write(io: &impl AsyncBufWrite, buf: BytesMut) -> (io::
         return (Ok(()), buf);
     }
 
-    let (res, mut buf) = xitca_io::io::write_all(io, buf).await;
+    let (res, mut buf) = io.write_all(buf).await;
     buf.clear();
 
     (res, buf)

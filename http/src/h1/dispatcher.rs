@@ -233,7 +233,7 @@ where
     #[cold]
     #[inline(never)]
     async fn shutdown(self) -> Result<(), Error<S::Error, BE>> {
-        self.io.io().shutdown(Shutdown::Both).await.map_err(Into::into)
+        self.io.into_io().shutdown(Shutdown::Both).await.map_err(Into::into)
     }
 
     #[cold]
@@ -425,6 +425,13 @@ impl<Io> SharedIo<Io> {
     #[inline(always)]
     fn io(&self) -> &Io {
         &self.inner.io
+    }
+
+    fn into_io(self) -> Io {
+        Rc::try_unwrap(self.inner)
+            .ok()
+            .expect("SharedIo still has outstanding references")
+            .io
     }
 
     fn notifier(&mut self) -> NotifierIo<Io> {

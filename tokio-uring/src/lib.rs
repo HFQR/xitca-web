@@ -59,7 +59,7 @@
 #![warn(missing_docs)]
 #![allow(clippy::missing_const_for_thread_local)]
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 macro_rules! syscall {
     ($fn: ident ( $($arg: expr),* $(,)* ) ) => {{
         let res = unsafe { ::libc::$fn($($arg, )*) };
@@ -71,33 +71,32 @@ macro_rules! syscall {
     }};
 }
 
-#[cfg(feature = "runtime")]
-mod io;
-#[cfg(feature = "runtime")]
+pub mod buf;
+pub mod io;
+
+#[cfg(feature = "runtime-uring")]
+pub mod fs;
+#[cfg(feature = "runtime-uring")]
+pub mod net;
+#[cfg(feature = "runtime-uring")]
 mod runtime;
 
-pub mod buf;
-#[cfg(feature = "runtime")]
-pub mod fs;
-#[cfg(feature = "runtime")]
-pub mod net;
-
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 pub use io::write::*;
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 pub use runtime::{
     Runtime,
     driver::op::{InFlightOneshot, OneshotOutputTransform, UnsubmittedOneshot},
     spawn,
 };
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 use core::future::Future;
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 use runtime::driver::op::Op;
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 /// Starts an `io_uring` enabled Tokio runtime.
 ///
 /// All `tokio-uring` resource types must be used from within the context of a
@@ -115,14 +114,14 @@ pub fn start<F: Future>(future: F) -> F::Output {
     rt.block_on(future)
 }
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 /// Creates and returns an io_uring::Builder that can then be modified
 /// through its implementation methods.
 pub fn uring_builder() -> io_uring::Builder {
     io_uring::IoUring::builder()
 }
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 /// Builder API that can create and start the `io_uring` runtime with non-default parameters,
 /// while abstracting away the underlying io_uring crate.
 pub struct Builder {
@@ -130,7 +129,7 @@ pub struct Builder {
     urb: io_uring::Builder,
 }
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 /// Constructs a [`Builder`] with default settings.
 pub fn builder() -> Builder {
     Builder {
@@ -139,7 +138,7 @@ pub fn builder() -> Builder {
     }
 }
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 impl Builder {
     /// Sets the number of Submission Queue entries in uring.
     pub fn entries(&mut self, sq_entries: u32) -> &mut Self {
@@ -164,7 +163,7 @@ impl Builder {
 /// A specialized `Result` type for `io-uring` operations with buffers.
 pub type BufResult<T, B> = (std::io::Result<T>, B);
 
-#[cfg(feature = "runtime")]
+#[cfg(feature = "runtime-uring")]
 /// The simplest possible operation. Just posts a completion event, nothing else.
 pub async fn no_op() -> std::io::Result<()> {
     let op = Op::<io::NoOp>::no_op().unwrap();

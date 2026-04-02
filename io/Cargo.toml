@@ -12,9 +12,9 @@ readme= "README.md"
 [features]
 default = []
 # tokio runtime support
-runtime = ["tokio"]
+runtime = ["tokio", "tokio-uring-xitca/runtime"]
 # tokio-uring runtime support
-runtime-uring = ["runtime", "tokio-uring-xitca/runtime"]
+runtime-uring = ["runtime", "tokio-uring-xitca/runtime-uring"]
 # quic support
 quic = ["dep:quinn", "runtime"]
 

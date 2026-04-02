@@ -161,8 +161,12 @@ where
         (res, buf)
     }
 
-    async fn shutdown(&self, _direction: Shutdown) -> io::Result<()> {
-        Ok(())
+    async fn shutdown(mut self, direction: Shutdown) -> io::Result<()> {
+        let res = self.tls_shutdown().await;
+        let shutdown_res = self.io.shutdown(direction).await;
+
+        res?;
+        shutdown_res
     }
 }
 
@@ -198,6 +202,26 @@ where
                     tls.get_mut().set_write_buf(buf);
 
                     res?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn tls_shutdown(&mut self) -> io::Result<()> {
+        self.write_tls(&[]).await?;
+
+        let tls = self.tls.get_mut();
+
+        loop {
+            match tls.shutdown() {
+                Ok(()) => {
+                    bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
+                    return Ok(());
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
+                    bridge::fill_read_buf(&self.io, tls.get_mut()).await?;
                 }
                 Err(e) => return Err(e),
             }

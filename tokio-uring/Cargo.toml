@@ -18,7 +18,8 @@ workspace = true
 
 [features]
 bytes = ["dep:bytes"]
-runtime = ["dep:tokio", "dep:slab", "dep:libc", "dep:io-uring", "dep:socket2"]
+runtime = ["dep:tokio"]
+runtime-uring = ["runtime", "dep:slab", "dep:libc", "dep:io-uring", "dep:socket2"]
 
 [dependencies]
 tokio = { version = "1.48", features = ["net", "rt", "sync"], optional = true }
