@@ -154,5 +154,11 @@ fn bench_fortune(c: &mut Criterion) {
     rt.block_on(handle).unwrap().unwrap();
 }
 
-criterion_group!(benches, bench_fortune);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(500)
+        .measurement_time(std::time::Duration::from_secs(10));
+    targets = bench_fortune
+}
 criterion_main!(benches);
