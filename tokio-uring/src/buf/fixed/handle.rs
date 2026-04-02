@@ -38,11 +38,9 @@ pub struct FixedBuf {
 impl Drop for FixedBuf {
     fn drop(&mut self) {
         let mut registry = self.registry.borrow_mut();
-        // Safety: the length of the initialized data in the buffer has been
-        // maintained accordingly to the safety contracts on
-        // Self::new and IoBufMut.
+        // Safety: passing 0 resets the buffer so it starts empty on next checkout.
         unsafe {
-            registry.check_in(self.buf.index, self.buf.init_len);
+            registry.check_in(self.buf.index, 0);
         }
     }
 }

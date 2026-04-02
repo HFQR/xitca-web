@@ -10,8 +10,6 @@ pub(crate) mod native_tls;
 pub(crate) mod openssl;
 #[cfg(feature = "rustls")]
 pub(crate) mod rustls;
-#[cfg(feature = "rustls-uring")]
-pub(crate) mod rustls_uring;
 
 mod error;
 
@@ -19,6 +17,8 @@ pub use error::TlsError;
 
 use xitca_service::Service;
 
+// TODO: remove this allow
+#[allow(dead_code)]
 /// A NoOp Tls Acceptor pass through input Stream type.
 #[derive(Copy, Clone)]
 pub struct NoOpTlsAcceptorBuilder;

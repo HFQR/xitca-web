@@ -80,7 +80,7 @@ pub(crate) use io_uring::H2UringService;
 mod io_uring {
     use {
         xitca_io::{
-            io_uring::{AsyncBufRead, AsyncBufWrite},
+            io::{AsyncBufRead, AsyncBufWrite},
             net::io_uring::TcpStream,
         },
         xitca_service::ready::ReadyService,

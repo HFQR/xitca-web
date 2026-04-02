@@ -1,7 +1,6 @@
 use super::{IoBuf, IoBufMut, Slice};
 
-use std::ops;
-use std::ptr;
+use core::{ops, ptr, slice};
 
 /// A possibly bounded view into an owned [`IoBuf`] buffer.
 ///
@@ -74,6 +73,13 @@ pub trait BoundedBuf: Unpin + 'static {
 
     /// Total size of the view, including uninitialized memory, if any.
     fn bytes_total(&self) -> usize;
+
+    /// Returns a shared reference to the initialized portion of the buffer.
+    fn chunk(&self) -> &[u8] {
+        // Safety: BoundedBuf implementor guarantees stable_ptr points to valid
+        // memory and bytes_init bytes starting from that pointer are initialized.
+        unsafe { slice::from_raw_parts(self.stable_ptr(), self.bytes_init()) }
+    }
 }
 
 impl<T: IoBuf> BoundedBuf for T {
@@ -159,21 +165,22 @@ pub trait BoundedBufMut: BoundedBuf<Buf = Self::BufMut> {
     ///
     /// # Panics
     ///
-    /// If the slice's length exceeds the destination's total capacity,
+    /// If the slice's length exceeds the destination's remaining capacity,
     /// this method panics.
     fn put_slice(&mut self, src: &[u8]) {
-        assert!(self.bytes_total() >= src.len());
-        let dst = self.stable_mut_ptr();
+        let init = self.bytes_init();
+        assert!(self.bytes_total() - init >= src.len());
 
         // Safety:
-        // dst pointer validity is ensured by stable_mut_ptr;
-        // the length is checked to not exceed the view's total capacity;
+        // dst pointer validity is ensured by stable_mut_ptr, offset by
+        // bytes_init() to write after already-initialized data;
+        // the length is checked to not exceed the remaining capacity;
         // src (immutable) and dst (mutable) cannot point to overlapping memory;
-        // after copying the amount of bytes given by the slice, it's safe
-        // to mark them as initialized in the buffer.
+        // after copying, the new initialized watermark is set accordingly.
         unsafe {
+            let dst = self.stable_mut_ptr().add(init);
             ptr::copy_nonoverlapping(src.as_ptr(), dst, src.len());
-            self.set_init(src.len());
+            self.set_init(init + src.len());
         }
     }
 }
@@ -190,5 +197,69 @@ impl<T: IoBufMut> BoundedBufMut for T {
         //
         // implementor of T must make sure it's soundness
         unsafe { IoBufMut::set_init(self, pos) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn put_slice_appends() {
+        let mut buf = Vec::with_capacity(64);
+        buf.put_slice(b"hello");
+        assert_eq!(&buf, b"hello");
+
+        buf.put_slice(b" world");
+        assert_eq!(&buf, b"hello world");
+    }
+
+    #[test]
+    fn put_slice_empty() {
+        let mut buf = Vec::with_capacity(16);
+        buf.put_slice(b"");
+        assert!(buf.is_empty());
+
+        buf.put_slice(b"abc");
+        assert_eq!(&buf, b"abc");
+
+        buf.put_slice(b"");
+        assert_eq!(&buf, b"abc");
+    }
+
+    #[test]
+    fn put_slice_fills_capacity() {
+        let mut buf = Vec::with_capacity(5);
+        buf.put_slice(b"ab");
+        buf.put_slice(b"cde");
+        assert_eq!(&buf, b"abcde");
+        assert_eq!(buf.len(), 5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn put_slice_exceeds_capacity() {
+        let mut buf = Vec::with_capacity(4);
+        buf.put_slice(b"abcde");
+    }
+
+    #[test]
+    fn chunk_returns_initialized() {
+        let buf = b"hello".to_vec();
+        assert_eq!(buf.chunk(), b"hello");
+    }
+
+    #[test]
+    fn chunk_empty() {
+        let buf = Vec::<u8>::with_capacity(16);
+        assert_eq!(buf.chunk(), b"");
+    }
+
+    #[test]
+    fn chunk_after_put_slice() {
+        let mut buf = Vec::with_capacity(32);
+        buf.put_slice(b"foo");
+        buf.put_slice(b"bar");
+        assert_eq!(buf.chunk(), b"foobar");
     }
 }

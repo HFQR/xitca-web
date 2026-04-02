@@ -1,4 +1,22 @@
-# unreleased
+# unreleased 0.6.0
+## Remove
+- removed `rustls-uring` feature
+- removed `Clone` impl from all TlsStream types
+
+## Add
+- add `native-tls` feature
+
+## Change
+- Cargo feature name rework
+    
+    `<tls>` -> completion based aysnc IO impl
+    
+    `<tls>-poll` -> poll based async IO impl
+    
+    `rustls` -> the same constraint to above convension. with additonal constraint that no crypto provide is enabled
+    
+    `rustls-poll-<crypto>` -> specific crypto provider enabled
+- internal change to reduce memory copy when `io-uring` feature enabled
 
 # 0.5.1
 ## Add

@@ -38,9 +38,11 @@ nightly = []
 xitca-io = { version = "0.5.1", features = ["runtime"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
+byteorder = "1.5.0"
 fallible-iterator = "0.2"
 futures-core = { version = "0.3", default-features = false }
 lru = { version = "0.16", default-features = false }
+memchr = "2.7.1"
 percent-encoding = "2"
 postgres-protocol = "0.6.5"
 postgres-types = "0.2"
@@ -65,9 +67,15 @@ compio = { version = "0.17", features = ["bytes"], optional = true }
 [dev-dependencies]
 xitca-postgres-codegen = "0.1"
 bb8 = "0.9.0"
+criterion = { version = "0.5", features = ["async_tokio"] }
 futures = { version = "0.3", default-features = false }
 postgres-derive = "0.4"
 postgres-types = { version = "0.2", features = ["with-uuid-1"] }
 rcgen = "0.14"
+tempfile = "3"
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "time"] }
 uuid = "1"
+
+[[bench]]
+name = "fortune"
+harness = false

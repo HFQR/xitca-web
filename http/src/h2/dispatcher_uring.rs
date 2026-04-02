@@ -19,7 +19,7 @@ use futures_core::stream::Stream;
 use tracing::error;
 use xitca_io::{
     bytes::{Buf, BufMut, BytesMut},
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
+    io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::{
@@ -1096,7 +1096,7 @@ impl<'a> EncodeContext<'a> {
 
         inner.flow.remote_settings.encode(&mut self.encoder, write_buf);
 
-        let is_eof = loop {
+        let writable = loop {
             match inner.queue.poll_recv() {
                 Poll::Ready(Some(msg)) => match msg {
                     Message::Head(headers) => {
@@ -1127,11 +1127,11 @@ impl<'a> EncodeContext<'a> {
                         // TRAILERS) queued by response tasks are still delivered.
                         // The write task exits naturally when the queue is both
                         // empty and closed (Poll::Ready(None) below).
-                        break false;
+                        break true;
                     }
                 },
-                Poll::Pending => break false,
-                Poll::Ready(None) => break true,
+                Poll::Pending => break true,
+                Poll::Ready(None) => break false,
             }
         };
 
@@ -1155,14 +1155,12 @@ impl<'a> EncodeContext<'a> {
             inner.queue.keepalive_ping = KeepalivePing::InFlight;
         }
 
-        // Return Pending only when there is nothing to write AND the queue is
-        // still open. If is_eof is true (queue closed+empty), return Ready even
-        // with an empty buffer: poll_recv returns Poll::Ready(None) without
-        // storing a waker, so returning Pending here would stall forever.
-        if write_buf.is_empty() && !is_eof {
-            Poll::Pending
+        if !write_buf.is_empty() {
+            Poll::Ready(true)
+        } else if !writable {
+            Poll::Ready(false)
         } else {
-            Poll::Ready(is_eof)
+            Poll::Pending
         }
     }
 }
@@ -1400,94 +1398,67 @@ where
     let mut queue = Queue::new();
     let mut ping_pong = PingPong::new(ka, &shared, date, ka_dur);
 
-    let mut read_task = pin!(read_io(read_buf, &io));
+    let res = {
+        let mut read_task = pin!(read_io(read_buf, &io));
 
-    let mut write_task = pin!(async {
-        loop {
-            let is_eof = poll_fn(|_| enc.poll_encode(&mut write_buf)).await;
+        let mut write_task = pin!(async {
+            while poll_fn(|_| enc.poll_encode(&mut write_buf)).await {
+                let (res, buf) = io.write(write_buf).await;
 
-            let (res, buf) = write_io(write_buf, &io).await;
-
-            write_buf = buf;
-            res?;
-
-            if is_eof {
-                return Ok(());
-            }
-        }
-    });
-
-    let shutdown = loop {
-        match read_task
-            .as_mut()
-            .select(async {
-                loop {
-                    let _ = queue.next().await;
-                }
-            })
-            .select(write_task.as_mut())
-            .select(ping_pong.tick())
-            .await
-        {
-            SelectOutput::A(SelectOutput::A(SelectOutput::A((res, buf)))) => {
-                read_buf = buf;
+                write_buf = buf;
 
                 match res {
-                    Ok(n) if n > 0 => {
-                        if let Err(shutdown) = ctx.decode(&mut read_buf, |decoder, (req, id)| {
-                            queue.push(response_task(req, id, decoder.service, decoder.ctx, decoder.date));
-                        }) {
-                            break shutdown;
-                        }
-                    }
-                    res => break ShutDown::ReadClosed(res.map(|_| ())),
-                };
-
-                read_task.set(read_io(read_buf, &io));
+                    Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+                    Ok(n) => write_buf.advance(n),
+                    Err(e) => return Err(e),
+                }
             }
-            SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => {}
-            SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
-            SelectOutput::B(Ok(_)) => {}
-            SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
-        }
-    };
 
-    shutdown.shutdown(queue, &shared, write_task, &io, ping_pong).await
-}
+            Ok(())
+        });
 
-type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+        let shutdown = loop {
+            match read_task
+                .as_mut()
+                .select(async {
+                    loop {
+                        let _ = queue.next().await;
+                    }
+                })
+                .select(write_task.as_mut())
+                .select(ping_pong.tick())
+                .await
+            {
+                SelectOutput::A(SelectOutput::A(SelectOutput::A((res, buf)))) => {
+                    read_buf = buf;
 
-enum ShutDown {
-    ReadClosed(io::Result<()>),
-    Graceful,
-    WriteClosed(io::Result<()>),
-    Timeout(io::Error),
-    DrainWrite,
-    Forced,
-}
+                    match res {
+                        Ok(n) if n > 0 => {
+                            if let Err(shutdown) = ctx.decode(&mut read_buf, |decoder, (req, id)| {
+                                queue.push(response_task(req, id, decoder.service, decoder.ctx, decoder.date));
+                            }) {
+                                break shutdown;
+                            }
+                        }
+                        res => break ShutDown::ReadClosed(res.map(|_| ())),
+                    };
 
-impl ShutDown {
-    #[cold]
-    #[inline(never)]
-    fn shutdown<'a, T, F>(
-        self,
-        mut queue: Queue<T>,
-        shared: &'a Shared,
-        mut write_task: Pin<&'a mut F>,
-        io: &'a impl AsyncBufWrite,
-        mut pin_pong: PingPong<'a>,
-    ) -> BoxedFuture<'a, io::Result<()>>
-    where
-        T: Future + 'a,
-        F: Future<Output = io::Result<()>> + 'a,
-    {
-        Box::pin(async move {
+                    read_task.set(read_io(read_buf, &io));
+                }
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => {}
+                SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
+                SelectOutput::B(Ok(_)) => {}
+                SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
+            }
+        };
+
+        Box::pin(async {
             let mut read_res = Ok(());
 
-            match self {
-                Self::WriteClosed(res) => return res,
-                Self::Timeout(err) => return Err(err),
-                Self::ReadClosed(res) => {
+            match shutdown {
+                ShutDown::WriteClosed(res) => return res,
+                ShutDown::Timeout(err) => return Err(err),
+                ShutDown::ReadClosed(res) => {
                     {
                         let mut inner = shared.borrow_mut();
                         for state in inner.flow.stream_map.values_mut() {
@@ -1503,26 +1474,38 @@ impl ShutDown {
 
                     read_res = res;
                 }
-                Self::Graceful => {}
-                Self::DrainWrite => queue.clear(),
-                Self::Forced => return Ok(()),
+                ShutDown::Graceful => {}
+                ShutDown::DrainWrite => queue.clear(),
+                ShutDown::Forced => return Ok(()),
             }
 
             loop {
-                match queue.next().select(write_task.as_mut()).select(pin_pong.tick()).await {
+                match queue.next().select(write_task.as_mut()).select(ping_pong.tick()).await {
                     SelectOutput::A(SelectOutput::A(_)) => {}
                     SelectOutput::A(SelectOutput::B(res)) => {
                         res?;
-                        // Send FIN so the peer sees a clean connection
-                        // close rather than RST (RFC 7540 §6.8).
-                        let _ = io.shutdown(Shutdown::Write);
-                        return read_res;
+                        break read_res;
                     }
                     SelectOutput::B(res) => res?,
                 }
             }
         })
-    }
+        .await
+    };
+
+    // Send FIN so the peer sees a clean connection
+    // close rather than RST (RFC 7540 §6.8).
+    let _ = io.shutdown(Shutdown::Write).await;
+    res
+}
+
+enum ShutDown {
+    ReadClosed(io::Result<()>),
+    Graceful,
+    WriteClosed(io::Result<()>),
+    Timeout(io::Error),
+    DrainWrite,
+    Forced,
 }
 
 /// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).
@@ -1541,6 +1524,8 @@ fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 }
+
+type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 /// Perform the HTTP/2 connection handshake: validate the client preface,
 /// then send our SETTINGS frame. Returns the read buffer (with preface

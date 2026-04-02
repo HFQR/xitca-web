@@ -82,7 +82,7 @@ where
 fn encode_statement_create(name: &str, stmt: &str, types: &[Type], buf: &mut BytesMut) -> Result<(), Error> {
     frontend::parse(name, stmt, types.iter().map(Type::oid), buf)?;
     frontend::describe(b'S', name, buf)?;
-    protocol::sync(buf);
+    frontend::sync(buf);
     Ok(())
 }
 
@@ -94,8 +94,8 @@ impl Encode for StatementPreparedCancel<'_> {
     #[inline]
     fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
         let Self { name } = self;
-        protocol::close(b'S', name, buf)?;
-        protocol::sync(buf);
+        frontend::close(b'S', name, buf)?;
+        frontend::sync(buf);
         Ok(NoOpIntoRowStream)
     }
 }
@@ -135,8 +135,8 @@ where
     P: AsParams,
 {
     encode_bind(stmt.name(), stmt.params(), params, "", buf)?;
-    protocol::execute("", 0, buf)?;
-    protocol::sync(buf);
+    frontend::execute("", 0, buf)?;
+    frontend::sync(buf);
     Ok(())
 }
 
@@ -156,8 +156,8 @@ where
         frontend::parse("", stmt, types.iter().map(Type::oid), buf)?;
         encode_bind("", types, params, "", buf)?;
         frontend::describe(b'S', "", buf)?;
-        protocol::execute("", 0, buf)?;
-        protocol::sync(buf);
+        frontend::execute("", 0, buf)?;
+        frontend::sync(buf);
         Ok(IntoRowStreamGuard(cli))
     }
 }
@@ -186,7 +186,7 @@ where
             params,
         } = self;
         encode_bind(stmt, types, params, name, buf)?;
-        protocol::sync(buf);
+        frontend::sync(buf);
         Ok(NoOpIntoRowStream)
     }
 }
@@ -202,8 +202,8 @@ impl Encode for PortalCancel<'_> {
 
     #[inline]
     fn encode(self, buf: &mut BytesMut) -> Result<Self::Output, Error> {
-        protocol::close(b'P', self.name, buf)?;
-        protocol::sync(buf);
+        frontend::close(b'P', self.name, buf)?;
+        frontend::sync(buf);
         Ok(NoOpIntoRowStream)
     }
 }
@@ -226,8 +226,8 @@ impl<'s> Encode for PortalQuery<'s> {
             max_rows,
             columns,
         } = self;
-        protocol::execute(name, max_rows, buf)?;
-        protocol::sync(buf);
+        frontend::execute(name, max_rows, buf)?;
+        frontend::sync(buf);
         Ok(columns)
     }
 }
@@ -252,7 +252,7 @@ where
 
     let params = params.zip(types);
 
-    protocol::bind(
+    frontend::bind(
         portal_name,
         stmt_name,
         params.clone().map(|(p, ty)| p.borrow_to_sql().encode_format(ty) as _),

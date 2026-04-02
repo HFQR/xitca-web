@@ -1,14 +1,16 @@
-use crate::{
-    UnsubmittedWrite,
-    buf::fixed::FixedBuf,
-    buf::{BoundedBuf, BoundedBufMut},
-    io::{SharedFd, Socket},
-};
-use socket2::SockAddr;
 use std::{
     io,
+    net::Shutdown,
     os::unix::prelude::{AsRawFd, FromRawFd, RawFd},
     path::Path,
+};
+
+use socket2::SockAddr;
+
+use crate::{
+    UnsubmittedWrite,
+    buf::{BoundedBuf, BoundedBufMut, fixed::FixedBuf},
+    io::{AsyncBufRead, AsyncBufWrite, SharedFd, Socket},
 };
 
 /// A Unix stream between two local sockets on a Unix OS.
@@ -210,6 +212,31 @@ impl UnixStream {
     /// Return Some when the pair belong to the same stream
     pub fn unsplit(read: UnixStreamRead, write: UnixStreamWrite) -> Option<Self> {
         (read.0.as_raw_fd() == write.0.as_raw_fd()).then_some(read.0)
+    }
+}
+
+impl AsyncBufRead for UnixStream {
+    #[inline(always)]
+    async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
+    where
+        B: BoundedBufMut,
+    {
+        UnixStream::read(self, buf).await
+    }
+}
+
+impl AsyncBufWrite for UnixStream {
+    #[inline(always)]
+    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
+    where
+        B: BoundedBuf,
+    {
+        UnixStream::write(self, buf).submit().await
+    }
+
+    #[inline(always)]
+    async fn shutdown(self, direction: Shutdown) -> io::Result<()> {
+        UnixStream::shutdown(&self, direction)
     }
 }
 

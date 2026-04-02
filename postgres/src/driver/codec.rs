@@ -17,27 +17,18 @@ use crate::{
 
 pub(super) fn request_pair() -> (ResponseSender, Response) {
     let (tx, rx) = unbounded_channel();
-    (
-        tx,
-        Response {
-            rx,
-            buf: BytesMut::new(),
-        },
-    )
+    (tx, Response { rx })
 }
 
 #[derive(Debug)]
 pub struct Response {
     rx: ResponseReceiver,
-    buf: BytesMut,
 }
 
 impl Response {
     pub(crate) fn blocking_recv(&mut self) -> Result<backend::Message, Error> {
-        if self.buf.is_empty() {
-            self.buf = self.rx.blocking_recv().ok_or_else(|| Error::from(ClosedByDriver))?;
-        }
-        self.parse_message()
+        let msg = self.rx.blocking_recv().ok_or_else(|| Error::from(ClosedByDriver))?;
+        Self::parse_message(msg)
     }
 
     pub(crate) fn recv(&mut self) -> impl Future<Output = Result<backend::Message, Error>> + Send + '_ {
@@ -45,10 +36,8 @@ impl Response {
     }
 
     pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<backend::Message, Error>> {
-        if self.buf.is_empty() {
-            self.buf = ready!(self.rx.poll_recv(cx)).ok_or_else(|| Error::from(ClosedByDriver))?;
-        }
-        Poll::Ready(self.parse_message())
+        let msg = ready!(self.rx.poll_recv(cx)).ok_or_else(|| Error::from(ClosedByDriver))?;
+        Poll::Ready(Self::parse_message(msg))
     }
 
     pub(crate) fn try_into_row_affected(mut self) -> impl Future<Output = Result<u64, Error>> + Send {
@@ -100,8 +89,8 @@ impl Response {
         }
     }
 
-    fn parse_message(&mut self) -> Result<backend::Message, Error> {
-        match backend::Message::parse(&mut self.buf)?.expect("must not parse message from empty buffer.") {
+    fn parse_message(msg: backend::MessageRaw) -> Result<backend::Message, Error> {
+        match msg.try_into_message()? {
             backend::Message::ErrorResponse(body) => Err(Error::db(body.fields())),
             msg => Ok(msg),
         }
@@ -109,30 +98,30 @@ impl Response {
 }
 
 // Extract the number of rows affected.
-pub(crate) fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Result<u64, Error> {
+fn body_to_affected_rows(body: &backend::CommandCompleteBody) -> Result<u64, Error> {
     body.tag()
         .map_err(|_| Error::todo())
         .map(|r| r.rsplit(' ').next().unwrap().parse().unwrap_or(0))
 }
 
-pub(super) type ResponseSender = UnboundedSender<BytesMut>;
+pub(super) type ResponseSender = UnboundedSender<backend::MessageRaw>;
 
 // TODO: remove this lint.
 #[allow(dead_code)]
-pub(super) type ResponseReceiver = UnboundedReceiver<BytesMut>;
+pub(super) type ResponseReceiver = UnboundedReceiver<backend::MessageRaw>;
 
 pub(super) struct BytesMessage {
-    pub(super) buf: BytesMut,
+    pub(super) msg: backend::MessageRaw,
     pub(super) complete: bool,
 }
 
 impl BytesMessage {
     #[cold]
     #[inline(never)]
-    pub(super) fn parse_error(&mut self) -> Error {
-        match backend::Message::parse(&mut self.buf) {
+    pub(super) fn into_error(self) -> Error {
+        match self.msg.try_into_message() {
             Err(e) => Error::from(e),
-            Ok(Some(backend::Message::ErrorResponse(body))) => Error::db(body.fields()),
+            Ok(backend::Message::ErrorResponse(body)) => Error::db(body.fields()),
             _ => Error::unexpected(),
         }
     }
@@ -145,46 +134,19 @@ pub(super) enum ResponseMessage {
 
 impl ResponseMessage {
     pub(crate) fn try_from_buf(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
-        let mut tail = 0;
-        let mut complete = false;
+        let Some(msg) = backend::MessageRaw::parse(buf)? else {
+            return Ok(None);
+        };
 
-        loop {
-            let slice = &buf[tail..];
-            let Some(header) = backend::Header::parse(slice)? else {
-                break;
-            };
-            let len = header.len() as usize + 1;
-
-            if slice.len() < len {
-                break;
+        match msg.tag() {
+            backend::NOTICE_RESPONSE_TAG | backend::NOTIFICATION_RESPONSE_TAG | backend::PARAMETER_STATUS_TAG => {
+                let message = msg.try_into_message()?;
+                Ok(Some(ResponseMessage::Async(message)))
             }
-
-            match header.tag() {
-                backend::NOTICE_RESPONSE_TAG | backend::NOTIFICATION_RESPONSE_TAG | backend::PARAMETER_STATUS_TAG => {
-                    if tail > 0 {
-                        break;
-                    }
-                    let message = backend::Message::parse(buf)?
-                        .expect("buffer contains at least one Message. parser must produce Some");
-                    return Ok(Some(ResponseMessage::Async(message)));
-                }
-                tag => {
-                    tail += len;
-                    if matches!(tag, backend::READY_FOR_QUERY_TAG) {
-                        complete = true;
-                        break;
-                    }
-                }
+            tag => {
+                let complete = matches!(tag, backend::READY_FOR_QUERY_TAG);
+                Ok(Some(ResponseMessage::Normal(BytesMessage { msg, complete })))
             }
-        }
-
-        if tail == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(ResponseMessage::Normal(BytesMessage {
-                buf: buf.split_to(tail),
-                complete,
-            })))
         }
     }
 }

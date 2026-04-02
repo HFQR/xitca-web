@@ -1,6 +1,6 @@
 #![allow(clippy::await_holding_refcell_ref)] // clippy is dumb
 
-//! Completion-based async IO wrapper for OpenSSL TLS streams.
+//! Completion-based async IO wrapper for native-tls TLS streams.
 
 use core::{
     cell::{Ref, RefCell},
@@ -9,20 +9,20 @@ use core::{
 
 use std::{io, net::Shutdown};
 
-pub use openssl::*;
+pub use native_tls_crate::{TlsAcceptor, TlsConnector};
 
-use openssl::ssl::{ErrorCode, Ssl, SslRef, SslStream};
+use native_tls_crate::HandshakeError;
 use xitca_io::io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
 
 use crate::bridge::{self, SyncBridge};
 
-/// A TLS stream using OpenSSL with completion-based async IO.
+/// A TLS stream using native-tls with completion-based async IO.
 ///
 /// Supports one concurrent read + one concurrent write. Concurrent read + read
 /// or write + write will panic.
 pub struct TlsStream<Io> {
     io: Io,
-    tls: RefCell<SslStream<SyncBridge>>,
+    tls: RefCell<native_tls_crate::TlsStream<SyncBridge>>,
 }
 
 impl<Io> TlsStream<Io>
@@ -30,47 +30,54 @@ where
     Io: AsyncBufRead + AsyncBufWrite,
 {
     /// Perform a TLS server-side accept handshake.
-    pub async fn accept(ssl: Ssl, io: Io) -> Result<Self, Error> {
-        Self::handshake(ssl, io, |tls| tls.accept()).await
+    pub async fn accept(acceptor: &TlsAcceptor, io: Io) -> Result<Self, Error> {
+        let bridge = SyncBridge::new();
+        Self::handshake(io, acceptor.accept(bridge)).await
     }
 
     /// Perform a TLS client-side connect handshake.
-    pub async fn connect(ssl: Ssl, io: Io) -> Result<Self, Error> {
-        Self::handshake(ssl, io, |tls| tls.connect()).await
+    pub async fn connect(connector: &TlsConnector, domain: &str, io: Io) -> Result<Self, Error> {
+        let bridge = SyncBridge::new();
+        Self::handshake(io, connector.connect(domain, bridge)).await
     }
 
-    async fn handshake<F>(ssl: Ssl, io: Io, mut func: F) -> Result<Self, Error>
-    where
-        F: FnMut(&mut SslStream<SyncBridge>) -> Result<(), openssl::ssl::Error>,
-    {
-        let bridge = SyncBridge::new();
-        let mut tls = SslStream::new(ssl, bridge)?;
+    async fn handshake(
+        io: Io,
+        result: Result<native_tls_crate::TlsStream<SyncBridge>, HandshakeError<SyncBridge>>,
+    ) -> Result<Self, Error> {
+        let mut mid = match result {
+            Ok(tls) => {
+                return Ok(TlsStream {
+                    io,
+                    tls: RefCell::new(tls),
+                });
+            }
+            Err(HandshakeError::WouldBlock(mid)) => mid,
+            Err(HandshakeError::Failure(e)) => return Err(Error::Tls(e)),
+        };
 
         loop {
-            match func(&mut tls) {
-                Ok(_) => {
-                    bridge::drain_write_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
+            bridge::drain_write_buf(&io, mid.get_mut()).await.map_err(Error::Io)?;
+            bridge::fill_read_buf(&io, mid.get_mut()).await.map_err(Error::Io)?;
+
+            match mid.handshake() {
+                Ok(tls) => {
                     return Ok(TlsStream {
                         io,
                         tls: RefCell::new(tls),
                     });
                 }
-                Err(ref e) if e.code() == ErrorCode::WANT_WRITE => {
-                    bridge::drain_write_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
-                }
-                Err(ref e) if e.code() == ErrorCode::WANT_READ => {
-                    bridge::drain_write_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
-                    bridge::fill_read_buf(&io, tls.get_mut()).await.map_err(Error::Io)?;
-                }
-                Err(e) => return Err(Error::Tls(e)),
+                Err(HandshakeError::WouldBlock(m)) => mid = m,
+                Err(HandshakeError::Failure(e)) => return Err(Error::Tls(e)),
             }
         }
     }
+}
 
-    /// Acquire a reference to the SSL session.
-    pub fn session(&self) -> Ref<'_, SslRef> {
-        let tls = self.tls.borrow();
-        Ref::map(tls, |tls| tls.ssl())
+impl<Io> TlsStream<Io> {
+    /// Returns the negotiated ALPN protocol, if any.
+    pub fn session(&self) -> Ref<'_, native_tls_crate::TlsStream<SyncBridge>> {
+        self.tls.borrow()
     }
 }
 
@@ -105,6 +112,9 @@ where
     /// Read path: only reads from the IO socket, never writes.
     /// Protocol write data (key updates, alerts) is stashed in
     /// `proto_write_buf` for the write path to flush.
+    /// Read path: only reads from the IO socket, never writes.
+    /// Protocol write data (key updates, alerts) is stashed in
+    /// `proto_write_buf` for the write path to flush.
     async fn read_tls(&self, buf: &mut [u8]) -> io::Result<usize> {
         let mut tls = self.tls.borrow_mut();
 
@@ -115,7 +125,6 @@ where
                     // Take read_buf — panics if another read is in progress.
                     let mut read_buf = tls.get_mut().take_read_buf();
 
-                    // Prepare read_buf for network fill.
                     let len = read_buf.len();
                     read_buf.reserve(4096);
 
@@ -206,35 +215,36 @@ where
 
         loop {
             match tls.shutdown() {
-                Ok(ssl::ShutdownResult::Sent) | Ok(ssl::ShutdownResult::Received) => {
+                Ok(()) => {
                     bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
                     return Ok(());
                 }
-                Err(ref e) if e.code() == ErrorCode::WANT_WRITE => {
-                    bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
-                }
-                Err(ref e) if e.code() == ErrorCode::WANT_READ => {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     bridge::drain_write_buf(&self.io, tls.get_mut()).await?;
                     bridge::fill_read_buf(&self.io, tls.get_mut()).await?;
                 }
-                Err(e) => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, e));
-                }
+                Err(e) => return Err(e),
             }
         }
     }
 }
 
-/// Collection of OpenSSL error types.
+/// Collection of native-tls error types.
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    Tls(openssl::ssl::Error),
+    Tls(native_tls_crate::Error),
 }
 
-impl From<openssl::error::ErrorStack> for Error {
-    fn from(e: openssl::error::ErrorStack) -> Self {
-        Self::Tls(e.into())
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<native_tls_crate::Error> for Error {
+    fn from(e: native_tls_crate::Error) -> Self {
+        Self::Tls(e)
     }
 }
 
