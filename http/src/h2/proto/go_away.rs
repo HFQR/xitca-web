@@ -48,10 +48,13 @@ impl GoAway {
         &self.debug_data
     }
 
-    pub fn load(payload: &[u8]) -> Result<GoAway, Error> {
+    pub fn load(stream_id: StreamId, payload: &[u8]) -> Result<GoAway, Error> {
+        // RFC 7540 §6.8: GOAWAY MUST be on stream 0.
+        if !stream_id.is_zero() {
+            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+        }
         if payload.len() < 8 {
-            todo!()
-            // return Err(Error::BadFrameSize);
+            return Err(Error::MalformedMessage);
         }
 
         let (last_stream_id, _) = StreamId::parse(&payload[..4]);

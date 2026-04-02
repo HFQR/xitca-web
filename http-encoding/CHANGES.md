@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.2.2
+## Fix
+- `try_decoder` would try all possible encoding before eargerly yield with feature error
 
 # 0.2.1
 ## Fix

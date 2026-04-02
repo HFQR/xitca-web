@@ -20,47 +20,45 @@ where
 }
 
 fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
-    let Some(val) = headers.get(&CONTENT_ENCODING) else {
-        return Ok(FeaturedCode::default());
-    };
-    let enc = val.to_str().map_err(|_| EncodingError::ParseAcceptEncoding)?;
-    match ContentEncoding::try_parse(enc)? {
-        ContentEncoding::Br => {
-            #[cfg(feature = "br")]
-            {
-                Ok(FeaturedCode::DecodeBr(super::brotli::Decoder::new(
-                    super::writer::BytesMutWriter::new(),
-                )))
-            }
-            #[cfg(not(feature = "br"))]
-            {
-                Err(super::error::FeatureError::Br.into())
-            }
-        }
-        ContentEncoding::Gzip => {
-            #[cfg(feature = "gz")]
-            {
-                Ok(FeaturedCode::DecodeGz(super::gzip::Decoder::new(
-                    super::writer::BytesMutWriter::new(),
-                )))
-            }
-            #[cfg(not(feature = "gz"))]
-            {
-                Err(super::error::FeatureError::Gzip.into())
-            }
-        }
-        ContentEncoding::Deflate => {
-            #[cfg(feature = "de")]
-            {
-                Ok(FeaturedCode::DecodeDe(super::deflate::Decoder::new(
-                    super::writer::BytesMutWriter::new(),
-                )))
-            }
-            #[cfg(not(feature = "de"))]
-            {
-                Err(super::error::FeatureError::Deflate.into())
-            }
-        }
-        ContentEncoding::NoOp => Ok(FeaturedCode::default()),
+    let mut err = None;
+
+    for enc in headers
+        .get_all(&CONTENT_ENCODING)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|s| s.split(','))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        match ContentEncoding::try_parse(enc) {
+            Ok(encoding) => match encoding {
+                ContentEncoding::NoOp => break,
+                ContentEncoding::Br => {
+                    #[cfg(feature = "br")]
+                    return Ok(FeaturedCode::DecodeBr(super::brotli::Decoder::new(
+                        super::writer::BytesMutWriter::new(),
+                    )));
+                }
+                ContentEncoding::Gzip => {
+                    #[cfg(feature = "gz")]
+                    return Ok(FeaturedCode::DecodeGz(super::gzip::Decoder::new(
+                        super::writer::BytesMutWriter::new(),
+                    )));
+                }
+                ContentEncoding::Deflate => {
+                    #[cfg(feature = "de")]
+                    return Ok(FeaturedCode::DecodeDe(super::deflate::Decoder::new(
+                        super::writer::BytesMutWriter::new(),
+                    )));
+                }
+            },
+            Err(e) => err = Some(e),
+        };
+    }
+
+    if let Some(e) = err {
+        Err(e.into())
+    } else {
+        Ok(FeaturedCode::default())
     }
 }

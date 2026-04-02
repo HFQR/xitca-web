@@ -11,18 +11,18 @@ use std::{
 
 use futures_util::Stream;
 use xitca_http::{
+    HttpServiceBuilder,
     body::ResponseBody,
     config::HttpServiceConfig,
     h1, h2, h3,
     http::{Request, RequestExt, Response},
-    HttpServiceBuilder,
 };
 use xitca_io::{
     bytes::Bytes,
     net::{Stream as NetStream, TcpStream},
 };
 use xitca_server::{Builder, ServerFuture, ServerHandle};
-use xitca_service::{ready::ReadyService, Service, ServiceExt};
+use xitca_service::{Service, ServiceExt, ready::ReadyService};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 

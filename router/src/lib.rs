@@ -159,5 +159,33 @@ pub use router::{Match, Router};
 extern crate alloc;
 
 // TODO: consider no alloc alternative of these types so alloc can become an optional feature
-use alloc::{collections::VecDeque, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::VecDeque, string::String, vec::Vec};
 use xitca_unsafe_collection::small_str::SmallBoxedStr as SmallStr;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn relaxed_catch_all() {
+        let mut router = Router::new();
+
+        let mut scope = Router::new();
+
+        scope.insert("/", 996).unwrap();
+
+        router.insert("/context/{*}", scope).unwrap();
+
+        router.insert("/{*}", Router::new()).unwrap();
+
+        assert!(router.at("/context/foo").is_ok(), "context/foo should match");
+        assert!(router.at("/other/").is_ok(), "other/ should match");
+        assert!(router.at("/context/").is_ok(), "context/ should match outer");
+        assert!(
+            router.at("/context/").unwrap().value.at("/").is_ok(),
+            "context/ should match inner"
+        );
+        let r = router.at("/context/").unwrap();
+        assert_eq!(*r.value.at("/").unwrap().value, 996);
+    }
+}

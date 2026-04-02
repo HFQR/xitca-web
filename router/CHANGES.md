@@ -1,4 +1,12 @@
-# unreleased 0.4.1
+# unrleased 0.5.0
+## Change
+- update to Rust edition 2024
+
+# 0.4.1
+## Fix
+- fix bug when multiple relaxed catch all `{*}` inserted in the same router can break route priority contract
+
+## Change
 - perf improvement
 
 # 0.4.0

@@ -1,0 +1,23 @@
+[package]
+name = "xitca-web-io-uring-h2"
+version = "0.1.0"
+authors = ["fakeshadow <24548779@qq.com>"]
+edition = "2024"
+
+[dependencies]
+xitca-http = { version = "0.9", features = ["http2", "io-uring", "router", "openssl"] }
+xitca-server = { version = "0.7", features = ["io-uring"] }
+xitca-service = "0.3"
+
+futures-core = "0.3"
+mimalloc = { version = "0.1.48", default-features = false, features = ["v3"] }
+
+openssl = "0.10.44"
+# rcgen = "0.14"
+# rustls = "0.23"
+# rustls-pki-types = "1"
+
+
+[profile.release]
+opt-level = 3
+lto = "fat"

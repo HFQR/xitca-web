@@ -238,6 +238,42 @@ jobs:
       run: |
         sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-test"  
 
+  h2spec:
+    name: h2spec conformance @ Linux
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        profile: minimal
+        override: true
+
+    - name: Free up disk space
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Install h2spec
+      run: |
+        curl -sSL https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz \
+          | tar xz -C /usr/local/bin
+
+    - name: Run h2spec conformance
+      run: |
+        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin:/usr/local/bin && RUSTUP_TOOLCHAIN=nightly cargo ci-test-h2spec"
+
   check_examples:
     strategy:
       matrix:

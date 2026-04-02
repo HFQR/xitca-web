@@ -12,17 +12,27 @@
 //! The weak handle should be used by anything which is stored in the driver or does not need to
 //! keep the driver alive for it's duration.
 
-use io_uring::{cqueue, squeue};
-use std::cell::RefCell;
-use std::io;
-use std::ops::Deref;
-use std::os::unix::io::{AsRawFd, RawFd};
-use std::rc::{Rc, Weak};
-use std::task::{Context, Poll};
+use core::{
+    cell::RefCell,
+    ops::Deref,
+    task::{Context, Poll},
+};
 
-use crate::buf::fixed::FixedBuffers;
-use crate::runtime::driver::Driver;
-use crate::runtime::driver::op::{Completable, MultiCQEFuture, Op, Updateable};
+use std::{
+    io,
+    os::fd::{AsRawFd, RawFd},
+    rc::{Rc, Weak},
+};
+
+use io_uring::{cqueue, squeue};
+
+use crate::{
+    buf::fixed::FixedBuffers,
+    runtime::driver::{
+        Driver,
+        op::{Completable, MultiCQEFuture, Op, Updateable},
+    },
+};
 
 #[derive(Clone)]
 pub(crate) struct Handle {

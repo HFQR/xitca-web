@@ -36,18 +36,16 @@ impl WindowUpdate {
     /// Builds a `WindowUpdate` frame from a raw frame.
     pub fn load(head: Head, payload: &[u8]) -> Result<WindowUpdate, Error> {
         if payload.len() != 4 {
-            todo!();
-            // return Err(Error::BadFrameSize);
+            return Err(Error::MalformedMessage);
         }
 
         // Clear the most significant bit, as that is reserved and MUST be ignored
         // when received.
         let size_increment = unpack_octets_4!(payload, 0, u32) & !SIZE_INCREMENT_MASK;
 
-        if size_increment == 0 {
-            todo!()
-            // return Err(Error::InvalidWindowUpdateValue);
-        }
+        // Zero-increment is a protocol error whose response (RST_STREAM vs GOAWAY)
+        // depends on whether it targets a stream or the connection.  The caller in
+        // mod.rs handles this distinction after load() succeeds.
 
         Ok(WindowUpdate {
             stream_id: head.stream_id(),

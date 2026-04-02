@@ -69,7 +69,7 @@ where
             prefix.pop();
         }
 
-        prefix.push_str("/*p");
+        prefix.push_str("/{*p}");
 
         prefix
     }

@@ -1,10 +1,10 @@
-use core::{convert::Infallible, fmt};
+use core::{convert::Infallible, error, fmt};
 
-use std::{error, io, sync::Arc};
+use std::{io, sync::Arc};
 
-use xitca_io::io::AsyncIo;
+use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 use xitca_service::Service;
-use xitca_tls::rustls::{Error, ServerConfig, ServerConnection, TlsStream as _TlsStream};
+use xitca_tls::rustls::{Error, ServerConfig, TlsStream as _TlsStream, server::UnbufferedServerConnection};
 
 use crate::{http::Version, version::AsVersion};
 
@@ -13,12 +13,9 @@ use super::error::TlsError;
 pub(crate) type RustlsConfig = Arc<ServerConfig>;
 
 /// A stream managed by rustls for tls read/write.
-pub type TlsStream<Io> = _TlsStream<ServerConnection, Io>;
+pub type TlsStream<Io> = _TlsStream<UnbufferedServerConnection, Io>;
 
-impl<Io> AsVersion for TlsStream<Io>
-where
-    Io: AsyncIo,
-{
+impl<Io> AsVersion for TlsStream<Io> {
     fn as_version(&self) -> Version {
         self.session()
             .alpn_protocol()
@@ -55,12 +52,15 @@ pub struct TlsAcceptorService {
     acceptor: Arc<ServerConfig>,
 }
 
-impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
+impl<Io> Service<Io> for TlsAcceptorService
+where
+    Io: AsyncBufRead + AsyncBufWrite,
+{
     type Response = TlsStream<Io>;
     type Error = RustlsError;
 
     async fn call(&self, io: Io) -> Result<Self::Response, Self::Error> {
-        let conn = ServerConnection::new(self.acceptor.clone())?;
+        let conn = UnbufferedServerConnection::new(self.acceptor.clone())?;
         _TlsStream::handshake(io, conn).await.map_err(Into::into)
     }
 }

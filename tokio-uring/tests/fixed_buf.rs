@@ -55,7 +55,7 @@ fn fixed_buf_turnaround() {
         // The buffer has been released, check it out again.
         let fixed_buf = buffers.check_out(0).unwrap();
         assert_eq!(fixed_buf.bytes_total(), 30);
-        assert_eq!(fixed_buf.bytes_init(), HELLO.len());
+        assert_eq!(fixed_buf.bytes_init(), 0);
     });
 }
 

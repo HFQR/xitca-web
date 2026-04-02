@@ -58,7 +58,7 @@ impl Head {
     }
 
     pub fn encode_len(&self) -> usize {
-        super::HEADER_LEN
+        9
     }
 
     pub fn encode<T: BufMut>(&self, payload_len: usize, dst: &mut T) {

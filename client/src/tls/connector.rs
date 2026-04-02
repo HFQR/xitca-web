@@ -39,7 +39,7 @@ pub(crate) fn nop() -> Connector {
 #[cfg(feature = "openssl")]
 pub(crate) mod openssl {
     use xitca_http::bytes::BufMut;
-    use xitca_tls::openssl::{
+    use xitca_tls::openssl_poll::{
         self,
         ssl::{SslConnector, SslMethod},
     };
@@ -52,7 +52,7 @@ pub(crate) mod openssl {
 
         async fn call(&self, (name, io): (&'n str, TlsStream)) -> Result<Self::Response, Self::Error> {
             let ssl = self.configure()?.into_ssl(name)?;
-            let stream = openssl::TlsStream::connect(ssl, io).await?;
+            let stream = openssl_poll::TlsStream::connect(ssl, io).await?;
 
             let version = stream
                 .session()
@@ -90,7 +90,7 @@ pub(crate) mod rustls {
     use std::sync::Arc;
 
     use webpki_roots::TLS_SERVER_ROOTS;
-    use xitca_tls::rustls::{self, ClientConfig, ClientConnection, RootCertStore, pki_types::ServerName};
+    use xitca_tls::rustls_poll::{self, ClientConfig, ClientConnection, RootCertStore, pki_types::ServerName};
 
     use super::*;
 
@@ -107,7 +107,7 @@ pub(crate) mod rustls {
 
             let conn = ClientConnection::new(self.0.clone(), name).unwrap();
 
-            let stream = rustls::TlsStream::handshake(io, conn)
+            let stream = rustls_poll::TlsStream::handshake(io, conn)
                 .await
                 .map_err(crate::error::RustlsError::Io)?;
 

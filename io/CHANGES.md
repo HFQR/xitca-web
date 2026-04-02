@@ -1,4 +1,10 @@
-# unreleased
+# unreleased 0.6.0
+## Add
+- add `io::{AsyncBufWrite, AsyncBufRead}` impl for `net::{TcpStream, UnixStream}`
+
+## Change
+- `io::AsyncBufWrite::shutdown` becomes async method 
+- update `tokio-uring-xitca` to `0.2.0`
 
 # 0.5.1
 ## Fix
