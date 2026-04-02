@@ -116,7 +116,7 @@ fn run_cmd(cmd: &str, args: &[&str]) {
     let out = Command::new(cmd)
         .args(args)
         .output()
-        .expect(&format!("{cmd} not found"));
+        .unwrap_or_else(|_| panic!("{cmd} not found"));
     assert!(
         out.status.success(),
         "{cmd} failed: {}",
