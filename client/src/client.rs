@@ -19,7 +19,6 @@ use crate::{
     service::HttpService,
     timeout::{Timeout, TimeoutConfig},
     tls::connector::Connector,
-    upgrade::UpgradeRequest,
     uri::Uri,
 };
 
@@ -232,7 +231,7 @@ impl Client {
     /// Ok(())
     /// # }
     /// ```
-    pub fn upgrade<U>(&self, url: U, method: Method) -> UpgradeRequest<'_>
+    pub fn upgrade<U>(&self, url: U, method: Method) -> crate::upgrade::UpgradeRequest<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
