@@ -1,4 +1,3 @@
-use futures_util::StreamExt;
 use std::{
     io::{Read, Write},
     net::TcpStream,
@@ -7,7 +6,7 @@ use std::{
 
 use xitca_client::Client;
 use xitca_http::{
-    body::{BoxBody, ResponseBody},
+    body::{BodyExt, BoxBody, ResponseBody},
     bytes::{Bytes, BytesMut},
     h1,
     http::{
@@ -298,7 +297,7 @@ async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<Re
                 .to_str()?
                 .parse::<usize>()?;
 
-            let bytes = body.next().await.unwrap()?;
+            let bytes = body.frame().await.unwrap()?.into_data().unwrap();
 
             assert!(bytes.len() < length);
 

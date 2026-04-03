@@ -12,7 +12,7 @@ use std::{
 use futures_util::Stream;
 use xitca_http::{
     HttpServiceBuilder,
-    body::ResponseBody,
+    body::{Body, ResponseBody},
     config::HttpServiceConfig,
     h1, h2, h3,
     http::{Request, RequestExt, Response},
@@ -57,7 +57,7 @@ where
     T::Response: ReadyService + Service<Request<RequestExt<h1::RequestBody>>, Response = HResponse<B>> + 'static,
     <T::Response as Service<Request<RequestExt<h1::RequestBody>>>>::Error: fmt::Debug,
     T::Error: error::Error + 'static,
-    B: Stream<Item = Result<Bytes, E>> + 'static,
+    B: Body<Data = Bytes, Error = E> + 'static,
     E: fmt::Debug + 'static,
 {
     #[cfg(not(feature = "io-uring"))]
@@ -80,7 +80,7 @@ where
     T::Response: ReadyService + Service<Request<RequestExt<h2::RequestBody>>, Response = HResponse<B>> + 'static,
     <T::Response as Service<Request<RequestExt<h2::RequestBody>>>>::Error: fmt::Debug,
     T::Error: error::Error + 'static,
-    B: Stream<Item = Result<Bytes, E>> + 'static,
+    B: Body<Data = Bytes, Error = E> + 'static,
     E: fmt::Debug + 'static,
 {
     test_server::<_, (TcpStream, SocketAddr)>(
@@ -102,7 +102,7 @@ where
     T::Response: ReadyService + Service<Request<RequestExt<h3::RequestBody>>, Response = HResponse<B>> + 'static,
     <T::Response as Service<Request<RequestExt<h3::RequestBody>>>>::Error: fmt::Debug,
     T::Error: error::Error + 'static,
-    B: Stream<Item = Result<Bytes, E>> + 'static,
+    B: Body<Data = Bytes, Error = E> + 'static,
     E: fmt::Debug + 'static,
 {
     let addr = std::net::UdpSocket::bind("127.0.0.1:0")?.local_addr()?;

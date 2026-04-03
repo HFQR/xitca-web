@@ -4,9 +4,15 @@ use std::io;
 
 use tracing::{trace, warn};
 
-use crate::bytes::{Buf, Bytes, BytesMut};
+use crate::{
+    bytes::{Buf, BufMut, Bytes, BytesMut},
+    http::header::{HeaderMap, HeaderName, HeaderValue},
+};
 
 use super::{buf_write::H1BufWrite, error::ProtoError};
+
+/// Maximum number of bytes allowed for all trailer fields.
+const TRAILER_MAX_HEADER_SIZE: usize = 1024 * 16;
 
 /// Coder for different Transfer-Decoding/Transfer-Encoding.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,11 +24,99 @@ pub enum TransferCoding {
     /// Coder used when a Content-Length header is passed with a positive integer.
     Length(u64),
     /// Decoder used when Transfer-Encoding is `chunked`.
-    DecodeChunked(ChunkedState, u64),
+    DecodeChunked {
+        state: ChunkedState,
+        size: u64,
+        trailers: Trailers,
+    },
     /// Encoder for when Transfer-Encoding includes `chunked`.
     EncodeChunked,
     /// Upgrade type coder that pass through body as is without transforming.
     Upgrade,
+}
+
+/// State for accumulating chunked trailer headers during decode.
+/// The `buf` is lazily boxed only when trailers are actually present.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Trailers {
+    buf: Option<Box<BytesMut>>,
+    len: usize,
+    limit: usize,
+    size_limit: usize,
+}
+
+impl Trailers {
+    // TODO: expose size_limit to HttpServiceConfig
+    pub fn new(header_limit: usize) -> Self {
+        Self {
+            buf: None,
+            len: 0,
+            limit: header_limit,
+            size_limit: TRAILER_MAX_HEADER_SIZE,
+        }
+    }
+
+    fn try_put(&mut self, byte: u8) -> io::Result<()> {
+        if self.buf.is_some() {
+            self.put(byte)?;
+        }
+        Ok(())
+    }
+
+    fn put(&mut self, byte: u8) -> io::Result<()> {
+        if let Some(buf) = self.buf.as_deref_mut() {
+            buf.put_u8(byte);
+            if buf.len() > self.size_limit {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "chunk trailers bytes over limit",
+                ));
+            }
+        } else {
+            let mut buf = BytesMut::with_capacity(64);
+            buf.put_u8(byte);
+            self.buf = Some(Box::new(buf));
+        };
+
+        Ok(())
+    }
+
+    fn incr_len(&mut self) -> io::Result<()> {
+        self.len += 1;
+        if self.len > self.limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "chunk trailers count overflow",
+            ));
+        }
+        Ok(())
+    }
+
+    fn take(&mut self) -> Option<Self> {
+        self.buf.is_some().then(|| mem::replace(self, Trailers::new(0)))
+    }
+
+    fn decode(self) -> io::Result<HeaderMap> {
+        let buf = self.buf.expect("trailer buf must be initialized");
+        let mut headers = vec![httparse::EMPTY_HEADER; self.len];
+        match httparse::parse_headers(&buf, &mut headers) {
+            Ok(httparse::Status::Complete((_, parsed))) => {
+                let mut map = HeaderMap::with_capacity(parsed.len());
+                for header in parsed {
+                    let name = HeaderName::from_bytes(header.name.as_bytes())
+                        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid trailer header name"))?;
+                    let value = HeaderValue::from_bytes(header.value)
+                        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid trailer header value"))?;
+                    map.append(name, value);
+                }
+                Ok(map)
+            }
+            Ok(httparse::Status::Partial) => {
+                Err(io::Error::new(io::ErrorKind::InvalidInput, "partial trailer headers"))
+            }
+            Err(e) => Err(io::Error::new(io::ErrorKind::InvalidInput, e)),
+        }
+    }
 }
 
 impl TransferCoding {
@@ -37,8 +131,12 @@ impl TransferCoding {
     }
 
     #[inline]
-    pub const fn decode_chunked() -> Self {
-        Self::DecodeChunked(ChunkedState::Size, 0)
+    pub fn decode_chunked(header_limit: usize) -> Self {
+        Self::DecodeChunked {
+            state: ChunkedState::Size,
+            size: 0,
+            trailers: Trailers::new(header_limit),
+        }
     }
 
     #[inline]
@@ -97,7 +195,13 @@ macro_rules! byte (
 );
 
 impl ChunkedState {
-    pub fn step(&mut self, body: &mut BytesMut, size: &mut u64, buf: &mut Option<Bytes>) -> io::Result<Option<Self>> {
+    pub fn step(
+        &mut self,
+        body: &mut BytesMut,
+        size: &mut u64,
+        buf: &mut Option<Bytes>,
+        trailers: &mut Trailers,
+    ) -> io::Result<Option<Self>> {
         match *self {
             Self::Size => Self::read_size(body, size),
             Self::SizeLws => Self::read_size_lws(body),
@@ -106,10 +210,10 @@ impl ChunkedState {
             Self::Body => Self::read_body(body, size, buf),
             Self::BodyCr => Self::read_body_cr(body),
             Self::BodyLf => Self::read_body_lf(body),
-            Self::Trailer => Self::read_trailer(body),
-            Self::TrailerLf => Self::read_trailer_lf(body),
-            Self::EndCr => Self::read_end_cr(body),
-            Self::EndLf => Self::read_end_lf(body),
+            Self::Trailer => Self::read_trailer(body, trailers),
+            Self::TrailerLf => Self::read_trailer_lf(body, trailers),
+            Self::EndCr => Self::read_end_cr(body, trailers),
+            Self::EndLf => Self::read_end_lf(body, trailers),
             Self::End => Ok(Some(Self::End)),
         }
     }
@@ -214,31 +318,49 @@ impl ChunkedState {
         }
     }
 
-    fn read_trailer(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn read_trailer(rdr: &mut BytesMut, trailers: &mut Trailers) -> io::Result<Option<Self>> {
         trace!(target: "h1_decode", "read_trailer");
-        match byte!(rdr) {
+        let byte = byte!(rdr);
+        trailers.put(byte)?;
+        match byte {
             b'\r' => Ok(Some(Self::TrailerLf)),
             _ => Ok(Some(Self::Trailer)),
         }
     }
 
-    fn read_trailer_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
-        match byte!(rdr) {
-            b'\n' => Ok(Some(Self::EndCr)),
+    fn read_trailer_lf(rdr: &mut BytesMut, trailers: &mut Trailers) -> io::Result<Option<Self>> {
+        let byte = byte!(rdr);
+        match byte {
+            b'\n' => {
+                trailers.incr_len()?;
+                trailers.put(byte)?;
+                Ok(Some(Self::EndCr))
+            }
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid trailer end LF")),
         }
     }
 
-    fn read_end_cr(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
-        match byte!(rdr) {
-            b'\r' => Ok(Some(Self::EndLf)),
-            _ => Ok(Some(Self::Trailer)),
+    fn read_end_cr(rdr: &mut BytesMut, trailers: &mut Trailers) -> io::Result<Option<Self>> {
+        let byte = byte!(rdr);
+        match byte {
+            b'\r' => {
+                trailers.try_put(byte)?;
+                Ok(Some(Self::EndLf))
+            }
+            _ => {
+                trailers.put(byte)?;
+                Ok(Some(Self::Trailer))
+            }
         }
     }
 
-    fn read_end_lf(rdr: &mut BytesMut) -> io::Result<Option<Self>> {
-        match byte!(rdr) {
-            b'\n' => Ok(Some(Self::End)),
+    fn read_end_lf(rdr: &mut BytesMut, trailers: &mut Trailers) -> io::Result<Option<Self>> {
+        let byte = byte!(rdr);
+        match byte {
+            b'\n' => {
+                trailers.try_put(byte)?;
+                Ok(Some(Self::End))
+            }
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid chunk end LF")),
         }
     }
@@ -253,9 +375,9 @@ impl TransferCoding {
             (TransferCoding::Upgrade, TransferCoding::Upgrade) | (_, TransferCoding::Length(0)) => Ok(()),
             // multiple set to decoded chunked/content-length are forbidden.
             // mutation between decoded chunked/content-length/plain chunked is forbidden.
-            (TransferCoding::Upgrade, _) | (TransferCoding::DecodeChunked(..), _) | (TransferCoding::Length(..), _) => {
-                Err(ProtoError::HeaderName)
-            }
+            (TransferCoding::Upgrade, _)
+            | (TransferCoding::DecodeChunked { .. }, _)
+            | (TransferCoding::Length(..), _) => Err(ProtoError::HeaderName),
             _ => {
                 *self = other;
                 Ok(())
@@ -323,7 +445,11 @@ impl TransferCoding {
             // ChunkResult::AlreadyEof if decode is called again.
             // This multi stage behaviour is depended on by the caller to know the exact timing of
             // when eof happens. (Expensive one time operations can be happening at Eof)
-            Self::Length(0) | Self::DecodeChunked(ChunkedState::End, _) => {
+            Self::Length(0)
+            | Self::DecodeChunked {
+                state: ChunkedState::End,
+                ..
+            } => {
                 *self = Self::Eof;
                 ChunkResult::OnEof
             }
@@ -332,17 +458,27 @@ impl TransferCoding {
             ref _this if src.is_empty() => ChunkResult::InsufficientData,
             Self::Length(ref mut rem) => ChunkResult::Ok(bounded_split(rem, src)),
             Self::Upgrade => ChunkResult::Ok(src.split().freeze()),
-            Self::DecodeChunked(ref mut state, ref mut size) => {
+            Self::DecodeChunked {
+                ref mut state,
+                ref mut size,
+                ref mut trailers,
+            } => {
                 loop {
                     let mut buf = None;
                     // advances the chunked state
-                    *state = match state.step(src, size, &mut buf) {
+                    *state = match state.step(src, size, &mut buf, trailers) {
                         Ok(Some(state)) => state,
                         Ok(None) => return ChunkResult::InsufficientData,
                         Err(e) => return ChunkResult::Err(e),
                     };
 
                     if matches!(state, ChunkedState::End) {
+                        if let Some(trailers) = trailers.take() {
+                            match trailers.decode() {
+                                Ok(headers) => return ChunkResult::Trailers(headers),
+                                Err(e) => return ChunkResult::Err(e),
+                            }
+                        }
                         return self.decode(src);
                     }
 
@@ -360,6 +496,8 @@ impl TransferCoding {
 pub enum ChunkResult {
     /// non empty chunk data produced by coder.
     Ok(Bytes),
+    /// trailer headers decoded from chunked transfer encoding.
+    Trailers(HeaderMap),
     /// io error type produced by coder that can be bubbled up to upstream caller.
     Err(io::Error),
     /// insufficient data. More input bytes required.
@@ -377,6 +515,7 @@ impl fmt::Display for ChunkResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Ok(_) => f.write_str("chunked data."),
+            Self::Trailers(_) => f.write_str("trailer headers."),
             Self::Err(ref e) => fmt::Display::fmt(e, f),
             Self::InsufficientData => f.write_str("no sufficient data. More input bytes required."),
             Self::OnEof => f.write_str("coder reached EOF state. no more chunk can be produced."),
@@ -405,8 +544,6 @@ fn bounded_split(rem: &mut u64, buf: &mut BytesMut) -> Bytes {
 
 #[cfg(test)]
 mod test {
-    use crate::util::buffered::WriteBuf;
-
     use super::*;
 
     #[test]
@@ -418,7 +555,7 @@ mod test {
             let rdr = &mut BytesMut::from(s);
             let mut size = 0;
             loop {
-                let result = state.step(rdr, &mut size, &mut None);
+                let result = state.step(rdr, &mut size, &mut None, &mut Trailers::new(64));
                 state = result.unwrap_or_else(|_| panic!("read_size failed for {s:?}")).unwrap();
                 if state == ChunkedState::Body || state == ChunkedState::EndCr {
                     break;
@@ -432,7 +569,7 @@ mod test {
             let rdr = &mut BytesMut::from(s);
             let mut size = 0;
             loop {
-                let result = state.step(rdr, &mut size, &mut None);
+                let result = state.step(rdr, &mut size, &mut None, &mut Trailers::new(64));
                 state = match result {
                     Ok(Some(s)) => s,
                     Ok(None) => return assert_eq!(expected_err, UnexpectedEof),
@@ -492,7 +629,7 @@ mod test {
     fn test_read_chunked_single_read() {
         let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n");
 
-        match TransferCoding::decode_chunked().decode(mock_buf) {
+        match TransferCoding::decode_chunked(64).decode(mock_buf) {
             ChunkResult::Ok(buf) => {
                 assert_eq!(16, buf.len());
                 let result = String::from_utf8(buf.as_ref().to_vec()).expect("decode String");
@@ -506,7 +643,7 @@ mod test {
     fn test_read_chunked_trailer_with_missing_lf() {
         let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\nbad\r\r\n");
 
-        let mut decoder = TransferCoding::decode_chunked();
+        let mut decoder = TransferCoding::decode_chunked(64);
 
         match decoder.decode(mock_buf) {
             ChunkResult::Ok(_) => {}
@@ -522,7 +659,7 @@ mod test {
     #[test]
     fn test_read_chunked_after_eof() {
         let mock_buf = &mut BytesMut::from("10\r\n1234567890abcdef\r\n0\r\n\r\n");
-        let mut decoder = TransferCoding::decode_chunked();
+        let mut decoder = TransferCoding::decode_chunked(64);
 
         // normal read
         match decoder.decode(mock_buf) {
@@ -548,23 +685,56 @@ mod test {
     }
 
     #[test]
+    fn test_read_chunked_with_trailers() {
+        // chunked body: "Hello" (5 bytes) followed by two trailer headers
+        let mock_buf = &mut BytesMut::from(
+            "5\r\nHello\r\n0\r\nExpires: Wed, 21 Oct 2015 07:28:00 GMT\r\nX-Checksum: abc123\r\n\r\n",
+        );
+        let mut decoder = TransferCoding::decode_chunked(64);
+
+        // first decode yields the body data
+        match decoder.decode(mock_buf) {
+            ChunkResult::Ok(buf) => {
+                assert_eq!(buf.as_ref(), b"Hello");
+            }
+            state => panic!("expected data chunk, got: {}", state),
+        }
+
+        // second decode yields the trailer headers
+        match decoder.decode(mock_buf) {
+            ChunkResult::Trailers(headers) => {
+                assert_eq!(headers.len(), 2);
+                assert_eq!(headers.get("Expires").unwrap(), "Wed, 21 Oct 2015 07:28:00 GMT");
+                assert_eq!(headers.get("X-Checksum").unwrap(), "abc123");
+            }
+            state => panic!("expected trailers, got: {}", state),
+        }
+
+        // third decode yields eof
+        match decoder.decode(mock_buf) {
+            ChunkResult::OnEof => {}
+            state => panic!("expected OnEof, got: {}", state),
+        }
+    }
+
+    #[test]
     fn encode_chunked() {
         let mut encoder = TransferCoding::encode_chunked();
-        let dst = &mut WriteBuf::<1024>::default();
+        let dst = &mut BytesMut::default();
 
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);
 
-        assert_eq!(dst.buf(), b"7\r\nfoo bar\r\n");
+        assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\n");
 
         let msg2 = Bytes::from("baz quux herp");
         encoder.encode(msg2, dst);
 
-        assert_eq!(dst.buf(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
+        assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
 
         encoder.encode_eof(dst);
 
-        assert_eq!(dst.buf(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
+        assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
     }
 
     #[test]
@@ -572,23 +742,23 @@ mod test {
         let max_len = 8;
         let mut encoder = TransferCoding::length(max_len as u64);
 
-        let dst = &mut WriteBuf::<1024>::default();
+        let dst = &mut BytesMut::default();
 
         let msg1 = Bytes::from("foo bar");
         encoder.encode(msg1, dst);
 
-        assert_eq!(dst.buf(), b"foo bar");
+        assert_eq!(dst.as_ref(), b"foo bar");
 
         for _ in 0..8 {
             let msg2 = Bytes::from("baz");
             encoder.encode(msg2, dst);
 
-            assert_eq!(dst.buf().len(), max_len);
-            assert_eq!(dst.buf(), b"foo barb");
+            assert_eq!(dst.as_ref().len(), max_len);
+            assert_eq!(dst.as_ref(), b"foo barb");
         }
 
         encoder.encode_eof(dst);
-        assert_eq!(dst.buf().len(), max_len);
-        assert_eq!(dst.buf(), b"foo barb");
+        assert_eq!(dst.as_ref().len(), max_len);
+        assert_eq!(dst.as_ref(), b"foo barb");
     }
 }

@@ -1,7 +1,6 @@
-use futures_util::StreamExt;
 use xitca_client::Client;
 use xitca_http::{
-    body::ResponseBody,
+    body::{BodyExt, ResponseBody},
     bytes::{Bytes, BytesMut},
     h3,
     http::{Method, Request, RequestExt, Response, Version, header},
@@ -111,8 +110,10 @@ async fn handle(req: Request<RequestExt<h3::RequestBody>>) -> Result<Response<Re
 
             let mut buf = BytesMut::new();
 
-            while let Some(bytes) = body.next().await {
-                buf.extend_from_slice(&bytes?);
+            while let Some(bytes) = body.frame().await {
+                if let Some(bytes) = bytes?.data_ref() {
+                    buf.extend_from_slice(bytes);
+                }
             }
 
             assert_eq!(buf.len(), length);

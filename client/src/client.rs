@@ -1,6 +1,5 @@
 use core::{net::SocketAddr, pin::Pin};
 
-use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
 use xitca_io::net::{TcpSocket, TcpStream};
 
@@ -78,7 +77,7 @@ impl Client {
     #[inline]
     pub fn request<B, E>(&self, req: http::Request<B>) -> RequestBuilder<'_>
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: xitca_http::body::Body<Data = Bytes, Error = E> + Send + 'static,
         BodyError: From<E>,
     {
         RequestBuilder::new(req, self)

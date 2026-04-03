@@ -23,6 +23,13 @@ impl DateTime for DT {
         f(&self.0)
     }
 
+    fn with_date_header<F, O>(&self, _: F) -> O
+    where
+        F: FnOnce(&http::HeaderValue) -> O,
+    {
+        todo!()
+    }
+
     fn now(&self) -> Instant {
         todo!()
     }

@@ -6,6 +6,7 @@ mod body;
 mod builder;
 mod dispatcher;
 mod error;
+mod io;
 mod service;
 
 pub use self::body::RequestBody;

@@ -1,8 +1,35 @@
 # unreleased 0.9.0
+## Add
+- add trailers support for http/1.1, http/2, http/3
+
 ## Change
+- use `http-body` crate for generic http body type and streaming interface
+
+    `futures::Stream` -> `http_body::Body`
+    
+    `Bytes` -> `http_body::Frame<Bytes>`
+
+- use `http-body-util` crate for concrete http body type
+
+    `Once` -> `http_body_util::Full`
+
+    `NoneBody` -> `http_body_util::Empty`
+
+    `Either` -> `http_body_util::Either`
+- `body::ResponseBody` methods rename
+
+    `none` -> removed
+
+    `box_stream` -> `boxed`
+
+    `stream` -> `body`
+
 - update `xitca-io` to `0.6.0`
 - update `xitca-tls` to `0.6.0`
 - use completion based API for all I/O operations
+
+## Remove
+- remove all `futures::Stream` trait interface
 
 # 0.8.2
 ## Fix

@@ -10,7 +10,7 @@ use core::{
     task::{Context, Poll},
 };
 
-use futures_core::stream::Stream;
+use crate::body::{Body, Frame, SizeHint};
 use pin_project_lite::pin_project;
 
 /// Some often used header value.
@@ -215,19 +215,28 @@ where
     }
 }
 
-impl<B> Stream for RequestExt<B>
+impl<B> Body for RequestExt<B>
 where
-    B: Stream,
+    B: Body,
 {
-    type Item = B::Item;
+    type Data = B::Data;
+    type Error = B::Error;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().body.poll_next(cx)
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<core::result::Result<Frame<Self::Data>, Self::Error>>> {
+        self.project().body.poll_frame(cx)
     }
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
         self.body.size_hint()
     }
 }

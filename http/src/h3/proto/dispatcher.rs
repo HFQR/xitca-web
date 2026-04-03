@@ -6,11 +6,11 @@ use core::{
     pin::pin,
 };
 
+use crate::body::Body;
 use ::h3::{
     quic::SendStream,
     server::{self, RequestStream},
 };
-use futures_core::stream::Stream;
 use xitca_io::net::QuicStream;
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -35,7 +35,7 @@ impl<'a, S, ReqB, ResB, BE> Dispatcher<'a, S, ReqB>
 where
     S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
-    ResB: Stream<Item = Result<Bytes, BE>>,
+    ResB: Body<Data = Bytes, Error = BE>,
     BE: fmt::Debug,
     ReqB: From<RequestBody>,
 {
@@ -99,7 +99,7 @@ async fn h3_handler<'a, Fut, C, ResB, SE, BE>(
 where
     Fut: Future<Output = Result<Response<ResB>, SE>> + 'a,
     C: SendStream<Bytes>,
-    ResB: Stream<Item = Result<Bytes, BE>>,
+    ResB: Body<Data = Bytes, Error = BE>,
 {
     let (parts, body) = fut.await.map_err(Error::Service)?.into_parts();
     let res = Response::from_parts(parts, ());
@@ -107,9 +107,16 @@ where
 
     let mut body = pin!(body);
 
-    while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-        let bytes = res.map_err(Error::Body)?;
-        stream.send_data(bytes).await?;
+    while let Some(res) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+        let frame = res.map_err(Error::Body)?;
+        if frame.is_data() {
+            let bytes = frame.into_data().unwrap();
+            stream.send_data(bytes).await?;
+        } else {
+            let trailers = frame.into_trailers().unwrap();
+            stream.send_trailers(trailers).await?;
+            break;
+        }
     }
 
     stream.finish().await?;

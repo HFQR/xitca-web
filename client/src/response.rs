@@ -5,7 +5,6 @@ use core::{
     pin::{Pin, pin},
     time::Duration,
 };
-use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
 use tracing::debug;
 use xitca_http::{bytes::BytesMut, http};
@@ -121,6 +120,8 @@ impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
     where
         B: Collectable,
     {
+        use xitca_http::body::Body;
+
         let (res, body) = self.res.into_parts();
         let mut timer = self.timer;
 
@@ -140,15 +141,19 @@ impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
         timer.as_mut().reset(Instant::now() + self.timeout);
 
         loop {
-            match poll_fn(|cx| body.as_mut().poll_next(cx)).timeout(timer.as_mut()).await {
+            match poll_fn(|cx| body.as_mut().poll_frame(cx)).timeout(timer.as_mut()).await {
                 Ok(Some(res)) => {
-                    let buf = match res {
-                        Ok(buf) => buf,
+                    let frame = match res {
+                        Ok(frame) => frame,
                         // all error path should destroy connection on drop.
                         Err(e) => {
                             body.destroy_on_drop();
                             return Err(e.into());
                         }
+                    };
+
+                    let Ok(buf) = frame.into_data() else {
+                        continue;
                     };
 
                     b.try_extend_from_slice(&buf)?;

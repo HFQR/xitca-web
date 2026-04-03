@@ -5,7 +5,7 @@ use httparse::{ParserConfig, Status};
 use super::context::Context;
 use xitca_http::{
     bytes::BytesMut,
-    h1::proto::{codec::TransferCoding, error::ProtoError, header::HeaderIndex},
+    h1::proto::{error::ProtoError, header::HeaderIndex, trasnder_coding::TransferCoding},
     http::{Response, StatusCode, Version},
 };
 

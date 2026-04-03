@@ -1,9 +1,7 @@
 use core::{marker::PhantomData, time::Duration};
 
-use futures_core::Stream;
-
 use crate::{
-    body::{BodyError, BoxBody, Once},
+    body::{Body, BodyError, BoxBody, Full},
     bytes::Bytes,
     client::Client,
     error::Error,
@@ -67,7 +65,7 @@ impl RequestBuilder<'_, marker::Http> {
     pub fn multipart(mut self, parts: Vec<crate::multipart::Part>) -> Self {
         let form = crate::multipart::Form::new(parts);
         self.headers_mut().insert(CONTENT_TYPE, form.content_type());
-        self.method(Method::POST).stream(form)
+        self.method(Method::POST).stream(crate::body::BodyStream::new(form))
     }
 
     /// Use pre allocated bytes as request body.
@@ -80,14 +78,14 @@ impl RequestBuilder<'_, marker::Http> {
         let bytes = Bytes::from(body);
         let val = HeaderValue::from(bytes.len());
         self.headers_mut().insert(CONTENT_LENGTH, val);
-        self.map_body(Once::new(bytes))
+        self.map_body(Full::new(bytes))
     }
 
     /// Use streaming type as request body.
     #[inline]
     pub fn stream<B, E>(self, body: B) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Body<Data = Bytes, Error = E> + Send + 'static,
         E: Into<BodyError>,
     {
         self.map_body(body)
@@ -102,7 +100,7 @@ impl RequestBuilder<'_, marker::Http> {
 impl<'a, M> RequestBuilder<'a, M> {
     pub(crate) fn new<B, E>(req: http::Request<B>, client: &'a Client) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Body<Data = Bytes, Error = E> + Send + 'static,
         E: Into<BodyError>,
     {
         Self {
@@ -218,7 +216,7 @@ impl<'a, M> RequestBuilder<'a, M> {
 
     fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a, M>
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Body<Data = Bytes, Error = E> + Send + 'static,
         E: Into<BodyError>,
     {
         self.req = self.req.map(|_| BoxBody::new(b));

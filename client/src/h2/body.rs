@@ -4,9 +4,7 @@ use core::{
     task::{Context, Poll, ready},
 };
 
-use xitca_http::h2::body::RequestBody;
-
-use futures_core::stream::Stream;
+use xitca_http::body::{Body, Frame, SizeHint};
 
 use crate::{
     body::BodyError,
@@ -14,20 +12,20 @@ use crate::{
 };
 
 type Tx = h2::SendStream<Bytes>;
+type Rx = h2::RecvStream;
 
 #[allow(dead_code)]
 /// Though the naming is ResponseBody. It's actually a bi-directional
 /// streaming type that able to add additional stream message to server.
 pub struct ResponseBody {
-    /// When used by client [RequestBody] is used as part of response body.
-    rx: RequestBody,
+    rx: Rx,
     // TODO: use new type and import from xitca_http?
     pub(crate) tx: Tx,
     want_poll_cap: bool,
 }
 
 impl ResponseBody {
-    pub(super) fn new(tx: Tx, rx: RequestBody) -> Self {
+    pub(super) fn new(tx: Tx, rx: Rx) -> Self {
         Self {
             tx,
             rx,
@@ -63,11 +61,24 @@ impl ResponseBody {
     }
 }
 
-impl Stream for ResponseBody {
-    type Item = Result<Bytes, BodyError>;
+impl Body for ResponseBody {
+    type Data = Bytes;
+    type Error = BodyError;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.get_mut().rx).poll_next(cx)
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
+        self.get_mut()
+            .rx
+            .poll_data(cx)
+            .map_ok(Frame::data)
+            .map_err(|e| e.into())
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.rx.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::default()
     }
 }

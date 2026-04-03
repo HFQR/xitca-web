@@ -2,8 +2,11 @@ use core::{future::poll_fn, pin::Pin};
 
 use std::io;
 
-use futures_core::stream::Stream;
-use xitca_http::{body::BodySize, bytes::Buf, h1::proto::codec::TransferCoding};
+use xitca_http::{
+    body::{Body, BodySize},
+    bytes::Buf,
+    h1::proto::trasnder_coding::TransferCoding,
+};
 use xitca_io::io::{AsyncIo, Interest};
 
 use crate::{
@@ -26,7 +29,7 @@ pub(crate) async fn send<S, B, E>(
 ) -> Result<(Response<()>, BytesMut, TransferCoding, bool), Error>
 where
     S: AsyncIo + Unpin,
-    B: Stream<Item = Result<Bytes, E>> + Unpin,
+    B: Body<Data = Bytes, Error = E> + Unpin,
     BodyError: From<E>,
 {
     let mut buf = BytesMut::new();
@@ -55,9 +58,9 @@ where
     let mut is_expect = req.headers().contains_key(EXPECT);
 
     if is_expect {
-        match BodySize::from_stream(req.body()) {
+        match BodySize::from_body(req.body()) {
             // remove expect header if there is no body.
-            BodySize::None | BodySize::Sized(0) => {
+            BodySize::None | BodySize::Exact(0) => {
                 let crate::http::header::Entry::Occupied(entry) = req.headers_mut().entry(EXPECT) else {
                     unreachable!()
                 };
@@ -153,18 +156,20 @@ async fn send_body<S, B, E>(
 ) -> Result<(), Error>
 where
     S: AsyncIo,
-    B: Stream<Item = Result<Bytes, E>> + Unpin,
+    B: Body<Data = Bytes, Error = E> + Unpin,
     BodyError: From<E>,
 {
     if !encoder.is_eof() {
         let mut body = Pin::new(body);
 
         // poll request body and encode.
-        while let Some(bytes) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let bytes = bytes.map_err(BodyError::from)?;
-            encoder.encode(bytes, buf);
-            // we are not in a hurry here so write before handling next chunk.
-            write_all_buf(stream, buf).await?;
+        while let Some(frame) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+            let frame = frame.map_err(BodyError::from)?;
+            if let Ok(bytes) = frame.into_data() {
+                encoder.encode(bytes, buf);
+                // we are not in a hurry here so write before handling next chunk.
+                write_all_buf(stream, buf).await?;
+            }
         }
 
         // body is finished. encode eof and clean up.

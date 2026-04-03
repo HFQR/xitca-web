@@ -1,60 +1,202 @@
 use core::{
-    fmt,
+    mem,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use std::io;
 
-use futures_core::stream::Stream;
+use pin_project_lite::pin_project;
+use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 
-use crate::bytes::Bytes;
+use crate::{
+    body::{Body, BodySize, BoxBody, Frame, SizeHint},
+    bytes::{Bytes, BytesMut},
+    error::BodyError,
+};
 
-/// Buffered stream of request body chunk.
-///
-/// impl [Stream] trait to produce chunk as [Bytes] type in async manner.
-pub struct RequestBody(Option<Body>);
+use super::{
+    io::{BufIo, NotifierIo},
+    proto::{
+        encode::CONTINUE_BYTES,
+        trasnder_coding::{ChunkResult, TransferCoding},
+    },
+};
 
-impl fmt::Debug for RequestBody {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("RequestBody")
+pub use crate::body::RequestBody;
+
+pub(super) fn body<Io>(
+    io: NotifierIo<Io>,
+    is_expect: bool,
+    limit: usize,
+    decoder: TransferCoding,
+    read_buf: BytesMut,
+) -> RequestBody
+where
+    Io: AsyncBufRead + AsyncBufWrite + 'static,
+{
+    let size = match decoder {
+        TransferCoding::Length(len) => BodySize::Exact(len),
+        TransferCoding::Eof => BodySize::None,
+        _ => BodySize::Unknown,
+    };
+
+    let body = BodyInner {
+        io,
+        decoder: Decoder {
+            decoder,
+            limit,
+            read_buf,
+        },
+    };
+
+    let state = if is_expect {
+        State::ExpectWrite {
+            fut: async {
+                let (res, _) = body.io.io().write_all(CONTINUE_BYTES).await;
+                res.map(|_| body)
+            },
+        }
+    } else {
+        State::Body { body }
+    };
+
+    RequestBody::Boxed(BoxBody::new(BodyReader {
+        size,
+        chunk_read,
+        state,
+    }))
+}
+
+pin_project! {
+    #[project = StateProj]
+    #[project_replace = StateProjReplace]
+    enum State<Io, FutC, FutE> {
+        Body {
+            body: BodyInner<Io>
+        },
+        ChunkRead {
+            #[pin]
+            fut: FutC
+        },
+        ExpectWrite {
+            #[pin]
+            fut: FutE,
+        },
+        None,
     }
 }
 
-type Body = Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>;
-
-impl Default for RequestBody {
-    fn default() -> Self {
-        Self::none()
+pin_project! {
+    struct BodyReader<Io, F, FutC, FutE> {
+        size: BodySize,
+        chunk_read: F,
+        #[pin]
+        state: State<Io, FutC, FutE>
     }
 }
 
-impl RequestBody {
-    pub(super) fn stream<S>(stream: S) -> Self
-    where
-        S: Stream<Item = io::Result<Bytes>> + 'static,
-    {
-        RequestBody(Some(Box::pin(stream)))
+struct BodyInner<Io> {
+    io: NotifierIo<Io>,
+    decoder: Decoder,
+}
+
+async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<(usize, BodyInner<Io>)>
+where
+    Io: AsyncBufRead,
+{
+    let (res, r_buf) = body.decoder.read_buf.split().read(body.io.io()).await;
+    body.decoder.read_buf.unsplit(r_buf);
+    let read = res?;
+    Ok((read, body))
+}
+
+impl<Io, F, FutC, FutE> Body for BodyReader<Io, F, FutC, FutE>
+where
+    Io: AsyncBufRead,
+    F: Fn(BodyInner<Io>) -> FutC,
+    FutC: Future<Output = io::Result<(usize, BodyInner<Io>)>>,
+    FutE: Future<Output = io::Result<BodyInner<Io>>>,
+{
+    type Data = Bytes;
+    type Error = BodyError;
+
+    #[inline]
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let mut this = self.project();
+        loop {
+            match this.state.as_mut().project() {
+                StateProj::Body { body } => {
+                    match body.decoder.decode() {
+                        ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(Frame::data(bytes)))),
+                        ChunkResult::Trailers(trailers) => return Poll::Ready(Some(Ok(Frame::trailers(trailers)))),
+                        ChunkResult::Err(e) => return Poll::Ready(Some(Err(e.into()))),
+                        ChunkResult::InsufficientData => body.decoder.limit_check()?,
+                        _ => return Poll::Ready(None),
+                    }
+
+                    let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else {
+                        unreachable!()
+                    };
+                    this.state.as_mut().project_replace(State::ChunkRead {
+                        fut: (this.chunk_read)(body),
+                    });
+                }
+                StateProj::ChunkRead { fut } => {
+                    let (read, body) = ready!(fut.poll(cx))?;
+                    if read == 0 {
+                        this.state.as_mut().project_replace(State::None);
+                        return Poll::Ready(None);
+                    }
+                    this.state.as_mut().project_replace(State::Body { body });
+                }
+                StateProj::ExpectWrite { fut } => {
+                    let body = ready!(fut.poll(cx))?;
+                    this.state.as_mut().project_replace(State::ChunkRead {
+                        fut: (this.chunk_read)(body),
+                    });
+                }
+                StateProj::None => return Poll::Ready(None),
+            }
+        }
     }
 
-    pub(super) fn none() -> Self {
-        Self(None)
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
+        self.size.size_hint()
     }
 }
 
-impl Stream for RequestBody {
-    type Item = io::Result<Bytes>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
-        match self.get_mut().0 {
-            Some(ref mut body) => body.as_mut().poll_next(cx),
-            None => Poll::Ready(None),
+impl<Io> Drop for BodyInner<Io> {
+    fn drop(&mut self) {
+        if self.decoder.decoder.is_eof() {
+            let buf = mem::take(&mut self.decoder.read_buf);
+            self.io.notify(buf);
         }
     }
 }
 
-impl From<RequestBody> for crate::body::RequestBody {
-    fn from(body: RequestBody) -> Self {
-        Self::H1(body)
+struct Decoder {
+    decoder: TransferCoding,
+    limit: usize,
+    read_buf: BytesMut,
+}
+
+impl Decoder {
+    fn decode(&mut self) -> ChunkResult {
+        self.decoder.decode(&mut self.read_buf)
+    }
+
+    fn limit_check(&self) -> io::Result<()> {
+        if self.read_buf.len() < self.limit {
+            return Ok(());
+        }
+
+        let msg = format!(
+            "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
+            self.limit,
+            self.read_buf.len()
+        );
+        Err(io::Error::other(msg))
     }
 }

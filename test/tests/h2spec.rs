@@ -24,7 +24,7 @@ mod inner {
         HttpServiceBuilder,
         bytes::Bytes,
         config::HttpServiceConfig,
-        h2::dispatcher_uring::{Frame, RequestBody},
+        h2::dispatcher::{Frame, RequestBody},
         http::{Request, RequestExt, Response},
     };
     use xitca_service::{ServiceExt, fn_service};

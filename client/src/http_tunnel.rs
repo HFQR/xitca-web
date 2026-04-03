@@ -9,6 +9,7 @@ use std::io;
 
 use futures_core::stream::Stream;
 use futures_sink::Sink;
+use xitca_http::body::Body;
 use xitca_io::io::{AsyncIo, Interest, Ready};
 
 use super::{
@@ -253,10 +254,14 @@ impl TunnelIo {
         if interest.is_readable() {
             if self.adaptor.read_buf.is_some() {
                 ready |= Ready::READABLE;
-            } else if let Poll::Ready(res) = Pin::new(&mut *body).poll_next(cx) {
+            } else if let Poll::Ready(res) = Pin::new(&mut *body).poll_frame(cx) {
                 ready |= Ready::READABLE;
                 match res {
-                    Some(Ok(bytes)) => self.adaptor.read_buf = Some(bytes),
+                    Some(Ok(frame)) => {
+                        if let Ok(bytes) = frame.into_data() {
+                            self.adaptor.read_buf = Some(bytes);
+                        }
+                    }
                     Some(Err(e)) => self.adaptor.read_err = Some(io::Error::other(e)),
                     None => self.adaptor.read_closed = true,
                 }

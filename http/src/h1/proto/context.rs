@@ -26,6 +26,8 @@ impl ContextState {
     const HEAD: u8 = 0b_0100;
     // Enable when current connection is supposed to be closed after current response is sent.
     const CLOSE: u8 = 0b_1000;
+    // Enable when current request is HTTP/1.0.
+    const HTTP_10: u8 = 0b1_0000;
 
     const fn new() -> Self {
         Self(0)
@@ -125,6 +127,12 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
         self.state.insert(ContextState::HEAD)
     }
 
+    /// Set Context's state to HTTP/1.0 request version.
+    #[inline]
+    pub fn set_http10(&mut self) {
+        self.state.insert(ContextState::HTTP_10)
+    }
+
     /// Set Context's state to Close.
     #[inline]
     pub fn set_close(&mut self) {
@@ -153,6 +161,12 @@ impl<'a, D, const HEADER_LIMIT: usize> Context<'a, D, HEADER_LIMIT> {
     #[inline]
     pub const fn is_head_method(&self) -> bool {
         self.state.contains(ContextState::HEAD)
+    }
+
+    /// Get HTTP/1.0 request version state.
+    #[inline]
+    pub const fn is_http10(&self) -> bool {
+        self.state.contains(ContextState::HTTP_10)
     }
 
     /// Return true if connection type is `Connection: Close`.

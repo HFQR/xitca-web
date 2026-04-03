@@ -39,7 +39,10 @@ where
 
         let (parts, body) = res.res.into_parts();
         let body = try_decoder(&parts.headers, body).map_err(|e| Error::Std(Box::new(e)))?;
-        res.res = http::Response::from_parts(parts, ResponseBody::Unknown(Box::pin(body)));
+        res.res = http::Response::from_parts(
+            parts,
+            ResponseBody::Unknown(Box::pin(crate::body::BodyStream::new(body))),
+        );
         Ok(res)
     }
 }

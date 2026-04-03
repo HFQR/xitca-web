@@ -68,8 +68,6 @@ where
 #[derive(Debug)]
 pub enum TimeoutError {
     TlsAccept,
-    #[cfg(feature = "http2")]
-    H2Handshake,
 }
 
 impl<S, B> From<()> for HttpServiceError<S, B> {

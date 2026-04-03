@@ -6,18 +6,13 @@
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use std::{
-    convert::Infallible,
-    io,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::{convert::Infallible, io};
 
-use futures_core::stream::Stream;
 use xitca_http::{
     HttpServiceBuilder,
+    body::Full,
     bytes::Bytes,
-    h2::dispatcher_uring::{Frame, RequestBody},
+    h2::RequestBody,
     http::{Request, RequestExt, Response, const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
 };
 use xitca_service::{ServiceExt, fn_service};
@@ -35,10 +30,10 @@ fn main() -> io::Result<()> {
         .wait()
 }
 
-async fn handler(_: Request<RequestExt<RequestBody>>) -> Result<Response<Once>, Infallible> {
+async fn handler(_: Request<RequestExt<RequestBody>>) -> Result<Response<Full<Bytes>>, Infallible> {
     Ok(Response::builder()
         .header(CONTENT_TYPE, TEXT_UTF8)
-        .body(Once::new())
+        .body(Full::new(Bytes::from_static(b"Hello, World!")))
         .unwrap())
 }
 
@@ -48,27 +43,6 @@ async fn handler(_: Request<RequestExt<RequestBody>>) -> Result<Response<Once>, 
 //         .body(xitca_http::body::Once::new(Bytes::from_static(b"Hello World!")))
 //         .unwrap())
 // }
-
-struct Once(Option<Frame>);
-
-impl Once {
-    fn new() -> Self {
-        Self(Some(Frame::Data(Bytes::from_static(b"Hello World!"))))
-    }
-}
-
-impl Stream for Once {
-    type Item = Result<Frame, Infallible>;
-
-    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(self.get_mut().0.take().map(Ok))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = b"Hello World!".len();
-        (len, Some(len))
-    }
-}
 
 // // rustls configuration.
 // fn tls_config() -> std::sync::Arc<rustls::ServerConfig> {

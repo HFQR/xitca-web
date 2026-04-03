@@ -1,8 +1,8 @@
 use core::{cmp, future::poll_fn, pin::pin};
 
 use ::h2::{Reason, client};
-use futures_core::stream::Stream;
 use xitca_http::{
+    body::Body,
     date::DateTime,
     http::{
         self,
@@ -26,27 +26,27 @@ pub(crate) async fn send<B, E>(
     req: http::Request<B>,
 ) -> Result<http::Response<ResponseBody>, Error>
 where
-    B: Stream<Item = Result<Bytes, E>>,
+    B: Body<Data = Bytes, Error = E>,
     BodyError: From<E>,
 {
     let (parts, body) = req.into_parts();
     let mut req = http::Request::from_parts(parts, ());
 
     // Content length and is body is in eof state.
-    let is_eof = match BodySize::from_stream(&body) {
+    let is_eof = match BodySize::from_body(&body) {
         BodySize::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
             true
         }
-        BodySize::Stream => {
+        BodySize::Unknown => {
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
-        BodySize::Sized(0) => {
+        BodySize::Exact(0) => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
             true
         }
-        BodySize::Sized(len) => {
+        BodySize::Exact(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
@@ -65,7 +65,7 @@ where
     req.headers_mut().remove(HOST);
 
     if !req.headers().contains_key(DATE) {
-        let date = date.with_date(HeaderValue::from_bytes).unwrap();
+        let date = date.with_date_header(Clone::clone);
         req.headers_mut().append(DATE, date);
     }
 
@@ -95,8 +95,11 @@ where
     if !is_eof {
         let mut body = pin!(body);
 
-        while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let mut chunk = res.map_err(BodyError::from)?;
+        while let Some(res) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+            let frame = res.map_err(BodyError::from)?;
+            let Ok(mut chunk) = frame.into_data() else {
+                continue;
+            };
 
             while !chunk.is_empty() {
                 let len = chunk.len();
@@ -122,7 +125,7 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
-        res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body.into())))
+        res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body)))
     };
 
     Ok(res)

@@ -4,7 +4,10 @@ use tokio::{
     task::{JoinHandle, spawn},
     time::{Instant, interval},
 };
-use xitca_http::date::{DateTime, DateTimeState};
+use xitca_http::{
+    date::{DateTime, DateTimeState},
+    http::header::HeaderValue,
+};
 
 pub(crate) struct DateTimeService {
     state: Arc<RwLock<DateTimeState>>,
@@ -59,6 +62,14 @@ impl DateTime for DateTimeHandle<'_> {
     {
         let state = self.read().unwrap();
         f(&state.date[..])
+    }
+
+    fn with_date_header<F, O>(&self, f: F) -> O
+    where
+        F: FnOnce(&HeaderValue) -> O,
+    {
+        let state = self.read().unwrap();
+        f(&state.date_header)
     }
 
     fn now(&self) -> Instant {

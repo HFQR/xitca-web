@@ -1,5 +1,7 @@
-use futures_core::stream::Stream;
-use xitca_http::h1::proto::{codec::TransferCoding, error::ProtoError};
+use xitca_http::{
+    body::Body,
+    h1::proto::{error::ProtoError, trasnder_coding::TransferCoding},
+};
 
 use crate::{
     body::BodySize,
@@ -16,7 +18,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         req: &mut Request<B>,
     ) -> Result<TransferCoding, ProtoError>
     where
-        B: Stream,
+        B: Body,
     {
         let method = req.method();
         let uri = req.uri();
@@ -41,7 +43,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         buf.put_slice(path_and_query);
         buf.put_slice(version);
 
-        let size = BodySize::from_stream(req.body());
+        let size = BodySize::from_body(req.body());
 
         let headers = req.headers_mut();
 
