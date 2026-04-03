@@ -3,19 +3,19 @@
 - add trailers support for http/1.1, http/2, http/3
 
 ## Change
-- use `http-body` crate for generic http body type and streaming interface
+- use `http-body-alt` crate for generic http body type and streaming interface
 
-    `futures::Stream` -> `http_body::Body`
+    `futures::Stream` -> `http_body_alt::Body`
     
-    `Bytes` -> `http_body::Frame<Bytes>`
+    `Bytes` -> `http_body_alt::Frame<Bytes>`
 
-- use `http-body-util` crate for concrete http body type
+- use `http-body-alt` crate for concrete http body type
 
-    `Once` -> `http_body_util::Full`
+    `Once` -> `http_body_alt::Full`
 
-    `NoneBody` -> `http_body_util::Empty`
+    `NoneBody` -> `http_body_alt::Empty`
 
-    `Either` -> `http_body_util::Either`
+    `Either` -> `http_body_alt::Either`
 - `body::ResponseBody` methods rename
 
     `none` -> removed

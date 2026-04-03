@@ -32,3 +32,4 @@ xitca-tls= { path = "../tls" }
 xitca-io= { path = "../io" }
 xitca-server = { path = "../server" }
 xitca-http = { path = "../http" }
+http-body-alt = { path = "../http-body" }
