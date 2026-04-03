@@ -22,37 +22,18 @@ mod inner {
     use futures_util::Stream;
     use xitca_http::{
         HttpServiceBuilder,
+        body::Full,
         bytes::Bytes,
         config::HttpServiceConfig,
-        h2::dispatcher::{Frame, RequestBody},
+        h2::RequestBody,
         http::{Request, RequestExt, Response},
     };
     use xitca_service::{ServiceExt, fn_service};
 
-    struct Once(Option<Frame>);
-
-    impl Once {
-        fn new() -> Self {
-            Self(Some(Frame::Data(Bytes::new())))
-        }
-    }
-
-    impl Stream for Once {
-        type Item = Result<Frame, Infallible>;
-
-        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            Poll::Ready(self.get_mut().0.take().map(Ok))
-        }
-
-        fn size_hint(&self) -> (usize, Option<usize>) {
-            (0, Some(0))
-        }
-    }
-
     async fn handler(
         _: Request<RequestExt<RequestBody>>,
-    ) -> Result<Response<Once>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Response::new(Once::new()))
+    ) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Response::new(Full::new(Bytes::new())))
     }
 
     /// Bind to port 0 and immediately release it to get a free port number.

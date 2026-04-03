@@ -73,17 +73,14 @@ where
     #[inline]
     fn encode_version_status_reason(&self, buf: &mut BytesMut, status: StatusCode) {
         // encode version, status code and reason
-        if self.is_http10() {
-            buf.extend_from_slice(b"HTTP/1.0 ");
-        } else {
-            match status {
-                StatusCode::OK => {
-                    buf.extend_from_slice(b"HTTP/1.1 200 OK");
-                    return;
-                }
-                _ => buf.extend_from_slice(b"HTTP/1.1 "),
+        match (status, self.is_http10()) {
+            (StatusCode::OK, false) => {
+                buf.extend_from_slice(b"HTTP/1.1 200 OK");
+                return;
             }
-        }
+            (_, false) => buf.extend_from_slice(b"HTTP/1.1 "),
+            (_, true) => buf.extend_from_slice(b"HTTP/1.0 "),
+        };
 
         // a reason MUST be written, as many parsers will expect it.
         let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();

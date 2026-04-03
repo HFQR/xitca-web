@@ -9,7 +9,6 @@ use std::{
     time::Duration,
 };
 
-use futures_util::Stream;
 use xitca_http::{
     HttpServiceBuilder,
     body::{Body, ResponseBody},
