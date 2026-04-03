@@ -153,7 +153,7 @@ where
     }
 }
 
-#[cfg(feature = "multipart")]
+#[cfg(any(feature = "compress", feature = "multipart"))]
 impl<S> BodyStream<S> {
     pub(crate) fn new(stream: S) -> Self {
         Self { stream }
