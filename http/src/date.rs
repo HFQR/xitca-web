@@ -113,7 +113,6 @@ impl Write for DateTimeState {
 
 impl DateTime for DateTimeHandle {
     // TODO: remove this allow
-    #[cfg(feature = "http1")]
     #[inline]
     fn with_date<F, O>(&self, f: F) -> O
     where
