@@ -10,16 +10,10 @@
 
 #[cfg(feature = "io-uring")]
 mod inner {
-    use core::{
-        convert::Infallible,
-        pin::Pin,
-        task::{Context, Poll},
-        time::Duration,
-    };
+    use core::time::Duration;
 
     use std::{net::TcpListener, process::Command};
 
-    use futures_util::Stream;
     use xitca_http::{
         HttpServiceBuilder,
         body::Full,
