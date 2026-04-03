@@ -6,7 +6,7 @@ use std::{
 
 use xitca_client::Client;
 use xitca_http::{
-    body::{BodyExt, ResponseBody},
+    body::{BodyExt, Frame, ResponseBody},
     bytes::{Bytes, BytesMut},
     h1,
     http::{
@@ -297,7 +297,9 @@ async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<Re
                 .to_str()?
                 .parse::<usize>()?;
 
-            let bytes = body.frame().await.unwrap()?.into_data().unwrap();
+            let Frame::Data(bytes) = body.frame().await.unwrap()? else {
+                panic!("not expecting trailers")
+            };
 
             assert!(bytes.len() < length);
 

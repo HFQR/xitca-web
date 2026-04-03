@@ -27,7 +27,7 @@ use xitca_unsafe_collection::{
 };
 
 use crate::{
-    body::{Body, BodySize},
+    body::{Body, SizeHint},
     bytes::Bytes,
     config::HttpServiceConfig,
     date::{DateTime, DateTimeHandle},
@@ -75,18 +75,29 @@ struct DecodeContext<'a, S> {
     date: &'a DateTimeHandle,
 }
 
-type Frame = http_body::Frame<Bytes>;
+type Frame = crate::body::Frame<Bytes>;
 
-impl BodySize {
+trait BodySize {
+    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Self;
+
+    /// Subtract `len` bytes received in a DATA frame.
+    /// Returns `Err(())` if this would underflow (overflow: more data than declared).
+    fn dec(&mut self, len: usize) -> io::Result<()>;
+
+    /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
+    fn ensure_zero(&self) -> io::Result<()>;
+}
+
+impl BodySize for SizeHint {
     fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Self {
         if is_end_stream {
-            BodySize::None
+            Self::None
         } else {
             headers
                 .get(CONTENT_LENGTH)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.trim().parse::<u64>().ok())
-                .map_or(BodySize::Unknown, BodySize::Exact)
+                .map_or(Self::Unknown, Self::Exact)
         }
     }
 
@@ -94,9 +105,9 @@ impl BodySize {
     /// Returns `Err(())` if this would underflow (overflow: more data than declared).
     fn dec(&mut self, len: usize) -> io::Result<()> {
         match self {
-            BodySize::Unknown => Ok(()),
-            BodySize::None => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded")),
-            BodySize::Exact(rem) => {
+            Self::Unknown => Ok(()),
+            Self::None => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded")),
+            Self::Exact(rem) => {
                 *rem = rem
                     .checked_sub(len as u64)
                     .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded"))?;
@@ -108,8 +119,8 @@ impl BodySize {
     /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
     fn ensure_zero(&self) -> io::Result<()> {
         match self {
-            BodySize::Unknown | BodySize::None | BodySize::Exact(0) => Ok(()),
-            BodySize::Exact(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length underflow")),
+            Self::Unknown | Self::None | Self::Exact(0) => Ok(()),
+            Self::Exact(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length underflow")),
         }
     }
 }
@@ -204,7 +215,7 @@ pub(super) struct RecvState {
     /// `poll_next` call so the caller knows the body was truncated.
     pub(super) error: Option<BodyError>,
     /// RFC 7540 §8.1.2.6: tracks remaining expected DATA bytes.
-    content_length: BodySize,
+    content_length: SizeHint,
 }
 
 impl RecvState {
@@ -576,7 +587,7 @@ impl<'a, S> DecodeContext<'a, S> {
                     state.recv_state.window -= payload_len;
                     // Service may have dropped RequestBody early (RECV_CANCELED).
                     // Still track content-length above, but discard the payload.
-                    if !state.try_push_frame(Frame::data(payload)) {
+                    if !state.try_push_frame(Frame::Data(payload)) {
                         // Data discarded (RECV_CANCELED): replenish connection
                         // window so other streams don't stall.
                         inner.queue.push_window_update(payload_len);
@@ -945,7 +956,7 @@ impl<'a, S> DecodeContext<'a, S> {
                     drop(inner);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
-                state.try_push_frame(Frame::trailers(headers));
+                state.try_push_frame(Frame::Trailers(headers));
                 flow.remove_recv(id);
                 return Ok(None);
             }
@@ -1197,9 +1208,9 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
     let (mut parts, body) = res.into_parts();
 
-    let size = BodySize::from_body(&body);
+    let size = body.size_hint();
 
-    if let BodySize::Exact(size) = size {
+    if let SizeHint::Exact(size) = size {
         parts.headers.insert(CONTENT_LENGTH, size.into());
     }
 
@@ -1211,7 +1222,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
     let pseudo = headers::Pseudo::response(parts.status);
     let mut headers = headers::Headers::new(stream_id, pseudo, parts.headers);
 
-    let has_body = !matches!(size, BodySize::None);
+    let has_body = !matches!(size, SizeHint::None);
     if !has_body {
         headers.set_end_stream();
     }
@@ -1234,9 +1245,8 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                     });
                     break;
                 }
-                Some(Ok(frame)) => {
-                    if frame.is_data() {
-                        let mut bytes = frame.into_data().unwrap();
+                Some(Ok(frame)) => match frame {
+                    Frame::Data(mut bytes) => {
                         while !bytes.is_empty() {
                             let len = bytes.len();
 
@@ -1274,13 +1284,13 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                             let data = data::Data::new(stream_id, chunk);
                             ctx.borrow_mut().queue.push(Message::Data(data));
                         }
-                    } else if frame.is_trailers() {
-                        let header_map = frame.into_trailers().unwrap();
-                        let trailer = headers::Headers::trailers(stream_id, header_map);
+                    }
+                    Frame::Trailers(trailers) => {
+                        let trailer = headers::Headers::trailers(stream_id, trailers);
                         ctx.borrow_mut().queue.push(Message::Trailer(trailer));
                         break;
                     }
-                }
+                },
             }
         }
     }

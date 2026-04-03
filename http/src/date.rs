@@ -123,7 +123,6 @@ impl DateTime for DateTimeHandle {
         f(&date.date[..])
     }
 
-    #[cfg(feature = "http2")]
     #[inline]
     fn with_date_header<F, O>(&self, f: F) -> O
     where

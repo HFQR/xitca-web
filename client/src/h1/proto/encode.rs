@@ -4,7 +4,6 @@ use xitca_http::{
 };
 
 use crate::{
-    body::BodySize,
     bytes::{BufMut, BytesMut},
     http::{request::Request, version::Version},
 };
@@ -43,7 +42,7 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
         buf.put_slice(path_and_query);
         buf.put_slice(version);
 
-        let size = BodySize::from_body(req.body());
+        let size = req.body().size_hint();
 
         let headers = req.headers_mut();
 

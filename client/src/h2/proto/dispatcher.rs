@@ -1,8 +1,7 @@
 use core::{cmp, future::poll_fn, pin::pin};
 
-use ::h2::{Reason, client};
+use ::h2::client;
 use xitca_http::{
-    body::Body,
     date::DateTime,
     http::{
         self,
@@ -14,7 +13,7 @@ use xitca_http::{
 use xitca_io::io::{AsyncIo, PollIoAdapter};
 
 use crate::{
-    body::{BodyError, BodySize, ResponseBody},
+    body::{Body, BodyError, Frame, ResponseBody, SizeHint},
     bytes::Bytes,
     date::DateTimeHandle,
     h2::{Connection, Error, body::ResponseBody as H2ResponseBody},
@@ -33,20 +32,20 @@ where
     let mut req = http::Request::from_parts(parts, ());
 
     // Content length and is body is in eof state.
-    let is_eof = match BodySize::from_body(&body) {
-        BodySize::None => {
+    let is_eof = match body.size_hint() {
+        SizeHint::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
             true
         }
-        BodySize::Unknown => {
+        SizeHint::Unknown => {
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
-        BodySize::Exact(0) => {
+        SizeHint::Exact(0) => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
             true
         }
-        BodySize::Exact(len) => {
+        SizeHint::Exact(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
@@ -69,13 +68,9 @@ where
         req.headers_mut().append(DATE, date);
     }
 
-    let mut end_of_stream = is_eof;
+    let mut end_stream = is_eof;
 
     if req.method() == Method::CONNECT {
-        if !end_of_stream {
-            return Err(::h2::Error::from(Reason::PROTOCOL_ERROR).into());
-        }
-
         let protocol = req
             .headers_mut()
             .remove(PROTOCOL)
@@ -85,35 +80,39 @@ where
 
         req.extensions_mut().insert(protocol);
 
-        end_of_stream = false;
+        // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
+        end_stream = false;
     }
 
     let is_head_method = *req.method() == Method::HEAD;
 
-    let (fut, mut stream) = stream.send_request(req, end_of_stream)?;
+    let (fut, mut stream) = stream.send_request(req, end_stream)?;
 
     if !is_eof {
         let mut body = pin!(body);
 
         while let Some(res) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-            let frame = res.map_err(BodyError::from)?;
-            let Ok(mut chunk) = frame.into_data() else {
-                continue;
-            };
+            match res.map_err(BodyError::from)? {
+                Frame::Data(mut chunk) => {
+                    while !chunk.is_empty() {
+                        let len = chunk.len();
 
-            while !chunk.is_empty() {
-                let len = chunk.len();
+                        stream.reserve_capacity(len);
 
-                stream.reserve_capacity(len);
+                        let cap = poll_fn(|cx| stream.poll_capacity(cx))
+                            .await
+                            .expect("No capacity left. http2 request is dropped")?;
 
-                let cap = poll_fn(|cx| stream.poll_capacity(cx))
-                    .await
-                    .expect("No capacity left. http2 request is dropped")?;
+                        // Split chuck to writeable size and send to client.
+                        let bytes = chunk.split_to(cmp::min(cap, len));
 
-                // Split chuck to writeable size and send to client.
-                let bytes = chunk.split_to(cmp::min(cap, len));
-
-                stream.send_data(bytes, false)?;
+                        stream.send_data(bytes, false)?;
+                    }
+                }
+                Frame::Trailers(trailers) => {
+                    stream.send_trailers(trailers)?;
+                    break;
+                }
             }
         }
 

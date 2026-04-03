@@ -23,17 +23,17 @@ fn main() -> io::Result<()> {
             "http/2",
             "127.0.0.1:8080",
             fn_service(handler).enclosed(
-                HttpServiceBuilder::h2().io_uring().openssl(tls_config()?), // specify io_uring flavor of http service.
+                HttpServiceBuilder::h1().io_uring(), // specify io_uring flavor of http service.
             ),
         )?
         .build()
         .wait()
 }
 
-async fn handler(_: Request<RequestExt<RequestBody>>) -> Result<Response<Full<Bytes>>, Infallible> {
+async fn handler(_: Request<RequestExt<xitca_http::body::RequestBody>>) -> Result<Response<Full<Bytes>>, Infallible> {
     Ok(Response::builder()
         .header(CONTENT_TYPE, TEXT_UTF8)
-        .body(Full::new(Bytes::from_static(b"Hello, World!")))
+        .body(Full::new(Bytes::new()))
         .unwrap())
 }
 

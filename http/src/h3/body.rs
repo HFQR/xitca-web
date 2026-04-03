@@ -23,7 +23,7 @@ impl Body for RequestBody {
         self.get_mut()
             .0
             .poll_recv_data(cx)?
-            .map(|res| res.map(|buf| Ok(Frame::data(Bytes::copy_from_slice(buf.chunk())))))
+            .map(|res| res.map(|buf| Ok(Frame::Data(Bytes::copy_from_slice(buf.chunk())))))
     }
 
     fn is_end_stream(&self) -> bool {

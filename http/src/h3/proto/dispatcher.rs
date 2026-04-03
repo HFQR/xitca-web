@@ -6,7 +6,6 @@ use core::{
     pin::pin,
 };
 
-use crate::body::Body;
 use ::h3::{
     quic::SendStream,
     server::{self, RequestStream},
@@ -16,6 +15,7 @@ use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
+    body::{Body, Frame},
     bytes::Bytes,
     error::HttpServiceError,
     h3::{body::RequestBody, error::Error},
@@ -108,14 +108,9 @@ where
     let mut body = pin!(body);
 
     while let Some(res) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-        let frame = res.map_err(Error::Body)?;
-        if frame.is_data() {
-            let bytes = frame.into_data().unwrap();
-            stream.send_data(bytes).await?;
-        } else {
-            let trailers = frame.into_trailers().unwrap();
-            stream.send_trailers(trailers).await?;
-            break;
+        match res.map_err(Error::Body)? {
+            Frame::Data(bytes) => stream.send_data(bytes).await?,
+            Frame::Trailers(trailers) => stream.send_trailers(trailers).await?,
         }
     }
 

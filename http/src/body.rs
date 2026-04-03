@@ -3,8 +3,10 @@
 //! body types are generic over [Body] trait and mutation of body type must also implement said
 //! trait for being accepted as body type that xitca-http know of.
 
-pub use http_body::*;
-pub use http_body_util::*;
+pub use http_body_alt::{
+    Body, BodyExt, Frame, SizeHint,
+    util::{Either, Empty, Full, StreamBody},
+};
 
 use core::{
     pin::Pin,
@@ -69,7 +71,7 @@ impl Body for RequestBody {
             #[cfg(feature = "http3")]
             Self::H3(body) => body.size_hint(),
             Self::Boxed(body) => body.size_hint(),
-            Self::None => SizeHint::with_exact(0),
+            Self::None => SizeHint::None,
         }
     }
 }
@@ -139,7 +141,10 @@ impl BoxBody {
                 self.project()
                     .body
                     .poll_frame(cx)
-                    .map_ok(|frame| frame.map_data(Into::into))
+                    .map_ok(|frame| match frame {
+                        Frame::Data(data) => Frame::Data(data.into()),
+                        Frame::Trailers(trailers) => Frame::Trailers(trailers),
+                    })
                     .map_err(Into::into)
             }
 
@@ -281,7 +286,7 @@ where
         match inner.as_mut().project() {
             ResponseBodyProj::None => Poll::Ready(None),
             ResponseBodyProj::Bytes { .. } => match inner.project_replace(ResponseBodyInner::None) {
-                ResponseBodyProjReplace::Bytes { bytes } => Poll::Ready(Some(Ok(Frame::data(bytes)))),
+                ResponseBodyProjReplace::Bytes { bytes } => Poll::Ready(Some(Ok(Frame::Data(bytes)))),
                 _ => unreachable!(),
             },
             ResponseBodyProj::Body { stream } => stream.poll_frame(cx),
@@ -298,8 +303,8 @@ where
 
     fn size_hint(&self) -> SizeHint {
         match self.inner {
-            ResponseBodyInner::None => SizeHint::with_exact(0),
-            ResponseBodyInner::Bytes { ref bytes } => SizeHint::with_exact(bytes.len() as u64),
+            ResponseBodyInner::None => SizeHint::None,
+            ResponseBodyInner::Bytes { ref bytes } => SizeHint::Exact(bytes.len() as u64),
             ResponseBodyInner::Body { ref stream } => stream.size_hint(),
         }
     }
@@ -341,60 +346,5 @@ impl<B> From<Cow<'static, str>> for ResponseBody<B> {
             Cow::Owned(str) => Self::from(str),
             Cow::Borrowed(str) => Self::from(str),
         }
-    }
-}
-
-/// Body size hint.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum BodySize {
-    /// Absence of body can be assumed from method or status code.
-    ///
-    /// Will skip writing Content-Length header.
-    None,
-    /// Known size body.
-    ///
-    /// Will write `Content-Length: N` header.
-    Exact(u64),
-    /// Unknown size body.
-    ///
-    /// Will not write Content-Length header. Can be used with chunked Transfer-Encoding.
-    Unknown,
-}
-
-impl BodySize {
-    #[inline]
-    pub fn from_body<B>(body: &B) -> Self
-    where
-        B: Body,
-    {
-        match body.size_hint().exact() {
-            Some(n) => Self::Exact(n),
-            None if body.is_end_stream() => Self::None,
-            None => Self::Unknown,
-        }
-    }
-
-    pub fn size_hint(&self) -> SizeHint {
-        match *self {
-            Self::Exact(size) => SizeHint::with_exact(size),
-            _ => SizeHint::default(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn body_size_hint() {
-        let body = BoxBody::new(Full::new(Bytes::new()));
-        assert_eq!(BodySize::from_body(&body), BodySize::Exact(0));
-
-        let body = BoxBody::new(Empty::<Bytes>::new());
-        assert_eq!(BodySize::from_body(&body), BodySize::Exact(0));
-
-        let body = BoxBody::new(Full::new(Bytes::from_static(b"hello")));
-        assert_eq!(BodySize::from_body(&body), BodySize::Exact(5));
     }
 }

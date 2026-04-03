@@ -41,8 +41,7 @@ xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
 
 http = "1"
-http-body = "1"
-http-body-util = "0.1"
+http-body-alt = "0.1"
 httpdate = "1.0"
 pin-project-lite = "0.2.10"
 tracing = { version = "0.1.40", default-features = false }

@@ -3,9 +3,6 @@ pub(crate) use xitca_http::{
     error::BodyError,
 };
 
-#[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
-pub(crate) use xitca_http::body::BodySize;
-
 use core::{
     fmt,
     pin::Pin,
@@ -87,7 +84,8 @@ impl Stream for ResponseBody {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.poll_frame(cx).map(|opt| {
             opt.and_then(|res| match res {
-                Ok(frame) => frame.into_data().ok().map(Ok),
+                Ok(Frame::Data(data)) => Some(Ok(data)),
+                Ok(_) => None,
                 Err(e) => Some(Err(e)),
             })
         })
@@ -151,10 +149,11 @@ where
 
     #[inline]
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, E>>> {
-        self.project().stream.poll_next(cx).map_ok(Frame::data)
+        self.project().stream.poll_next(cx).map_ok(Frame::Data)
     }
 }
 
+#[cfg(feature = "multipart")]
 impl<S> BodyStream<S> {
     pub(crate) fn new(stream: S) -> Self {
         Self { stream }

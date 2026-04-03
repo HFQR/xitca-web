@@ -70,7 +70,7 @@ impl Body for ResponseBody {
         self.get_mut()
             .rx
             .poll_data(cx)
-            .map_ok(Frame::data)
+            .map_ok(Frame::Data)
             .map_err(|e| e.into())
     }
 

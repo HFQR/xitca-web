@@ -15,7 +15,7 @@ use xitca_service::Service;
 use xitca_unsafe_collection::futures::SelectOutput;
 
 use crate::{
-    body::Body,
+    body::{Body, Frame},
     bytes::{Bytes, BytesMut},
     config::HttpServiceConfig,
     date::DateTime,
@@ -163,7 +163,7 @@ where
 
                     match res {
                         SelectOutput::A(Some(Ok(frame))) => {
-                            if let Ok(bytes) = frame.into_data() {
+                            if let Frame::Data(bytes) = frame {
                                 encoder.encode(bytes, &mut write_buf);
                                 if write_buf.len() < W_LIMIT {
                                     continue;
@@ -308,7 +308,7 @@ where
             };
             let (parts, body) = Response::builder()
                 .status(status)
-                .body(http_body_util::Empty::<Bytes>::new())
+                .body(crate::body::Empty::<Bytes>::new())
                 .unwrap()
                 .into_parts();
             ctx.encode_head(parts, &body, buf)

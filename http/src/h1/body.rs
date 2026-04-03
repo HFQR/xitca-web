@@ -10,7 +10,7 @@ use pin_project_lite::pin_project;
 use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 
 use crate::{
-    body::{Body, BodySize, BoxBody, Frame, SizeHint},
+    body::{Body, BoxBody, Frame, SizeHint},
     bytes::{Bytes, BytesMut},
     error::BodyError,
 };
@@ -36,9 +36,9 @@ where
     Io: AsyncBufRead + AsyncBufWrite + 'static,
 {
     let size = match decoder {
-        TransferCoding::Length(len) => BodySize::Exact(len),
-        TransferCoding::Eof => BodySize::None,
-        _ => BodySize::Unknown,
+        TransferCoding::Length(len) => SizeHint::Exact(len),
+        TransferCoding::Eof => SizeHint::None,
+        _ => SizeHint::Unknown,
     };
 
     let body = BodyInner {
@@ -89,7 +89,7 @@ pin_project! {
 
 pin_project! {
     struct BodyReader<Io, F, FutC, FutE> {
-        size: BodySize,
+        size: SizeHint,
         chunk_read: F,
         #[pin]
         state: State<Io, FutC, FutE>
@@ -128,8 +128,8 @@ where
             match this.state.as_mut().project() {
                 StateProj::Body { body } => {
                     match body.decoder.decode() {
-                        ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(Frame::data(bytes)))),
-                        ChunkResult::Trailers(trailers) => return Poll::Ready(Some(Ok(Frame::trailers(trailers)))),
+                        ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(Frame::Data(bytes)))),
+                        ChunkResult::Trailers(trailers) => return Poll::Ready(Some(Ok(Frame::Trailers(trailers)))),
                         ChunkResult::Err(e) => return Poll::Ready(Some(Err(e.into()))),
                         ChunkResult::InsufficientData => body.decoder.limit_check()?,
                         _ => return Poll::Ready(None),
@@ -163,7 +163,7 @@ where
 
     #[inline]
     fn size_hint(&self) -> SizeHint {
-        self.size.size_hint()
+        self.size
     }
 }
 

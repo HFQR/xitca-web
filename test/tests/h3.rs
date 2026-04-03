@@ -1,6 +1,6 @@
 use xitca_client::Client;
 use xitca_http::{
-    body::{BodyExt, ResponseBody},
+    body::{BodyExt, Frame, ResponseBody},
     bytes::{Bytes, BytesMut},
     h3,
     http::{Method, Request, RequestExt, Response, Version, header},
@@ -111,8 +111,8 @@ async fn handle(req: Request<RequestExt<h3::RequestBody>>) -> Result<Response<Re
             let mut buf = BytesMut::new();
 
             while let Some(bytes) = body.frame().await {
-                if let Some(bytes) = bytes?.data_ref() {
-                    buf.extend_from_slice(bytes);
+                if let Frame::Data(bytes) = bytes? {
+                    buf.extend_from_slice(&bytes);
                 }
             }
 

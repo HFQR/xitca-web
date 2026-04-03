@@ -4,9 +4,11 @@ use core::{
     task::{Context, Poll},
 };
 
-use crate::body::{Body, BodySize, SizeHint};
-
-use crate::{bytes::Bytes, error::BodyError};
+use crate::{
+    body::{Body, Frame, SizeHint},
+    bytes::Bytes,
+    error::BodyError,
+};
 
 use super::{
     dispatcher::{Message, Shared, StreamState},
@@ -15,7 +17,7 @@ use super::{
 
 pub struct RequestBody {
     stream_id: StreamId,
-    size: BodySize,
+    size: SizeHint,
     ctx: Shared,
     /// Bytes consumed but not yet reported back as a WINDOW_UPDATE.
     /// Flushed as a single message when the channel has no more items
@@ -24,7 +26,7 @@ pub struct RequestBody {
 }
 
 impl RequestBody {
-    pub(super) fn new(stream_id: StreamId, size: BodySize, ctx: Shared) -> Self {
+    pub(super) fn new(stream_id: StreamId, size: SizeHint, ctx: Shared) -> Self {
         Self {
             stream_id,
             size,
@@ -68,18 +70,15 @@ impl Body for RequestBody {
     type Data = Bytes;
     type Error = BodyError;
 
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<http_body::Frame<Bytes>, BodyError>>> {
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
         let this = self.get_mut();
 
         let mut inner = this.ctx.borrow_mut();
         match inner.flow.stream_map.get_mut(&this.stream_id) {
             Some(state) => {
                 if let Some(frame) = state.recv_state.queue.pop_front() {
-                    match frame.data_ref() {
-                        Some(bytes) => {
+                    match frame {
+                        Frame::Data(ref bytes) => {
                             this.pending_window += bytes.len();
 
                             // Flush when the remaining window would drop below 25% of the
@@ -99,7 +98,7 @@ impl Body for RequestBody {
                             }
                             Poll::Ready(Some(Ok(frame)))
                         }
-                        None => Poll::Ready(Some(Ok(frame))),
+                        frame => Poll::Ready(Some(Ok(frame))),
                     }
                 } else if let Some(e) = state.recv_state.error.take() {
                     // Peer reset the stream while body was in progress.
@@ -127,7 +126,7 @@ impl Body for RequestBody {
 
     #[inline]
     fn size_hint(&self) -> SizeHint {
-        self.size.size_hint()
+        self.size
     }
 }
 

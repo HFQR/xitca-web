@@ -10,7 +10,7 @@ use tracing::debug;
 use xitca_http::{bytes::BytesMut, http};
 
 use crate::{
-    body::ResponseBody,
+    body::{Frame, ResponseBody},
     error::{Error, TimeoutError},
     timeout::Timeout,
 };
@@ -152,7 +152,7 @@ impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
                         }
                     };
 
-                    let Ok(buf) = frame.into_data() else {
+                    let Frame::Data(buf) = frame else {
                         continue;
                     };
 

@@ -1,7 +1,7 @@
 use core::{future::poll_fn, net::SocketAddr, pin::pin};
 
 use crate::{
-    body::{Body, BodyError, BodySize, ResponseBody},
+    body::{Body, BodyError, Frame, ResponseBody, SizeHint},
     bytes::{Buf, Bytes},
     date::DateTimeHandle,
     h3::{Connection, Error},
@@ -26,20 +26,20 @@ where
     let mut req = Request::from_parts(parts, ());
 
     // Content length and is body is in eof state.
-    let is_eof = match BodySize::from_body(&body) {
-        BodySize::None => {
+    let is_eof = match body.size_hint() {
+        SizeHint::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
             true
         }
-        BodySize::Unknown => {
+        SizeHint::Unknown => {
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
-        BodySize::Exact(0) => {
+        SizeHint::Exact(0) => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
             true
         }
-        BodySize::Exact(len) => {
+        SizeHint::Exact(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
@@ -63,8 +63,9 @@ where
         let mut body = pin!(body);
         while let Some(frame) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
             let frame = frame.map_err(BodyError::from)?;
-            if let Ok(bytes) = frame.into_data() {
-                stream.send_data(bytes).await?;
+            match frame {
+                Frame::Data(bytes) => stream.send_data(bytes).await?,
+                Frame::Trailers(trailers) => stream.send_trailers(trailers).await?,
             }
         }
     }
@@ -79,7 +80,7 @@ where
         use xitca_http::body::{Frame, StreamBody};
         let body = async_stream::stream! {
             while let Some(bytes) = stream.recv_data().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
-                yield Ok::<_, BodyError>(Frame::data(Bytes::copy_from_slice(bytes.chunk())));
+                yield Ok::<_, BodyError>(Frame::Data(Bytes::copy_from_slice(bytes.chunk())));
             }
         };
         let body = crate::h3::body::ResponseBody(Box::pin(StreamBody::new(body)));

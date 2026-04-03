@@ -2,7 +2,7 @@ use crate::body::Body;
 use tracing::{error, warn};
 
 use crate::{
-    body::BodySize,
+    body::SizeHint,
     bytes::{Bytes, BytesMut},
     date::DateTime,
     http::{
@@ -58,7 +58,7 @@ where
 
         self.encode_version_status_reason(buf, status);
 
-        let size = BodySize::from_body(body);
+        let size = body.size_hint();
 
         self.encode_headers(&mut headers, size, buf, skip_ct_te).inspect(|_| {
             // put header map back to cache.
@@ -99,7 +99,7 @@ where
     pub fn encode_headers(
         &mut self,
         headers: &mut HeaderMap,
-        size: BodySize,
+        size: SizeHint,
         buf: &mut BytesMut,
         mut skip_ct_te: bool,
     ) -> Result<TransferCoding, ProtoError> {
@@ -173,12 +173,12 @@ where
         // encode transfer-encoding or content-length if header map didn't provide them.
         } else if !skip_ct_te {
             encoding = match size {
-                BodySize::None => TransferCoding::eof(),
-                BodySize::Unknown => {
+                SizeHint::None => TransferCoding::eof(),
+                SizeHint::Unknown => {
                     buf.extend_from_slice(CHUNKED_HEADER);
                     TransferCoding::encode_chunked()
                 }
-                BodySize::Exact(size) => {
+                SizeHint::Exact(size) => {
                     write_length_header(buf, size);
                     TransferCoding::length(size)
                 }
@@ -207,15 +207,15 @@ const CLOSE_HEADER: &[u8; 19] = b"\r\nconnection: close";
 
 #[cold]
 #[inline(never)]
-fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: BodySize, encoding: &mut TransferCoding) {
+fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: SizeHint, encoding: &mut TransferCoding) {
     *encoding = TransferCoding::eof();
 
     match size {
-        BodySize::None => return,
-        BodySize::Unknown if !skip_ct_te => {
+        SizeHint::None => return,
+        SizeHint::Unknown if !skip_ct_te => {
             buf.extend_from_slice(CHUNKED_HEADER);
         }
-        BodySize::Exact(size) if !skip_ct_te => {
+        SizeHint::Exact(size) if !skip_ct_te => {
             write_length_header(buf, size);
         }
         _ => {}

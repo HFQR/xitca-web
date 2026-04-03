@@ -2,15 +2,11 @@ use core::{future::poll_fn, pin::Pin};
 
 use std::io;
 
-use xitca_http::{
-    body::{Body, BodySize},
-    bytes::Buf,
-    h1::proto::trasnder_coding::TransferCoding,
-};
+use xitca_http::{bytes::Buf, h1::proto::trasnder_coding::TransferCoding};
 use xitca_io::io::{AsyncIo, Interest};
 
 use crate::{
-    body::BodyError,
+    body::{Body, BodyError, Frame, SizeHint},
     bytes::{Bytes, BytesMut},
     date::DateTimeHandle,
     h1::Error,
@@ -58,9 +54,9 @@ where
     let mut is_expect = req.headers().contains_key(EXPECT);
 
     if is_expect {
-        match BodySize::from_body(req.body()) {
+        match req.body().size_hint() {
             // remove expect header if there is no body.
-            BodySize::None | BodySize::Exact(0) => {
+            SizeHint::None | SizeHint::Exact(0) => {
                 let crate::http::header::Entry::Occupied(entry) = req.headers_mut().entry(EXPECT) else {
                     unreachable!()
                 };
@@ -165,7 +161,7 @@ where
         // poll request body and encode.
         while let Some(frame) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
             let frame = frame.map_err(BodyError::from)?;
-            if let Ok(bytes) = frame.into_data() {
+            if let Frame::Data(bytes) = frame {
                 encoder.encode(bytes, buf);
                 // we are not in a hurry here so write before handling next chunk.
                 write_all_buf(stream, buf).await?;
