@@ -16,7 +16,7 @@ workspace = true
 [features]
 
 [dependencies]
-xitca-unsafe-collection = "0.2.0"
+xitca-unsafe-collection = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.8"

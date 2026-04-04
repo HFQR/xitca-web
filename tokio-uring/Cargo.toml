@@ -27,7 +27,7 @@ slab = { version = "0.4.11", optional = true }
 libc = { version = "0.2.178", optional = true }
 io-uring = { version = "0.7.11", optional = true }
 socket2 = { version = "0.6.1", features = ["all"], optional = true }
-bytes = { version = "1.11.0", optional = true }
+bytes = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.2.0"
@@ -35,7 +35,7 @@ tokio-test = "0.4.2"
 iai = "0.1.1"
 criterion = "0.8"
 # we use joinset in our tests
-tokio = "1.48"
+tokio = { workspace = true }
 nix = { version = "0.31", features = ["resource"] }
 
 [package.metadata.docs.rs]

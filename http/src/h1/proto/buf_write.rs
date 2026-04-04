@@ -2,7 +2,12 @@ use core::convert::Infallible;
 
 use std::io::Write;
 
-use crate::bytes::{BufMut, BufMutWriter, Bytes, BytesMut};
+use tracing::warn;
+
+use crate::{
+    bytes::{BufMut, BufMutWriter, Bytes, BytesMut},
+    http::header::{self, HeaderMap, HeaderName},
+};
 
 /// trait for add http/1 data to buffer that implement [BufWrite] trait.
 pub trait H1BufWrite {
@@ -43,6 +48,25 @@ pub trait H1BufWrite {
         });
     }
 
+    fn write_buf_trailers(&mut self, trailers: HeaderMap) {
+        let _ = self.write_buf(|buf| {
+            buf.put_slice(b"0\r\n");
+            for (name, value) in trailers.iter() {
+                if is_forbidden_trailer_field(name) {
+                    warn!(target: "h1_encode", "filtered forbidden trailer field: {}", name);
+                    continue;
+                }
+                buf.reserve(name.as_str().len() + 2 + value.len() + 2);
+                buf.put_slice(name.as_str().as_bytes());
+                buf.put_slice(b": ");
+                buf.put_slice(value.as_bytes());
+                buf.put_slice(b"\r\n");
+            }
+            buf.put_slice(b"\r\n");
+            Ok::<_, Infallible>(())
+        });
+    }
+
     fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>;
@@ -56,4 +80,23 @@ impl H1BufWrite for BytesMut {
         let len = self.len();
         func(self).inspect_err(|_| self.truncate(len))
     }
+}
+
+// Returns true if the header name is forbidden in trailers per RFC 9110 §6.5.1.
+fn is_forbidden_trailer_field(name: &HeaderName) -> bool {
+    matches!(
+        *name,
+        header::AUTHORIZATION
+            | header::CACHE_CONTROL
+            | header::CONTENT_ENCODING
+            | header::CONTENT_LENGTH
+            | header::CONTENT_RANGE
+            | header::CONTENT_TYPE
+            | header::HOST
+            | header::MAX_FORWARDS
+            | header::SET_COOKIE
+            | header::TRAILER
+            | header::TRANSFER_ENCODING
+            | header::TE
+    )
 }

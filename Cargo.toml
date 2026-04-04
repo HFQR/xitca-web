@@ -63,8 +63,15 @@ needless_return = "allow"
 new_without_default = "allow"
 
 [workspace.dependencies]
-bytes = "1"
+bytes = "1.11.1"
 futures-core = { version = "0.3.32", default-features = false }
-http = "1"
+http = "1.4.0"
+http-body-alt = "0.1.0"
 pin-project-lite = "0.2.17"
 tokio = "1.51.0"
+tokio-uring-xitca = "0.2.0"
+
+xitca-io = "0.6.0"
+xitca-service = "0.3.0"
+xitca-tls = "0.6.0"
+xitca-unsafe-collection = "0.2.0"

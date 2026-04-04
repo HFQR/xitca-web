@@ -3,7 +3,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use bytes_crate::{
+use bytes::{
     Bytes, BytesMut,
     buf::{Buf, BufMut, UninitSlice},
 };

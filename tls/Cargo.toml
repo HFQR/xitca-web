@@ -22,7 +22,7 @@ rustls-poll-aws-crypto = ["dep:rustls_crate", "rustls_crate/aws-lc-rs", "xitca-i
 rustls-poll-ring-crypto = ["dep:rustls_crate", "rustls_crate/ring", "xitca-io/runtime"]
 
 [dependencies]
-xitca-io = { version = "0.6.0" }
+xitca-io = { workspace = true }
 
 native_tls_crate = { package = "native-tls", version = "0.2.7", features = ["alpn"], optional = true }
 openssl = { version = "0.10", optional = true }

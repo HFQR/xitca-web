@@ -19,13 +19,13 @@ runtime-uring = ["runtime", "tokio-uring-xitca/runtime-uring"]
 quic = ["dep:quinn", "runtime"]
 
 [dependencies]
-xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
+xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
-bytes = "1.4"
+bytes = { workspace = true }
 # Always required for its buffer traits (BoundedBuf, BoundedBufMut, etc.)
 # and completion-based IO trait definitions. The io-uring runtime itself is
 # NOT enabled unless the `runtime-uring` feature is activated.
-tokio-uring-xitca = { version = "0.2.0", features = ["bytes"] }
+tokio-uring-xitca = { workspace = true, features = ["bytes"] }
 
 quinn = { version = "0.11", features = ["ring"], optional = true }
-tokio = { version = "1.48", features = ["net"], optional = true }
+tokio = { workspace = true, features = ["net"], optional = true }

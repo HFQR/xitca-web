@@ -12,7 +12,7 @@ use crate::{
     h1::Error,
     http::{
         Method, Request, Response, StatusCode,
-        header::{EXPECT, HOST, HeaderValue},
+        header::{EXPECT, HOST, HeaderMap, HeaderName, HeaderValue, TRAILER},
     },
 };
 
@@ -67,6 +67,15 @@ where
         }
     }
 
+    let allowed_trailers = req
+        .headers()
+        .get_all(TRAILER)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|s| s.split(','))
+        .filter_map(|s| HeaderName::from_bytes(s.trim().as_bytes()).ok())
+        .collect::<Vec<_>>();
+
     // TODO: make const generic params configurable.
     let mut ctx = Context::<128>::new(&date);
 
@@ -106,7 +115,7 @@ where
     // (In rare case the server could starting streaming back response without read all the request body)
 
     // try to send request body.
-    if let Err(e) = send_body(stream, encoder, req.body_mut(), &mut buf).await {
+    if let Err(e) = send_body(stream, encoder, req.body_mut(), &allowed_trailers, &mut buf).await {
         // an error indicate connection should be closed.
         ctx.set_close();
         // clear the buffer as there could be unfinished request data inside.
@@ -148,6 +157,7 @@ async fn send_body<S, B, E>(
     stream: &mut S,
     mut encoder: TransferCoding,
     body: &mut B,
+    allowed_trailers: &[HeaderName],
     buf: &mut BytesMut,
 ) -> Result<(), Error>
 where
@@ -158,18 +168,32 @@ where
     if !encoder.is_eof() {
         let mut body = Pin::new(body);
 
+        let mut trailers = None;
+
         // poll request body and encode.
         while let Some(frame) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-            let frame = frame.map_err(BodyError::from)?;
-            if let Frame::Data(bytes) = frame {
-                encoder.encode(bytes, buf);
-                // we are not in a hurry here so write before handling next chunk.
-                write_all_buf(stream, buf).await?;
+            match frame.map_err(BodyError::from)? {
+                Frame::Data(bytes) => {
+                    encoder.encode(bytes, buf);
+                    // we are not in a hurry here so write before handling next chunk.
+                    write_all_buf(stream, buf).await?;
+                }
+                Frame::Trailers(t) => {
+                    let mut filtered = HeaderMap::with_capacity(allowed_trailers.len());
+                    for name in allowed_trailers {
+                        for val in t.get_all(name) {
+                            filtered.append(name, val.clone());
+                        }
+                    }
+
+                    trailers = (!filtered.is_empty()).then_some(filtered);
+                    break;
+                }
             }
         }
 
         // body is finished. encode eof and clean up.
-        encoder.encode_eof(buf);
+        encoder.encode_eof(trailers, buf);
 
         write_all_buf(stream, buf).await?;
     }

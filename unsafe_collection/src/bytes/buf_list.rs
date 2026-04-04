@@ -1,6 +1,6 @@
 use std::io::IoSlice;
 
-use bytes_crate::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use crate::bound_queue::heap::HeapQueue;
 

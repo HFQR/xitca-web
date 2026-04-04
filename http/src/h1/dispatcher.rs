@@ -162,22 +162,21 @@ where
                     .await;
 
                     match res {
-                        SelectOutput::A(Some(Ok(frame))) => {
-                            if let Frame::Data(bytes) = frame {
-                                encoder.encode(bytes, &mut write_buf);
-                                if write_buf.len() < W_LIMIT {
-                                    continue;
-                                }
-                            } else {
+                        SelectOutput::A(Some(Ok(Frame::Data(bytes)))) => {
+                            encoder.encode(bytes, &mut write_buf);
+                            if write_buf.len() < W_LIMIT {
                                 continue;
                             }
+                        }
+                        SelectOutput::A(Some(Ok(Frame::Trailers(trailers)))) => {
+                            break encoder.encode_eof(Some(trailers), &mut write_buf);
                         }
                         SelectOutput::A(Some(Err(e))) => {
                             let (res, w_buf) = self.on_body_error(e, write_buf).await;
                             write_buf = w_buf;
                             return (res, read_buf, write_buf);
                         }
-                        SelectOutput::A(None) => break encoder.encode_eof(&mut write_buf),
+                        SelectOutput::A(None) => break encoder.encode_eof(None, &mut write_buf),
                         SelectOutput::B(_) => {}
                     }
 

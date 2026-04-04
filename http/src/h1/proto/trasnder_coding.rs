@@ -425,14 +425,19 @@ impl TransferCoding {
         }
     }
 
-    /// Encode eof. Return `EOF` state of encoder
-    pub fn encode_eof<W>(&mut self, buf: &mut W)
+    /// Encode eof with optional trailer headers.
+    ///
+    /// For chunked encoding, forbidden trailer fields (per RFC 9110) are silently filtered out.
+    pub fn encode_eof<W>(&mut self, trailers: Option<HeaderMap>, buf: &mut W)
     where
         W: H1BufWrite,
     {
         match *self {
             Self::Eof | Self::Upgrade | Self::Length(0) => {}
-            Self::EncodeChunked => buf.write_buf_static(b"0\r\n\r\n"),
+            Self::EncodeChunked => match trailers {
+                Some(trailers) => buf.write_buf_trailers(trailers),
+                None => buf.write_buf_static(b"0\r\n\r\n"),
+            },
             Self::Length(n) => unreachable!("UnexpectedEof for Length Body with {} remaining", n),
             _ => unreachable!(),
         }
@@ -732,7 +737,7 @@ mod test {
 
         assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n");
 
-        encoder.encode_eof(dst);
+        encoder.encode_eof(None, dst);
 
         assert_eq!(dst.as_ref(), b"7\r\nfoo bar\r\nD\r\nbaz quux herp\r\n0\r\n\r\n");
     }
@@ -757,8 +762,71 @@ mod test {
             assert_eq!(dst.as_ref(), b"foo barb");
         }
 
-        encoder.encode_eof(dst);
+        encoder.encode_eof(None, dst);
         assert_eq!(dst.as_ref().len(), max_len);
         assert_eq!(dst.as_ref(), b"foo barb");
+    }
+
+    #[test]
+    fn encode_chunked_with_trailers() {
+        let mut encoder = TransferCoding::encode_chunked();
+        let dst = &mut BytesMut::default();
+
+        let msg = Bytes::from("hello");
+        encoder.encode(msg, dst);
+
+        let mut trailers = HeaderMap::new();
+        trailers.insert("x-checksum", HeaderValue::from_static("abc123"));
+        trailers.insert("x-status", HeaderValue::from_static("ok"));
+        trailers.append("x-status", HeaderValue::from_static("done"));
+
+        encoder.encode_eof(Some(trailers), dst);
+
+        assert_eq!(
+            dst.as_ref(),
+            b"5\r\nhello\r\n0\r\nx-checksum: abc123\r\nx-status: ok\r\nx-status: done\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn encode_chunked_trailers_filters_forbidden() {
+        use crate::http::header;
+
+        let mut encoder = TransferCoding::encode_chunked();
+        let dst = &mut BytesMut::default();
+
+        let msg = Bytes::from("data");
+        encoder.encode(msg, dst);
+
+        let mut trailers = HeaderMap::new();
+        trailers.insert("x-checksum", HeaderValue::from_static("abc123"));
+        // forbidden fields per RFC 9110
+        trailers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("99"));
+        trailers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+        trailers.insert(header::HOST, HeaderValue::from_static("example.com"));
+        trailers.insert(header::TRANSFER_ENCODING, HeaderValue::from_static("chunked"));
+
+        encoder.encode_eof(Some(trailers), dst);
+
+        // only x-checksum should remain
+        assert_eq!(dst.as_ref(), b"4\r\ndata\r\n0\r\nx-checksum: abc123\r\n\r\n");
+    }
+
+    #[test]
+    fn encode_chunked_trailers_empty_after_filter() {
+        use crate::http::header;
+
+        let mut encoder = TransferCoding::encode_chunked();
+        let dst = &mut BytesMut::default();
+
+        encoder.encode(Bytes::from("x"), dst);
+
+        let mut trailers = HeaderMap::new();
+        trailers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("1"));
+
+        encoder.encode_eof(Some(trailers), dst);
+
+        // all trailers filtered, should still produce valid chunked terminator
+        assert_eq!(dst.as_ref(), b"1\r\nx\r\n0\r\n\r\n");
     }
 }

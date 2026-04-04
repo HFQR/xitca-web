@@ -1,6 +1,6 @@
 use std::{io::IoSlice, mem::MaybeUninit};
 
-use bytes_crate::{Buf, Bytes, buf::Chain};
+use bytes::{Buf, Bytes, buf::Chain};
 
 use crate::uninit;
 

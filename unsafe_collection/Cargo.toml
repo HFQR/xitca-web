@@ -14,10 +14,10 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-bytes = ["bytes_crate"]
+bytes = ["dep:bytes"]
 
 [dependencies]
-bytes_crate = { package = "bytes", version = "1.4", optional = true }
+bytes = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.30", features = ["rt", "sync"] }
+tokio = { workspace = true, features = ["rt", "sync"] }
