@@ -3,9 +3,9 @@ use core::fmt;
 use std::{error, io};
 
 use http::{
+    HeaderValue, Request, Response, StatusCode,
     header::{ALLOW, CONTENT_RANGE},
     request::Parts,
-    HeaderValue, Request, Response, StatusCode,
 };
 
 use super::buf::buf_write_header;

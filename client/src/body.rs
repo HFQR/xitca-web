@@ -133,34 +133,6 @@ impl Body for BoxBody {
 }
 
 pin_project! {
-    /// Adapter that wraps a `Stream<Item = Result<Bytes, E>>` into a [Body] implementation.
-    pub(crate) struct BodyStream<S> {
-        #[pin]
-        stream: S
-    }
-}
-
-impl<S, E> Body for BodyStream<S>
-where
-    S: Stream<Item = Result<Bytes, E>>,
-{
-    type Data = Bytes;
-    type Error = E;
-
-    #[inline]
-    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, E>>> {
-        self.project().stream.poll_next(cx).map_ok(Frame::Data)
-    }
-}
-
-#[cfg(any(feature = "compress", feature = "multipart"))]
-impl<S> BodyStream<S> {
-    pub(crate) fn new(stream: S) -> Self {
-        Self { stream }
-    }
-}
-
-pin_project! {
     struct BoxBodyMapErr<B> {
         #[pin]
         body: B

@@ -1,8 +1,8 @@
 use core::str::FromStr;
 
 use http::{
-    header::{HeaderValue, IF_MODIFIED_SINCE, IF_UNMODIFIED_SINCE},
     Request,
+    header::{HeaderValue, IF_MODIFIED_SINCE, IF_UNMODIFIED_SINCE},
 };
 use httpdate::HttpDate;
 

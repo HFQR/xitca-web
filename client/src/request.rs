@@ -65,7 +65,8 @@ impl RequestBuilder<'_, marker::Http> {
     pub fn multipart(mut self, parts: Vec<crate::multipart::Part>) -> Self {
         let form = crate::multipart::Form::new(parts);
         self.headers_mut().insert(CONTENT_TYPE, form.content_type());
-        self.method(Method::POST).stream(crate::body::BodyStream::new(form))
+        self.method(Method::POST)
+            .stream(xitca_http::body::StreamDataBody::new(form))
     }
 
     /// Use pre allocated bytes as request body.

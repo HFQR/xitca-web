@@ -17,8 +17,8 @@ use std::{
 };
 
 use http::{
-    header::{HeaderValue, ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, LAST_MODIFIED, RANGE},
     Method, Request, Response, StatusCode,
+    header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, HeaderValue, LAST_MODIFIED, RANGE},
 };
 use mime_guess::mime;
 

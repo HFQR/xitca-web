@@ -18,11 +18,11 @@ gz = ["flate2"]
 de = ["flate2"]
 
 [dependencies]
-bytes = "1.4"
+bytes = { workspace = true }
 futures-core = "0.3"
-http = "1"
-http-body-alt = "0.1"
-pin-project-lite = "0.2.6"
+http = { workspace = true }
+http-body-alt = { workspace = true }
+pin-project-lite = { workspace = true }
 
 brotli2 = { version = "0.3.2", optional = true }
 flate2 = { version = "1.0.13", optional = true }

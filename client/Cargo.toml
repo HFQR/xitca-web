@@ -36,7 +36,7 @@ multipart = ["dep:http-multipart"]
 dangerous = []
 
 [dependencies]
-xitca-http = { version = "0.9.0", default-features = false, features = ["runtime"] }
+xitca-http = { workspace = true, default-features = false, features = ["runtime"] }
 xitca-io = { workspace = true }
 xitca-unsafe-collection = { workspace = true }
 
@@ -68,7 +68,7 @@ xitca-tls = { workspace = true, optional = true }
 webpki-roots = { version = "1", optional = true }
 
 # compression
-http-encoding = { version = "0.2", features = ["br", "gz", "de"], optional = true }
+http-encoding = { workspace = true, features = ["br", "gz", "de"], optional = true }
 
 # serde
 serde = { version = "1.0.130", default-features = false, optional = true }
