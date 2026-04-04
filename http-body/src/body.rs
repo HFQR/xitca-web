@@ -1,8 +1,8 @@
 use core::{
+    ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll},
 };
-use std::ops::{Deref, DerefMut};
 
 use super::{frame::Frame, size_hint::SizeHint};
 
@@ -48,12 +48,13 @@ where
     }
 }
 
-impl<B> Body for Pin<Box<B>>
+impl<B> Body for Pin<B>
 where
-    B: Body + ?Sized,
+    B: DerefMut,
+    B::Target: Body,
 {
-    type Data = B::Data;
-    type Error = B::Error;
+    type Data = <B::Target as Body>::Data;
+    type Error = <B::Target as Body>::Error;
 
     #[inline]
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Self::Data, Self::Error>>> {

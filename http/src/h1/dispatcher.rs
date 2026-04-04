@@ -153,7 +153,7 @@ where
             {
                 let mut body = pin!(body);
 
-                loop {
+                let trailers = loop {
                     let res = poll_fn(|cx| match body.as_mut().poll_frame(cx) {
                         Poll::Ready(res) => Poll::Ready(SelectOutput::A(res)),
                         Poll::Pending if write_buf.is_empty() => Poll::Pending,
@@ -161,31 +161,29 @@ where
                     })
                     .await;
 
-                    match res {
+                    let res = match res {
                         SelectOutput::A(Some(Ok(Frame::Data(bytes)))) => {
                             encoder.encode(bytes, &mut write_buf);
                             if write_buf.len() < W_LIMIT {
                                 continue;
                             }
+                            Ok(())
                         }
-                        SelectOutput::A(Some(Ok(Frame::Trailers(trailers)))) => {
-                            break encoder.encode_eof(Some(trailers), &mut write_buf);
-                        }
-                        SelectOutput::A(Some(Err(e))) => {
-                            let (res, w_buf) = self.on_body_error(e, write_buf).await;
-                            write_buf = w_buf;
-                            return (res, read_buf, write_buf);
-                        }
-                        SelectOutput::A(None) => break encoder.encode_eof(None, &mut write_buf),
-                        SelectOutput::B(_) => {}
-                    }
+                        SelectOutput::A(Some(Ok(Frame::Trailers(trailers)))) => break Some(trailers),
+                        SelectOutput::A(Some(Err(e))) => Err(Error::Body(e)),
+                        SelectOutput::A(None) => break None,
+                        SelectOutput::B(_) => Ok(()),
+                    };
 
-                    let (res, w_buf) = write_buf.write(self.io.io()).await;
+                    let (res_io, w_buf) = write_buf.write(self.io.io()).await;
                     write_buf = w_buf;
-                    if let Err(e) = res {
-                        return (Err(e.into()), read_buf, write_buf);
+
+                    if let Some(e) = res.err().or_else(|| res_io.err().map(Error::Io)) {
+                        return (Err(e), read_buf, write_buf);
                     }
-                }
+                };
+
+                encoder.encode_eof(trailers, &mut write_buf);
             }
 
             if wait_for_notify {
@@ -206,14 +204,6 @@ where
     #[inline(never)]
     async fn shutdown(self) -> Result<(), Error<S::Error, BE>> {
         self.io.into_io().shutdown(Shutdown::Both).await.map_err(Into::into)
-    }
-
-    #[cold]
-    #[inline(never)]
-    async fn on_body_error(&mut self, e: BE, write_buf: BytesMut) -> (Result<(), Error<S::Error, BE>>, BytesMut) {
-        let (res, write_buf) = write_buf.write(self.io.io()).await;
-        let e = res.err().map(Error::from).unwrap_or(Error::Body(e));
-        (Err(e), write_buf)
     }
 }
 
