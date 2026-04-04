@@ -123,6 +123,22 @@ impl<L, R> Either<L, R> {
             inner: EitherInner::R { inner },
         }
     }
+
+    #[inline]
+    pub fn into_left(self) -> Result<L, Self> {
+        match self.inner {
+            EitherInner::L { inner } => Ok(inner),
+            inner => Err(Self { inner }),
+        }
+    }
+
+    #[inline]
+    pub fn into_right(self) -> Result<R, Self> {
+        match self.inner {
+            EitherInner::R { inner } => Ok(inner),
+            inner => Err(Self { inner }),
+        }
+    }
 }
 
 impl<L> Either<L, L> {

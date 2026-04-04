@@ -2,4 +2,4 @@
 
 - `SizeHint::None` for expression no http body
 - `futures::Stream` trait impl for body type avoid nesting adapter
-- `Frame::Data` and `Frame::Trailers` are public for simply matching
+- `Frame::Data` and `Frame::Trailers` are public for simple matching

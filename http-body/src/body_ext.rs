@@ -5,16 +5,16 @@ use core::{
 
 use super::{body::Body, frame::Frame};
 
-pub trait BodyExt {
+pub trait BodyExt: Body {
     fn frame(&mut self) -> FrameFuture<'_, Self>
     where
-        Self: Body + Sized + Unpin,
+        Self: Unpin,
     {
         FrameFuture { body: self }
     }
 }
 
-pub struct FrameFuture<'a, B> {
+pub struct FrameFuture<'a, B: ?Sized> {
     body: &'a mut B,
 }
 
@@ -24,6 +24,7 @@ where
 {
     type Output = Option<Result<Frame<B::Data>, B::Error>>;
 
+    #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Body::poll_frame(Pin::new(self.get_mut().body), cx)
     }

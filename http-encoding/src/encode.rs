@@ -1,7 +1,7 @@
 //! Stream encoders.
 
-use futures_core::Stream;
-use http::{header, Response, StatusCode};
+use http::{Response, StatusCode, header};
+use http_body_alt::Body;
 
 use super::{
     coder::{Coder, FeaturedCode},
@@ -9,10 +9,10 @@ use super::{
 };
 
 /// Construct from headers and stream body. Use for encoding.
-pub fn encoder<S, T, E>(response: Response<S>, mut encoding: ContentEncoding) -> Response<Coder<S, FeaturedCode>>
+pub fn encoder<S>(response: Response<S>, mut encoding: ContentEncoding) -> Response<Coder<S, FeaturedCode>>
 where
-    S: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + 'static,
+    S: Body,
+    S::Data: AsRef<[u8]> + 'static,
 {
     #[allow(unused_mut)]
     let (mut parts, body) = response.into_parts();

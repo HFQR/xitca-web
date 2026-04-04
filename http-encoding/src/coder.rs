@@ -1,12 +1,13 @@
 use core::{
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use std::io;
 
 use bytes::Bytes;
-use futures_core::stream::Stream;
+use http::HeaderMap;
+use http_body_alt::{Body, Frame, SizeHint};
 use pin_project_lite::pin_project;
 
 use super::error::CoderError;
@@ -18,19 +19,24 @@ pin_project! {
         #[pin]
         body: S,
         coder: C,
+        trailers: Option<HeaderMap>
     }
 }
 
-impl<S, C, T, E> Coder<S, C>
+impl<S, C> Coder<S, C>
 where
-    S: Stream<Item = Result<T, E>>,
-    C: Code<T>,
-    T: AsRef<[u8]>,
+    S: Body,
+    C: Code<S::Data>,
+    S::Data: AsRef<[u8]>,
 {
     /// Construct a new coder.
     #[inline]
     pub const fn new(body: S, coder: C) -> Self {
-        Self { body, coder }
+        Self {
+            body,
+            coder,
+            trailers: None,
+        }
     }
 
     #[inline]
@@ -39,32 +45,45 @@ where
     }
 }
 
-impl<S, C, T, E> Stream for Coder<S, C>
+impl<S, C> Body for Coder<S, C>
 where
-    S: Stream<Item = Result<T, E>>,
-    CoderError: From<E>,
-    C: Code<T>,
+    S: Body,
+    CoderError: From<S::Error>,
+    C: Code<S::Data>,
 {
-    type Item = Result<C::Item, CoderError>;
+    type Data = C::Item;
+    type Error = CoderError;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let mut this = self.project();
 
-        while let Some(res) = ready!(this.body.as_mut().poll_next(cx)) {
-            let item = res?;
-            if let Some(item) = this.coder.code(item)? {
-                return Poll::Ready(Some(Ok(item)));
+        while let Some(res) = ready!(this.body.as_mut().poll_frame(cx)) {
+            match res? {
+                Frame::Data(item) => {
+                    if let Some(item) = this.coder.code(item)? {
+                        return Poll::Ready(Some(Ok(Frame::Data(item))));
+                    }
+                }
+                Frame::Trailers(trailers) => {
+                    this.trailers.replace(trailers);
+                    break;
+                }
             }
         }
 
         match this.coder.code_eof()? {
-            Some(res) => Poll::Ready(Some(Ok(res))),
-            None => Poll::Ready(None),
+            Some(res) => Poll::Ready(Some(Ok(Frame::Data(res)))),
+            None => Poll::Ready(this.trailers.take().map(|trailsers| Ok(Frame::Trailers(trailsers)))),
         }
     }
 
+    fn is_end_stream(&self) -> bool {
+        // forward is_end_stream to coder as it determines the data length after (de)compress.
+        self.coder.is_end_stream(&self.body)
+    }
+
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
+    fn size_hint(&self) -> SizeHint {
         // forward size_hint to coder as it determines the data length after (de)compress.
         self.coder.size_hint(&self.body)
     }
@@ -77,13 +96,22 @@ pub trait Code<T>: Sized {
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>>;
 
-    /// A helper method for overriding associated input stream's size_hint.
-    /// by default it returns value the same as [Stream::size_hint]'s default value.
+    /// A helper method for overriding associated input body's end_stream state.
+    /// by default it returns value the same as [`Body::is_end_stream`]'s default value.
+    /// in other word the default prediction is (de)compress can not hint if body has ended.
+    #[allow(unused_variables)]
+    #[inline]
+    fn is_end_stream(&self, body: &impl Body) -> bool {
+        false
+    }
+
+    /// A helper method for overriding associated input body's size_hint.
+    /// by default it returns value the same as [`SizeHint`]'s default value.
     /// in other word the default prediction is (de)compress can not hint an exact size.
     #[allow(unused_variables)]
     #[inline]
-    fn size_hint(&self, stream: &impl Stream) -> (usize, Option<usize>) {
-        (0, None)
+    fn size_hint(&self, body: &impl Body) -> SizeHint {
+        SizeHint::default()
     }
 }
 
@@ -107,12 +135,18 @@ where
         Ok(None)
     }
 
-    // noop coder can take advantage of not doing any de/encoding work and hint the output stream
+    // similar reason to size_hint.
+    #[inline]
+    fn is_end_stream(&self, body: &impl Body) -> bool {
+        body.is_end_stream()
+    }
+
+    // noop coder can take advantage of not doing any de/encoding work and hint the output body
     // size. this would help downstream to infer the size of body and avoid going through
     // transfer-encoding: chunked when possible.
     #[inline]
-    fn size_hint(&self, stream: &impl Stream) -> (usize, Option<usize>) {
-        stream.size_hint()
+    fn size_hint(&self, body: &impl Body) -> SizeHint {
+        body.size_hint()
     }
 }
 
@@ -146,55 +180,73 @@ where
 
     fn code(&mut self, item: T) -> io::Result<Option<Self::Item>> {
         match self {
-            Self::NoOp(ref mut coder) => coder.code(item),
+            Self::NoOp(coder) => coder.code(item),
             #[cfg(feature = "br")]
-            Self::DecodeBr(ref mut coder) => coder.code(item),
+            Self::DecodeBr(coder) => coder.code(item),
             #[cfg(feature = "br")]
-            Self::EncodeBr(ref mut coder) => coder.code(item),
+            Self::EncodeBr(coder) => coder.code(item),
             #[cfg(feature = "gz")]
-            Self::DecodeGz(ref mut coder) => coder.code(item),
+            Self::DecodeGz(coder) => coder.code(item),
             #[cfg(feature = "gz")]
-            Self::EncodeGz(ref mut coder) => coder.code(item),
+            Self::EncodeGz(coder) => coder.code(item),
             #[cfg(feature = "de")]
-            Self::DecodeDe(ref mut coder) => coder.code(item),
+            Self::DecodeDe(coder) => coder.code(item),
             #[cfg(feature = "de")]
-            Self::EncodeDe(ref mut coder) => coder.code(item),
+            Self::EncodeDe(coder) => coder.code(item),
         }
     }
 
     fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
         match self {
-            Self::NoOp(ref mut coder) => <NoOpCode as Code<T>>::code_eof(coder),
+            Self::NoOp(coder) => <NoOpCode as Code<T>>::code_eof(coder),
             #[cfg(feature = "br")]
-            Self::DecodeBr(ref mut coder) => <super::brotli::Decoder as Code<T>>::code_eof(coder),
+            Self::DecodeBr(coder) => <super::brotli::Decoder as Code<T>>::code_eof(coder),
             #[cfg(feature = "br")]
-            Self::EncodeBr(ref mut coder) => <super::brotli::Encoder as Code<T>>::code_eof(coder),
+            Self::EncodeBr(coder) => <super::brotli::Encoder as Code<T>>::code_eof(coder),
             #[cfg(feature = "gz")]
-            Self::DecodeGz(ref mut coder) => <super::gzip::Decoder as Code<T>>::code_eof(coder),
+            Self::DecodeGz(coder) => <super::gzip::Decoder as Code<T>>::code_eof(coder),
             #[cfg(feature = "gz")]
-            Self::EncodeGz(ref mut coder) => <super::gzip::Encoder as Code<T>>::code_eof(coder),
+            Self::EncodeGz(coder) => <super::gzip::Encoder as Code<T>>::code_eof(coder),
             #[cfg(feature = "de")]
-            Self::DecodeDe(ref mut coder) => <super::deflate::Decoder as Code<T>>::code_eof(coder),
+            Self::DecodeDe(coder) => <super::deflate::Decoder as Code<T>>::code_eof(coder),
             #[cfg(feature = "de")]
-            Self::EncodeDe(ref mut coder) => <super::deflate::Encoder as Code<T>>::code_eof(coder),
+            Self::EncodeDe(coder) => <super::deflate::Encoder as Code<T>>::code_eof(coder),
         }
     }
 
-    fn size_hint(&self, stream: &impl Stream) -> (usize, Option<usize>) {
+    fn is_end_stream(&self, body: &impl Body) -> bool {
         match self {
-            Self::NoOp(ref coder) => <NoOpCode as Code<T>>::size_hint(coder, stream),
+            Self::NoOp(coder) => <NoOpCode as Code<T>>::is_end_stream(coder, body),
             #[cfg(feature = "br")]
-            Self::DecodeBr(ref coder) => <super::brotli::Decoder as Code<T>>::size_hint(coder, stream),
+            Self::DecodeBr(coder) => <super::brotli::Decoder as Code<T>>::is_end_stream(coder, body),
             #[cfg(feature = "br")]
-            Self::EncodeBr(ref coder) => <super::brotli::Encoder as Code<T>>::size_hint(coder, stream),
+            Self::EncodeBr(coder) => <super::brotli::Encoder as Code<T>>::is_end_stream(coder, body),
             #[cfg(feature = "gz")]
-            Self::DecodeGz(ref coder) => <super::gzip::Decoder as Code<T>>::size_hint(coder, stream),
+            Self::DecodeGz(coder) => <super::gzip::Decoder as Code<T>>::is_end_stream(coder, body),
             #[cfg(feature = "gz")]
-            Self::EncodeGz(ref coder) => <super::gzip::Encoder as Code<T>>::size_hint(coder, stream),
+            Self::EncodeGz(coder) => <super::gzip::Encoder as Code<T>>::is_end_stream(coder, body),
             #[cfg(feature = "de")]
-            Self::DecodeDe(ref coder) => <super::deflate::Decoder as Code<T>>::size_hint(coder, stream),
+            Self::DecodeDe(coder) => <super::deflate::Decoder as Code<T>>::is_end_stream(coder, body),
             #[cfg(feature = "de")]
-            Self::EncodeDe(ref coder) => <super::deflate::Encoder as Code<T>>::size_hint(coder, stream),
+            Self::EncodeDe(coder) => <super::deflate::Encoder as Code<T>>::is_end_stream(coder, body),
+        }
+    }
+
+    fn size_hint(&self, body: &impl Body) -> SizeHint {
+        match self {
+            Self::NoOp(coder) => <NoOpCode as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "br")]
+            Self::DecodeBr(coder) => <super::brotli::Decoder as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "br")]
+            Self::EncodeBr(coder) => <super::brotli::Encoder as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "gz")]
+            Self::DecodeGz(coder) => <super::gzip::Decoder as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "gz")]
+            Self::EncodeGz(coder) => <super::gzip::Encoder as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "de")]
+            Self::DecodeDe(coder) => <super::deflate::Decoder as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "de")]
+            Self::EncodeDe(coder) => <super::deflate::Encoder as Code<T>>::size_hint(coder, body),
         }
     }
 }
@@ -213,21 +265,13 @@ macro_rules! code_impl {
 
                 self.write_all(item.as_ref())?;
                 let b = self.get_mut().take();
-                if !b.is_empty() {
-                    Ok(Some(b))
-                } else {
-                    Ok(None)
-                }
+                if !b.is_empty() { Ok(Some(b)) } else { Ok(None) }
             }
 
             fn code_eof(&mut self) -> ::std::io::Result<Option<Self::Item>> {
                 self.try_finish()?;
                 let b = self.get_mut().take();
-                if !b.is_empty() {
-                    Ok(Some(b))
-                } else {
-                    Ok(None)
-                }
+                if !b.is_empty() { Ok(Some(b)) } else { Ok(None) }
             }
         }
     };

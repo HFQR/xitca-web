@@ -22,7 +22,7 @@ runtime = ["dep:tokio"]
 runtime-uring = ["runtime", "dep:slab", "dep:libc", "dep:io-uring", "dep:socket2"]
 
 [dependencies]
-tokio = { version = "1.48", features = ["net", "rt", "sync"], optional = true }
+tokio = { workspace = true, features = ["net", "rt", "sync"], optional = true }
 slab = { version = "0.4.11", optional = true }
 libc = { version = "0.2.178", optional = true }
 io-uring = { version = "0.7.11", optional = true }

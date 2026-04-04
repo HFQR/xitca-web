@@ -22,7 +22,14 @@ mod brotli {
 
     use super::{coder::Code, writer::BytesMutWriter};
 
-    pub type Decoder = BrotliDecoder<BytesMutWriter>;
+    pub struct Decoder(Option<BrotliDecoder<BytesMutWriter>>);
+
+    impl Decoder {
+        pub(crate) fn new() -> Self {
+            Self(Some(BrotliDecoder::new(BytesMutWriter::new())))
+        }
+    }
+
     pub struct Encoder(Option<BrotliEncoder<BytesMutWriter>>);
 
     impl Encoder {
@@ -31,29 +38,27 @@ mod brotli {
         }
     }
 
-    impl<T> Code<T> for BrotliDecoder<BytesMutWriter>
+    impl<T> Code<T> for Decoder
     where
         T: AsRef<[u8]>,
     {
         type Item = Bytes;
 
         fn code(&mut self, item: T) -> io::Result<Option<Self::Item>> {
-            self.write_all(item.as_ref())?;
-            self.flush()?;
-            let b = self.get_mut().take();
-            if !b.is_empty() {
-                Ok(Some(b))
-            } else {
-                Ok(None)
-            }
+            let decoder = self.0.as_mut().unwrap();
+            decoder.write_all(item.as_ref())?;
+            decoder.flush()?;
+            let b = decoder.get_mut().take();
+            if !b.is_empty() { Ok(Some(b)) } else { Ok(None) }
         }
 
         fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
-            let b = self.finish()?.take_owned();
-            if !b.is_empty() {
-                Ok(Some(b))
-            } else {
-                Ok(None)
+            match self.0.take() {
+                Some(mut decoder) => {
+                    let b = decoder.finish()?.take_owned();
+                    Ok(Some(b))
+                }
+                None => Ok(None),
             }
         }
     }
@@ -69,18 +74,13 @@ mod brotli {
             encoder.write_all(item.as_ref())?;
             encoder.flush()?;
             let b = encoder.get_mut().take();
-            if !b.is_empty() {
-                Ok(Some(b))
-            } else {
-                Ok(None)
-            }
+            if !b.is_empty() { Ok(Some(b)) } else { Ok(None) }
         }
 
         fn code_eof(&mut self) -> io::Result<Option<Self::Item>> {
             match self.0.take() {
                 Some(encoder) => {
                     let b = encoder.finish()?.take_owned();
-                    assert!(!b.is_empty());
                     Ok(Some(b))
                 }
                 None => Ok(None),

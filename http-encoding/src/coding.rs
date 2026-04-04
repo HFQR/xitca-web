@@ -1,4 +1,4 @@
-use http::header::{HeaderMap, ACCEPT_ENCODING};
+use http::header::{ACCEPT_ENCODING, HeaderMap};
 
 use super::error::FeatureError;
 

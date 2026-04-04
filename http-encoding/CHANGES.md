@@ -1,4 +1,10 @@
-# unreleased 0.2.2
+# unreleased 0.3.0
+## Change
+- use `http-body-alt` as streaming interface to enable trailer support
+
+## Remove
+- remove `futures::Stream` implementation
+
 ## Fix
 - `try_decoder` would try all possible encoding before eargerly yield with feature error
 

@@ -21,7 +21,7 @@ xitca-io = { version = "0.6.0", features = ["runtime"] }
 xitca-service = { version = "0.3.0", features = ["alloc"] }
 xitca-unsafe-collection = "0.2.0"
 
-tokio = { version = "1.48", features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { version = "0.1.40", default-features = false }
 
 # io-uring support
