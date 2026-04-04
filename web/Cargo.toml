@@ -48,6 +48,9 @@ cookie = ["dep:cookie"]
 # multipart type extractor
 multipart = ["http-multipart"]
 
+# grpc type extractor/responder
+grpc = ["prost"]
+
 # websocket type extractor/responder
 websocket = ["http-ws/stream", "tokio/time"]
 
@@ -112,6 +115,9 @@ http-encoding = { workspace = true, optional = true }
 
 # cookie
 cookie = { version = "0.18", features = ["percent-encode", "secure"], optional = true }
+
+# grpc
+prost = { version = "0.14", optional = true }
 
 # multipart
 http-multipart = { version = "0.1", optional = true }

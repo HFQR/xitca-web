@@ -50,7 +50,11 @@ pub mod const_header_name {
             }
         }
 
-    const_name!((PROTOCOL, "protocol"));
+    const_name!(
+        (PROTOCOL, "protocol"),
+        (GRPC_STATUS, "grpc-status"),
+        (GRPC_MESSAGE, "grpc-message")
+    );
 }
 
 /// helper trait for converting a [Request] to [Response].

@@ -26,5 +26,8 @@ pub mod cookie;
 #[cfg(feature = "multipart")]
 pub mod multipart;
 
+#[cfg(feature = "grpc")]
+pub mod grpc;
+
 #[cfg(feature = "websocket")]
 pub mod websocket;

@@ -492,6 +492,8 @@ impl WriterQueue {
     /// last chunk with no intervening yield point, so the tail of the queue IS
     /// the last DATA frame for this stream in the vast majority of cases.
     /// The O(n) search and zero-length fallback handle the rare exceptions.
+    #[cold]
+    #[inline(never)]
     fn push_end_stream(&mut self, stream_id: StreamId) {
         for msg in self.messages.iter_mut().rev() {
             if let Message::Data(d) = msg {
@@ -1233,10 +1235,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
         'body: loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-                None => {
-                    ctx.borrow_mut().queue.push_end_stream(stream_id);
-                    break;
-                }
+                None => break ctx.borrow_mut().queue.push_end_stream(stream_id),
                 Some(Err(e)) => {
                     error!("body error: {:?}", e);
                     ctx.borrow_mut().queue.push(Message::Reset {
@@ -1281,8 +1280,17 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                             };
 
                             let chunk = bytes.split_to(aval);
-                            let data = data::Data::new(stream_id, chunk);
+                            let mut data = data::Data::new(stream_id, chunk);
+
+                            let is_end_stream = bytes.is_empty() && body.is_end_stream();
+
+                            data.set_end_stream(is_end_stream);
+
                             ctx.borrow_mut().queue.push(Message::Data(data));
+
+                            if is_end_stream {
+                                break 'body;
+                            }
                         }
                     }
                     Frame::Trailers(trailers) => {

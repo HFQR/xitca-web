@@ -1,5 +1,6 @@
 # unreleased 0.8.0
 ## Add
+- add `handler::grpc` module for typed grpc message request/response handling
 - Add `error::Error::call_dyn` enabling object oriented web response conversion in arbitrary error type's Service impl
 
 ## Change

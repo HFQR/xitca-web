@@ -5,15 +5,9 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2024"
 
 [dependencies]
-xitca-http = { version = "0.7", default-features = false, features = ["http2", "router"] }
-xitca-server = "0.5"
-xitca-service = "0.3"
+xitca-web = { version = "0.8.0", default-features = false, features = ["http2", "grpc"] }
 
-anyhow = "1.0.66"
-futures-util = { version = "0.3", default-features = false }
-prost = "0.12"
-tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
+prost = "0.14"
 
 [build-dependencies]
-prost-build = "0.12"
+prost-build = "0.14"

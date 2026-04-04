@@ -1,70 +1,33 @@
-//! A Http/2 server handling low level grpc call.
+//! A Http/2 grpc server using xitca-web's grpc extractor and responder.
 
-use futures_util::TryStreamExt;
-use prost::Message;
-use xitca_http::{
-    body::Once,
-    bytes::{BufMut, Bytes, BytesMut},
-    h2::RequestBody,
-    http::{
-        const_header_value::GRPC,
-        header::{HeaderName, HeaderValue, CONTENT_TYPE, TRAILER},
-        IntoResponse, Request, RequestExt, Response,
+use xitca_web::{
+    App,
+    handler::{
+        grpc::{GrpcError, Grpc, GrpcStatus},
+        handler_service,
     },
-    util::service::{route::post, Router},
-    HttpServiceBuilder,
 };
-use xitca_service::{fn_service, ServiceExt};
 
 mod hello_world {
     include!(concat!(env!("OUT_DIR"), "/helloworld.rs"));
 }
 
+use hello_world::{HelloReply, HelloRequest};
+
 fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("xitca=info,[xitca-logger]=trace")
-        .init();
-    xitca_server::Builder::new()
-        .bind(
-            "http/2",
-            "localhost:50051",
-            Router::new()
-                .insert("/helloworld.Greeter/SayHello", post(fn_service(grpc)))
-                .enclosed(HttpServiceBuilder::h2()),
-        )?
-        .build()
+    App::new()
+        .at("/helloworld.Greeter/SayHello", handler_service(say_hello))
+        .serve()
+        .worker_threads(1)
+        .bind("localhost:50051")?
+        .run()
         .wait()
 }
 
-async fn grpc(mut req: Request<RequestExt<RequestBody>>) -> Result<Response<Once<Bytes>>, anyhow::Error> {
-    let body = req.body_mut();
-
-    let mut buf = BytesMut::new();
-
-    while let Some(bytes) = body.try_next().await.map_err(|e| anyhow::anyhow! {e})? {
-        buf.extend_from_slice(bytes.as_ref());
+async fn say_hello(Grpc(req): Grpc<HelloRequest>) -> Result<Grpc<HelloReply>, GrpcError> {
+    let response = req.request;
+    if response.is_none() {
+        return Err(GrpcError::new(GrpcStatus::InvalidArgument, "missing request field"));
     }
-
-    let msg: hello_world::HelloRequest = Message::decode(buf.split_off(5))?;
-
-    Message::encode(&hello_world::HelloReply { response: msg.request }, &mut buf)?;
-
-    let len = buf.len() - 5;
-
-    (&mut buf[1..5]).put_u32(len as u32);
-
-    let mut res = req.into_response(buf.freeze());
-
-    #[allow(clippy::declare_interior_mutable_const)]
-    {
-        const GRPC_STATUS_NAME: HeaderName = HeaderName::from_static("grpc-status");
-        const GRPC_STATUS_VALUE: HeaderValue = HeaderValue::from_static("0");
-        const GRPC_STATUS_NAME_AS_VALUE: HeaderValue = HeaderValue::from_static("grpc-status");
-
-        res.headers_mut().insert(CONTENT_TYPE, GRPC);
-        res.headers_mut().insert(GRPC_STATUS_NAME, GRPC_STATUS_VALUE);
-        res.headers_mut().insert(TRAILER, GRPC_STATUS_NAME_AS_VALUE);
-    }
-
-    Ok(res)
+    Ok(Grpc(HelloReply { response }))
 }
