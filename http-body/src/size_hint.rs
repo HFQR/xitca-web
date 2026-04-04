@@ -19,4 +19,15 @@ impl SizeHint {
     {
         SizeHint::Exact(u64::try_from(size).unwrap())
     }
+
+    pub(crate) fn stream_size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Exact(len) => {
+                let len = usize::try_from(*len).unwrap();
+                (len, Some(len))
+            }
+            Self::Unknown => (0, None),
+            Self::None => Self::NO_BODY_HINT,
+        }
+    }
 }

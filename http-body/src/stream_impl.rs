@@ -1,12 +1,13 @@
 //! [`Stream`] trait impl for types already implemented [`Body`] trait
 //!
 //! # IMPORTANT
+//!
 //! [`Stream::size_hint`] does not provide a fixed state for expressing [`SizeHint::None`].
 //! Therefore this crate decides to use [`SizeHint::NO_BODY_HINT`] as mapped expression to it.
 
 use core::{
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use bytes::Buf;
@@ -15,8 +16,7 @@ use futures_core::stream::Stream;
 use super::{
     body::Body,
     frame::Frame,
-    size_hint::SizeHint,
-    util::{Either, Empty, Full, StreamBody},
+    util::{Either, Empty, Full, StreamBody, StreamDataBody},
 };
 
 macro_rules! stream_impls {
@@ -34,14 +34,7 @@ macro_rules! stream_impls {
 
             #[inline]
             fn size_hint(&self) -> (usize, Option<usize>) {
-                match Body::size_hint(self) {
-                    SizeHint::Exact(len) => {
-                        let len = usize::try_from(len).unwrap();
-                        (len, Some(len))
-                    }
-                    SizeHint::Unknown => (0, None),
-                    SizeHint::None => SizeHint::NO_BODY_HINT,
-                }
+                Body::size_hint(self).stream_size_hint()
             }
         }
     };
@@ -51,3 +44,24 @@ stream_impls!(Full<D: Buf>);
 stream_impls!(Empty<D>);
 stream_impls!(Either<L, R>);
 stream_impls!(StreamBody<S>);
+
+impl<B> Stream for StreamDataBody<B>
+where
+    B: Body,
+{
+    type Item = Result<B::Data, B::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let opt = match ready!(Body::poll_frame(self, cx)) {
+            Some(Ok(Frame::Data(data))) => Some(Ok(data)),
+            Some(Err(e)) => Some(Err(e)),
+            Some(_) | None => None,
+        };
+        Poll::Ready(opt)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        Body::size_hint(self).stream_size_hint()
+    }
+}

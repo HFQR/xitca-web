@@ -190,7 +190,8 @@ pin_project! {
     pub struct StreamBody<S> {
         #[pin]
         stream: S
-}}
+    }
+}
 
 impl<S> StreamBody<S> {
     pub fn new(stream: S) -> Self {
@@ -222,5 +223,48 @@ where
             SizeHint::NO_BODY_HINT => SizeHint::None,
             _ => SizeHint::Unknown,
         }
+    }
+}
+
+pin_project! {
+    /// Wrapper around a [`Body`] that implements [`Stream`] yielding `Result<B::Data, B::Error>` items.
+    /// Only `Frame::Data` frames are forwarded; trailers and other non-data frames are silently discarded
+    /// and treated as end of stream.
+    #[derive(Debug)]
+    pub struct StreamDataBody<B: Body> {
+        #[pin]
+        body: B
+    }
+}
+
+impl<B> StreamDataBody<B>
+where
+    B: Body,
+{
+    pub fn new(body: B) -> Self {
+        Self { body }
+    }
+}
+
+impl<B> Body for StreamDataBody<B>
+where
+    B: Body,
+{
+    type Data = B::Data;
+    type Error = B::Error;
+
+    #[inline]
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        Body::poll_frame(self.project().body, cx)
+    }
+
+    #[inline]
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
     }
 }
