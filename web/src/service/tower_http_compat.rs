@@ -2,22 +2,17 @@ use core::{
     cell::RefCell,
     convert::Infallible,
     pin::Pin,
-    task::{Context, Poll, ready},
+    task::{Context, Poll},
 };
 
 use std::borrow::Cow;
 
-use futures_core::stream::Stream;
-use http_body::{Body, Frame, SizeHint};
 use pin_project_lite::pin_project;
-use xitca_http::{
-    body::{BodySize, none_body_hint},
-    util::service::router::{PathGen, RouteGen, RouterMapErr},
-};
+use xitca_http::util::service::router::{PathGen, RouteGen, RouterMapErr};
 use xitca_unsafe_collection::fake::{FakeSend, FakeSync};
 
 use crate::{
-    body::ResponseBody,
+    body::{Body, Frame, ResponseBody, SizeHint},
     bytes::{Buf, Bytes, BytesMut},
     context::WebContext,
     http::{Request, RequestExt, Response, WebResponse},
@@ -71,11 +66,11 @@ impl<S> TowerCompatService<S> {
 impl<'r, C, ReqB, S, ResB> Service<WebContext<'r, C, ReqB>> for TowerCompatService<S>
 where
     S: tower_service::Service<Request<CompatReqBody<RequestExt<ReqB>, C>>, Response = Response<ResB>>,
-    ResB: Body,
+    ResB: http_body::Body,
     C: Clone + 'static,
     ReqB: Default,
 {
-    type Response = WebResponse<CompatResBody<ResB>>;
+    type Response = WebResponse<CompatBody<ResB>>;
     type Error = S::Error;
 
     async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
@@ -83,7 +78,7 @@ where
         let ctx = ctx.state().clone();
         let req = Request::from_parts(parts, CompatReqBody::new(ext, ctx));
         let fut = tower_service::Service::call(&mut *self.0.borrow_mut(), req);
-        fut.await.map(|res| res.map(CompatResBody::new))
+        fut.await.map(|res| res.map(CompatBody::new))
     }
 }
 
@@ -95,7 +90,7 @@ impl<S> ReadyService for TowerCompatService<S> {
 }
 
 pub struct CompatReqBody<B, C> {
-    body: FakeSend<B>,
+    body: FakeSend<CompatBody<B>>,
     ctx: FakeSend<FakeSync<C>>,
 }
 
@@ -103,7 +98,7 @@ impl<B, C> CompatReqBody<B, C> {
     #[inline]
     pub fn new(body: B, ctx: C) -> Self {
         Self {
-            body: FakeSend::new(body),
+            body: FakeSend::new(CompatBody::new(body)),
             ctx: FakeSend::new(FakeSync::new(ctx)),
         }
     }
@@ -114,39 +109,42 @@ impl<B, C> CompatReqBody<B, C> {
     /// - When called from a thread not where B is originally constructed.
     #[inline]
     pub fn into_parts(self) -> (B, C) {
-        (self.body.into_inner(), self.ctx.into_inner().into_inner())
+        (self.body.into_inner().into_inner(), self.ctx.into_inner().into_inner())
     }
 }
 
-impl<B, C, T, E> Body for CompatReqBody<B, C>
+impl<B, C> http_body::Body for CompatReqBody<B, C>
 where
-    B: Stream<Item = Result<T, E>> + Unpin,
+    B: Body + Unpin,
     C: Unpin,
-    T: Buf,
+    B::Data: Buf,
 {
-    type Data = T;
-    type Error = E;
+    type Data = B::Data;
+    type Error = B::Error;
 
     #[inline]
-    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        Pin::new(&mut *self.get_mut().body).poll_next(cx).map_ok(Frame::data)
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        http_body::Body::poll_frame(Pin::new(&mut *self.get_mut().body), cx)
     }
 
     #[inline]
-    fn size_hint(&self) -> SizeHint {
-        size_hint(BodySize::from_stream(&*self.body))
+    fn size_hint(&self) -> http_body::SizeHint {
+        http_body::Body::size_hint(&*self.body)
     }
 }
 
 pin_project! {
     #[derive(Default)]
-    pub struct CompatResBody<B> {
+    pub struct CompatBody<B> {
         #[pin]
         body: B
     }
 }
 
-impl<B> CompatResBody<B> {
+impl<B> CompatBody<B> {
     pub const fn new(body: B) -> Self {
         Self { body }
     }
@@ -159,7 +157,7 @@ impl<B> CompatResBody<B> {
 // useful shortcuts conversion for B type.
 macro_rules! impl_from {
     ($ty: ty) => {
-        impl<B> From<$ty> for CompatResBody<B>
+        impl<B> From<$ty> for CompatBody<B>
         where
             B: From<$ty>,
         {
@@ -181,83 +179,64 @@ impl_from!(Box<str>);
 impl_from!(Cow<'static, str>);
 impl_from!(ResponseBody);
 
-impl<B, T, E> Body for CompatResBody<B>
+impl<B> http_body::Body for CompatBody<B>
 where
-    B: Stream<Item = Result<T, E>>,
-    T: Buf,
+    B: Body,
+    B::Data: Buf,
 {
-    type Data = T;
-    type Error = E;
+    type Data = B::Data;
+    type Error = B::Error;
+
+    #[inline]
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        Body::poll_frame(self.project().body, cx).map_ok(|frame| match frame {
+            Frame::Data(data) => http_body::Frame::data(data),
+            Frame::Trailers(trailers) => http_body::Frame::trailers(trailers),
+        })
+    }
+
+    #[inline]
+    fn is_end_stream(&self) -> bool {
+        Body::is_end_stream(&self.body)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> http_body::SizeHint {
+        match Body::size_hint(&self.body) {
+            SizeHint::Exact(size) => http_body::SizeHint::with_exact(size),
+            _ => http_body::SizeHint::default(),
+        }
+    }
+}
+
+impl<B> Body for CompatBody<B>
+where
+    B: http_body::Body,
+{
+    type Data = B::Data;
+    type Error = B::Error;
 
     #[inline]
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        self.project().body.poll_next(cx).map_ok(Frame::data)
+        http_body::Body::poll_frame(self.project().body, cx).map_ok(|frame| match frame.into_data() {
+            Ok(data) => Frame::Data(data),
+            Err(frame) => Frame::Trailers(frame.into_trailers().ok().unwrap()),
+        })
+    }
+
+    #[inline]
+    fn is_end_stream(&self) -> bool {
+        http_body::Body::is_end_stream(&self.body)
     }
 
     #[inline]
     fn size_hint(&self) -> SizeHint {
-        size_hint(BodySize::from_stream(&self.body))
-    }
-}
-
-impl<B> Stream for CompatResBody<B>
-where
-    B: Body,
-{
-    type Item = Result<B::Data, B::Error>;
-
-    #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match ready!(self.project().body.poll_frame(cx)) {
-            Some(res) => Poll::Ready(res.map(|frame| frame.into_data().ok()).transpose()),
-            None => Poll::Ready(None),
+        match http_body::Body::size_hint(&self.body).exact() {
+            Some(size) => SizeHint::Exact(size),
+            None => SizeHint::Unknown,
         }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let hint = self.body.size_hint();
-        (hint.lower() as usize, hint.upper().map(|num| num as usize))
-    }
-}
-
-fn size_hint(size: BodySize) -> SizeHint {
-    let mut hint = SizeHint::new();
-    match size {
-        BodySize::None => {
-            let (low, upper) = none_body_hint();
-            hint.set_lower(low as u64);
-            hint.set_upper(upper.unwrap() as u64);
-        }
-        BodySize::Sized(size) => hint.set_exact(size as u64),
-        BodySize::Stream => {}
-    }
-
-    hint
-}
-
-#[cfg(test)]
-mod test {
-    use xitca_http::body::{Once, exact_body_hint};
-
-    use super::*;
-
-    #[test]
-    fn body_compat() {
-        let buf = Bytes::from_static(b"996");
-        let len = buf.len();
-        let body = CompatResBody::new(Once::new(buf));
-
-        let size = Body::size_hint(&body);
-
-        assert_eq!(
-            (size.lower() as usize, size.upper().map(|num| num as usize)),
-            exact_body_hint(len)
-        );
-
-        let body = CompatResBody::new(body);
-
-        let size = Stream::size_hint(&body);
-
-        assert_eq!(size, exact_body_hint(len));
     }
 }

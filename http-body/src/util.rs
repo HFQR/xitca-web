@@ -186,16 +186,21 @@ where
 }
 
 pin_project! {
+    /// Bidirectional adapter between [`Stream`] and [`Body`] at the [`Frame`] level:
+    /// - When the inner value implements [`Body`], this type implements [`Stream`] yielding
+    ///   `Result<Frame<Body::Data>, Body::Error>`.
+    /// - When the inner value implements [`Stream`], this type implements [`Body`] forwarding
+    ///   each `Result<Frame<D>, E>` frame as-is.
     #[derive(Debug)]
-    pub struct StreamBody<S> {
+    pub struct StreamBody<T> {
         #[pin]
-        stream: S
+        value: T
     }
 }
 
-impl<S> StreamBody<S> {
-    pub fn new(stream: S) -> Self {
-        Self { stream }
+impl<T> StreamBody<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
     }
 }
 
@@ -208,7 +213,7 @@ where
 
     #[inline]
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        Stream::poll_next(self.project().stream, cx)
+        Stream::poll_next(self.project().value, cx)
     }
 
     #[inline]
@@ -218,7 +223,7 @@ where
 
     #[inline]
     fn size_hint(&self) -> SizeHint {
-        match Stream::size_hint(&self.stream) {
+        match Stream::size_hint(&self.value) {
             (low, Some(up)) if low == up => SizeHint::exact(low),
             SizeHint::NO_BODY_HINT => SizeHint::None,
             _ => SizeHint::Unknown,
@@ -227,44 +232,43 @@ where
 }
 
 pin_project! {
-    /// Wrapper around a [`Body`] that implements [`Stream`] yielding `Result<B::Data, B::Error>` items.
-    /// Only `Frame::Data` frames are forwarded; trailers and other non-data frames are silently discarded
-    /// and treated as end of stream.
+    /// Bidirectional adapter between [`Stream`] and [`Body`]:
+    /// - When the inner value implements [`Body`], this type implements [`Stream`] yielding
+    ///   `Result<Body::Data, Body::Error>`. Trailer frames are ignored and treated as end of stream.
+    /// - When the inner value implements [`Stream`], this type implements [`Body`] wrapping each
+    ///   streamed item into [`Frame::Data`].
     #[derive(Debug)]
-    pub struct StreamDataBody<B: Body> {
+    pub struct StreamDataBody<T> {
         #[pin]
-        body: B
+        pub(crate) value: T
     }
 }
 
-impl<B> StreamDataBody<B>
-where
-    B: Body,
-{
-    pub fn new(body: B) -> Self {
-        Self { body }
+impl<T> StreamDataBody<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
     }
 }
 
-impl<B> Body for StreamDataBody<B>
+impl<S, T, E> Body for StreamDataBody<S>
 where
-    B: Body,
+    S: Stream<Item = Result<T, E>>,
 {
-    type Data = B::Data;
-    type Error = B::Error;
+    type Data = T;
+    type Error = E;
 
     #[inline]
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        Body::poll_frame(self.project().body, cx)
+        Stream::poll_next(self.project().value, cx).map_ok(Frame::Data)
     }
 
     #[inline]
     fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
+        false
     }
 
     #[inline]
     fn size_hint(&self) -> SizeHint {
-        self.body.size_hint()
+        SizeHint::from_stream_size_hint(self.value.size_hint())
     }
 }

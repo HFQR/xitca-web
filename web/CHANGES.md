@@ -4,11 +4,11 @@
 
 ## Change
 - Router rework. Named param is capatured with `{x}` instead of `:x`. Catch all is captured with `{*x}` intead of `*x`. For detail please reference `App::at` doc
-- update `xitca-http` to `0.8.2`
-- update `xitca-server` to `0.6.1`
-- update `xitca-tls` to `0.5.1`
-= update `xitca-io` to `0.5.1`
-- update `http-encoding` to `0.2.1`
+- update `xitca-http` to `0.9.0`
+- update `xitca-server` to `0.7.0`
+- update `xitca-tls` to `0.6.0`
+= update `xitca-io` to `0.6.0`
+- update `http-encoding` to `0.3.0`
 - update `http-file` to `0.3.0`
 
 # 0.7.0

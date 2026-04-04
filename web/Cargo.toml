@@ -26,7 +26,7 @@ io-uring = ["__server", "xitca-server/io-uring"]
 
 # tls transport layer
 openssl = ["__server", "xitca-http/openssl", "xitca-tls/openssl"]
-rustls = ["__server", "xitca-http/rustls", "xitca-tls/rustls-no-crypto"]
+rustls = ["__server", "xitca-http/rustls", "xitca-tls/rustls"]
 
 # params type extractor
 params = ["serde"]
@@ -84,19 +84,19 @@ serde = ["dep:serde_core"]
 __server = ["xitca-http/runtime", "xitca-server"]
 
 [dependencies]
-xitca-http = { version = "0.8.2", features = ["router"], default-features = false }
-xitca-service = { version = "0.3.0", features = ["alloc"] }
-xitca-unsafe-collection = "0.2.0"
+xitca-http = { workspace = true, features = ["router"] }
+xitca-service = { workspace = true, features = ["alloc"] }
+xitca-unsafe-collection = { workspace = true }
 
 futures-core = "0.3"
-pin-project-lite = "0.2.9"
-tokio = { version = "1", features = ["rt", "sync"] }
+pin-project-lite = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync"] }
 
 # http server
-xitca-server = { version = "0.6.1", optional = true }
+xitca-server = { workspace = true, optional = true }
 
 # tls
-xitca-tls = { version = "0.5.1", optional = true }
+xitca-tls = { workspace = true, optional = true }
 
 # (de)serialization shared.
 serde_core = { version = "1", optional = true }
@@ -108,7 +108,7 @@ serde_json = { version = "1", optional = true }
 serde_urlencoded = { version = "0.7.1", optional = true }
 
 # compress-x
-http-encoding = { version = "0.2.1", optional = true }
+http-encoding = { workspace = true, optional = true }
 
 # cookie
 cookie = { version = "0.18", features = ["percent-encode", "secure"], optional = true }
@@ -120,7 +120,7 @@ http-multipart = { version = "0.1", optional = true }
 http-ws = { version = "0.3", optional = true }
 
 # static file
-http-file = { version = "0.3", default-features = false ,optional = true }
+http-file = { version = "0.3", default-features = false, optional = true }
 
 # rate limit
 http-rate = { version = "0.1", optional = true }
@@ -138,7 +138,7 @@ tower-layer = { version = "0.3", optional = true }
 http-body = { version = "1", optional = true }
 
 # http3
-xitca-io = { version = "0.5.1", optional = true }
+xitca-io = { workspace = true, optional = true }
 
 [dev-dependencies]
 xitca-codegen = { version = "0.4" }

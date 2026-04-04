@@ -1,23 +1,24 @@
 //! utilities for testing web application
 
-use core::{future::poll_fn, pin::pin};
+use core::pin::pin;
 
-use futures_core::stream::Stream;
+use xitca_http::body::BodyExt;
 
-use crate::service::pipeline::PipelineE;
+use crate::{body::BodyStream, service::pipeline::PipelineE};
 
 /// Collect request or response body to Vec.
-pub async fn collect_body<B, T, E>(body: B) -> Result<Vec<u8>, E>
+pub async fn collect_body<B>(body: B) -> Result<Vec<u8>, B::Error>
 where
-    B: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]>,
+    B: BodyStream,
 {
     let mut body = pin!(body);
 
     let mut res = Vec::new();
 
-    while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-        res.extend_from_slice(chunk?.as_ref());
+    while let Some(frame) = body.as_mut().frame().await {
+        if let Some(data) = frame?.data_ref() {
+            res.extend_from_slice(data.as_ref());
+        }
     }
 
     Ok(res)
@@ -26,10 +27,9 @@ where
 pub type CollectStringError<E> = PipelineE<std::string::FromUtf8Error, E>;
 
 /// Collect request or response body and parse it to String.
-pub async fn collect_string_body<B, T, E>(body: B) -> Result<String, CollectStringError<E>>
+pub async fn collect_string_body<B>(body: B) -> Result<String, CollectStringError<B::Error>>
 where
-    B: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]>,
+    B: BodyStream,
 {
     let body = collect_body(body).await.map_err(CollectStringError::Second)?;
     String::from_utf8(body).map_err(CollectStringError::First)

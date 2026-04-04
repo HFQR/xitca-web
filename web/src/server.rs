@@ -1,15 +1,14 @@
 use std::{fmt, future::Future, sync::Arc, time::Duration};
 
-use futures_core::stream::Stream;
 use xitca_http::{
     HttpServiceBuilder,
-    body::RequestBody,
     config::{DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT, HttpServiceConfig},
 };
 use xitca_server::{Builder, ServerFuture, net::IntoListener};
 use xitca_service::ServiceExt;
 
 use crate::{
+    body::{Body, RequestBody},
     bytes::Bytes,
     http::{Request, RequestExt, Response},
     service::{Service, ready::ReadyService},
@@ -167,15 +166,15 @@ where
     }
 
     #[cfg(not(target_family = "wasm"))]
-    pub fn bind<A, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
+    pub fn bind<A, ResB>(mut self, addr: A) -> std::io::Result<Self>
     where
         A: std::net::ToSocketAddrs,
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let config = self.config;
         let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
@@ -183,14 +182,14 @@ where
         Ok(self)
     }
 
-    pub fn listen<ResB, BE, L>(mut self, listener: L) -> std::io::Result<Self>
+    pub fn listen<ResB, L>(mut self, listener: L) -> std::io::Result<Self>
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
         L: IntoListener + 'static,
     {
         let config = self.config;
@@ -200,7 +199,7 @@ where
     }
 
     #[cfg(feature = "openssl")]
-    pub fn bind_openssl<A: std::net::ToSocketAddrs, ResB, BE>(
+    pub fn bind_openssl<A: std::net::ToSocketAddrs, ResB>(
         mut self,
         addr: A,
         mut builder: xitca_tls::openssl::ssl::SslAcceptorBuilder,
@@ -210,8 +209,8 @@ where
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let config = self.config;
 
@@ -255,7 +254,7 @@ where
     }
 
     #[cfg(feature = "rustls")]
-    pub fn bind_rustls<A: std::net::ToSocketAddrs, ResB, BE>(
+    pub fn bind_rustls<A: std::net::ToSocketAddrs, ResB>(
         mut self,
         addr: A,
         #[cfg_attr(not(all(feature = "http1", feature = "http2")), allow(unused_mut))]
@@ -266,8 +265,8 @@ where
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let service_config = self.config;
 
@@ -290,14 +289,14 @@ where
     }
 
     #[cfg(unix)]
-    pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
+    pub fn bind_unix<P: AsRef<std::path::Path>, ResB>(mut self, path: P) -> std::io::Result<Self>
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let config = self.config;
         let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
@@ -306,7 +305,7 @@ where
     }
 
     #[cfg(feature = "http3")]
-    pub fn bind_h3<A: std::net::ToSocketAddrs, ResB, BE>(
+    pub fn bind_h3<A: std::net::ToSocketAddrs, ResB>(
         mut self,
         addr: A,
         config: xitca_io::net::QuicConfig,
@@ -316,8 +315,8 @@ where
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let service = self
             .service

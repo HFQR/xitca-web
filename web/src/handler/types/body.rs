@@ -1,9 +1,9 @@
 //! type extractor for request body stream.
 
-use core::{cmp, convert::Infallible, future::poll_fn, pin::pin};
+use core::{cmp, convert::Infallible, pin::pin};
 
 use crate::{
-    body::{BodyStream, BoxBody, ResponseBody},
+    body::{BodyExt, BodyStream, BoxBody, ResponseBody},
     bytes::{Bytes, BytesMut},
     context::WebContext,
     error::{BodyOverFlow, Error},
@@ -58,11 +58,14 @@ macro_rules! from_bytes_impl {
 
                 let mut buf = <$type>::with_capacity(LIMIT);
 
-                while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                    let chunk = chunk.map_err(Into::into)?;
-                    buf.extend_from_slice(chunk.as_ref());
-                    if limit > 0 && buf.len() > limit {
-                        return Err(Error::from(BodyOverFlow { limit }));
+                while let Some(frame) = body.as_mut().frame().await {
+                    let frame = frame.map_err(Into::into)?;
+
+                    if let Ok(data) = frame.into_data() {
+                        buf.extend_from_slice(data.as_ref());
+                        if limit > 0 && buf.len() > limit {
+                            return Err(Error::from(BodyOverFlow { limit }));
+                        }
                     }
                 }
 
@@ -154,11 +157,11 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for BoxBody {
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        ResponseBody::stream(self).respond(ctx).await
+        ResponseBody::body(self).respond(ctx).await
     }
 
     #[inline]
     fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-        Responder::<WebContext<'r, C, B>>::map(ResponseBody::stream(self), res)
+        Responder::<WebContext<'r, C, B>>::map(ResponseBody::body(self), res)
     }
 }

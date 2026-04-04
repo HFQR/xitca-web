@@ -34,7 +34,7 @@ macro_rules! stream_impls {
 
             #[inline]
             fn size_hint(&self) -> (usize, Option<usize>) {
-                Body::size_hint(self).stream_size_hint()
+                Body::size_hint(self).as_stream_size_hint()
             }
         }
     };
@@ -43,7 +43,7 @@ macro_rules! stream_impls {
 stream_impls!(Full<D: Buf>);
 stream_impls!(Empty<D>);
 stream_impls!(Either<L, R>);
-stream_impls!(StreamBody<S>);
+stream_impls!(StreamBody<B>);
 
 impl<B> Stream for StreamDataBody<B>
 where
@@ -52,7 +52,7 @@ where
     type Item = Result<B::Data, B::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let opt = match ready!(Body::poll_frame(self, cx)) {
+        let opt = match ready!(self.project().value.poll_frame(cx)) {
             Some(Ok(Frame::Data(data))) => Some(Ok(data)),
             Some(Err(e)) => Some(Err(e)),
             Some(_) | None => None,
@@ -62,6 +62,6 @@ where
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        Body::size_hint(self).stream_size_hint()
+        self.value.size_hint().as_stream_size_hint()
     }
 }

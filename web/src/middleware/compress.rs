@@ -31,7 +31,7 @@ mod service {
     use http_encoding::{Coder, ContentEncoding, encoder};
 
     use crate::{
-        body::{BodyStream, NONE_BODY_HINT},
+        body::{BodyStream, SizeHint},
         http::{BorrowReq, WebResponse, header::HeaderMap},
         service::{Service, ready::ReadyService},
     };
@@ -53,9 +53,8 @@ mod service {
 
             // TODO: expose encoding filter as public api.
             match res.body().size_hint() {
-                (low, Some(up)) if low == up && low < 64 => encoding = ContentEncoding::NoOp,
-                // this variant is a crate hack. see NONE_BODY_HINT for detail.
-                NONE_BODY_HINT => encoding = ContentEncoding::NoOp,
+                SizeHint::Exact(size) if size < 64 => encoding = ContentEncoding::NoOp,
+                SizeHint::None => encoding = ContentEncoding::NoOp,
                 _ => {}
             }
 

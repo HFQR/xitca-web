@@ -20,7 +20,7 @@ use xitca_unsafe_collection::{
 };
 
 use crate::{
-    body::{BodyStream, RequestBody, ResponseBody},
+    body::{BodyStream, RequestBody, ResponseBody, StreamDataBody},
     bytes::Bytes,
     context::WebContext,
     error::{Error, HeaderNotFound},
@@ -49,13 +49,13 @@ type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut ResponseSender, Message) -> BoxFutu
 
 type OnErrCB<E> = Box<dyn FnMut(WsError<E>) -> BoxFuture<'static>>;
 
-type OnCloseCB<B> = Box<dyn for<'a> FnOnce(Pin<&'a mut RequestStream<B>>) -> BoxFuture<'a>>;
+type OnCloseCB<B> = Box<dyn for<'a> FnOnce(Pin<&'a mut RequestStream<StreamDataBody<B>>>) -> BoxFuture<'a>>;
 
 pub struct WebSocket<B = RequestBody>
 where
     B: BodyStream,
 {
-    ws: WsOutput<B>,
+    ws: WsOutput<StreamDataBody<B>>,
     ping_interval: Duration,
     max_unanswered_ping: u8,
     on_msg: OnMsgCB,
@@ -67,7 +67,7 @@ impl<B> WebSocket<B>
 where
     B: BodyStream,
 {
-    fn new(ws: WsOutput<B>) -> Self {
+    fn new(ws: WsOutput<StreamDataBody<B>>) -> Self {
         #[cold]
         #[inline(never)]
         fn boxed_future() -> BoxFuture<'static> {
@@ -129,7 +129,7 @@ where
     /// Async function that would be called when closing the websocket connection.
     pub fn on_close<F, Fut>(&mut self, func: F) -> &mut Self
     where
-        F: FnOnce(Pin<&mut RequestStream<B>>) -> Fut + 'static,
+        F: FnOnce(Pin<&mut RequestStream<StreamDataBody<B>>>) -> Fut + 'static,
         Fut: Future<Output = ()> + 'static,
     {
         self.on_close = Box::new(|stream| Box::pin(func(stream)));
@@ -165,7 +165,7 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        let ws = http_ws::ws(ctx.req(), body).map_err(Error::from_service)?;
+        let ws = http_ws::ws(ctx.req(), StreamDataBody::new(body)).map_err(Error::from_service)?;
         Ok(WebSocket::new(ws))
     }
 }
@@ -199,14 +199,14 @@ where
             on_close,
         ));
 
-        Ok(res.map(ResponseBody::box_stream))
+        Ok(res.map(|body| ResponseBody::boxed(StreamDataBody::new(body))))
     }
 }
 
 async fn spawn_task<B>(
     ping_interval: Duration,
     max_unanswered_ping: u8,
-    decode: RequestStream<B>,
+    decode: RequestStream<StreamDataBody<B>>,
     mut tx: ResponseSender,
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,

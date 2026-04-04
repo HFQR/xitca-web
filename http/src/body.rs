@@ -5,7 +5,7 @@
 
 pub use http_body_alt::{
     Body, BodyExt, Frame, SizeHint,
-    util::{Either, Empty, Full, StreamBody},
+    util::{Either, Empty, Full, StreamBody, StreamDataBody},
 };
 
 use core::{

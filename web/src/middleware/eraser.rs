@@ -129,25 +129,25 @@ mod service {
     impl<'r, S, C, ReqB, ResB, Err> Service<WebContext<'r, C, ReqB>> for EraserService<EraseReqBody, S>
     where
         S: for<'rs> Service<WebContext<'rs, C>, Response = WebResponse<ResB>, Error = Err>,
-        ReqB: BodyStream<Chunk = Bytes> + Default + 'static,
-        ResB: BodyStream<Chunk = Bytes> + 'static,
+        ReqB: BodyStream<Data = Bytes> + Default + 'static,
+        ResB: BodyStream<Data = Bytes> + 'static,
     {
         type Response = WebResponse;
         type Error = Err;
 
         async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
             let body = ctx.take_body_mut();
-            let mut body = RefCell::new(RequestBody::Unknown(BoxBody::new(body)));
+            let mut body = RefCell::new(RequestBody::Boxed(BoxBody::new(body)));
             let WebContext { req, ctx, .. } = ctx;
             let res = self.service.call(WebContext::new(req, &mut body, ctx)).await?;
-            Ok(res.map(ResponseBody::box_stream))
+            Ok(res.map(ResponseBody::boxed))
         }
     }
 
     impl<S, Req, ResB> Service<Req> for EraserService<EraseResBody, S>
     where
         S: Service<Req, Response = WebResponse<ResB>>,
-        ResB: BodyStream<Chunk = Bytes> + 'static,
+        ResB: BodyStream<Data = Bytes> + 'static,
     {
         type Response = WebResponse;
         type Error = S::Error;
@@ -155,7 +155,7 @@ mod service {
         #[inline]
         async fn call(&self, req: Req) -> Result<Self::Response, Self::Error> {
             let res = self.service.call(req).await?;
-            Ok(res.map(ResponseBody::box_stream))
+            Ok(res.map(ResponseBody::boxed))
         }
     }
 
@@ -188,11 +188,11 @@ mod service {
 
 #[cfg(test)]
 mod test {
-    use xitca_http::body::Once;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         App, WebContext,
+        body::Full,
         bytes::Bytes,
         error::Error,
         handler::handler_service,
@@ -207,11 +207,11 @@ mod test {
         "996"
     }
 
-    async fn map_body<S, C, B, Err>(_: &S, _: WebContext<'_, C, B>) -> Result<WebResponse<Once<Bytes>>, Err>
+    async fn map_body<S, C, B, Err>(_: &S, _: WebContext<'_, C, B>) -> Result<WebResponse<Full<Bytes>>, Err>
     where
         S: for<'r> Service<WebContext<'r, C, B>, Response = WebResponse, Error = Err>,
     {
-        Ok(WebResponse::new(Once::new(Bytes::new())))
+        Ok(WebResponse::new(Full::new(Bytes::new())))
     }
 
     async fn middleware_fn<S, C, B, Err>(s: &S, ctx: WebContext<'_, C, B>) -> Result<WebResponse, Err>
