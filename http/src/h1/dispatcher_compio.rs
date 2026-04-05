@@ -75,10 +75,16 @@ where
     ResB: Stream<Item = Result<Bytes, BE>>,
     D: DateTime,
 {
-    pub async fn run(io: TcpStream, addr: SocketAddr, service: &'a S, date: &'a D) -> Result<(), Error<S::Error, BE>> {
+    pub async fn run(
+        io: TcpStream,
+        addr: SocketAddr,
+        service: &'a S,
+        date: &'a D,
+        is_tls: bool,
+    ) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io: SharedIo::new(io),
-            ctx: Context::with_addr(addr, date),
+            ctx: Context::with_addr(addr, date, is_tls),
             service,
             _phantom: PhantomData,
         };

@@ -15,7 +15,7 @@ use xitca_service::Service;
 
 use crate::{http::Version, version::AsVersion};
 
-use super::error::TlsError;
+use super::{IsTls, error::TlsError};
 
 /// A wrapper type for [TlsStream](native_tls::TlsStream).
 ///
@@ -91,6 +91,8 @@ impl<St: AsyncIo> Service<St> for TlsAcceptorService {
         }
     }
 }
+
+impl IsTls for TlsAcceptorService {}
 
 impl<S: AsyncIo> AsyncIo for TlsStream<S> {
     #[inline]
