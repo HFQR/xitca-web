@@ -12,6 +12,7 @@
 //! curl -v -b "<set_cookie_header_value>" http://localhost:8080/
 
 use xitca_web::{
+    App,
     handler::{
         cookie::{CookieJar, Private, StateKey},
         handler_service,
@@ -19,7 +20,6 @@ use xitca_web::{
     },
     http::StatusCode,
     route::{get, post},
-    App,
 };
 
 fn main() -> std::io::Result<()> {

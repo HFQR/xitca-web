@@ -54,7 +54,10 @@ impl Meta for StaticFile {
 }
 
 impl ChunkRead for StaticFile {
-    type SeekFuture<'f> = impl Future<Output = io::Result<()>> + Send + 'f where Self: 'f;
+    type SeekFuture<'f>
+        = impl Future<Output = io::Result<()>> + Send + 'f
+    where
+        Self: 'f;
     type Future = impl Future<Output = io::Result<Option<(Self, BytesMut, usize)>>> + Send;
 
     fn seek(&mut self, pos: SeekFrom) -> Self::SeekFuture<'_> {

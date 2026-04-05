@@ -4,10 +4,10 @@ use std::{io, pin::pin};
 
 use tracing::info;
 use xitca_web::{
+    App,
     handler::{handler_service, multipart::Multipart},
     middleware::Logger,
     route::post,
-    App,
 };
 
 fn main() -> io::Result<()> {

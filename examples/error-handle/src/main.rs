@@ -10,12 +10,12 @@
 use std::{backtrace::Backtrace, convert::Infallible, error, fmt};
 
 use xitca_web::{
+    App, WebContext,
     error::{Error, MatchError},
-    handler::{handler_service, html::Html, Responder},
+    handler::{Responder, handler_service, html::Html},
     http::{StatusCode, WebResponse},
     route::get,
     service::Service,
-    App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {

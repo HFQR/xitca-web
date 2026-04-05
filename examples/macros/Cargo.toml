@@ -5,7 +5,7 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2024"
 
 [dependencies]
-xitca-web = { version = "0.7", features = ["codegen", "logger"] }
+xitca-web = { workspace = true, features = ["codegen", "logger"] }
 
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt"] }

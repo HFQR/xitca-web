@@ -11,12 +11,11 @@ use std::{convert::Infallible, fs, io, sync::Arc};
 use openssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 use quinn::ServerConfig;
 use xitca_http::{
-    h1, h2, h3,
-    http::{const_header_value::TEXT_UTF8, header::CONTENT_TYPE, Request, RequestExt, Response, Version},
+    HttpServiceBuilder, ResponseBody, h1, h2, h3,
+    http::{Request, RequestExt, Response, Version, const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
     util::middleware::{Logger, SocketConfig},
-    HttpServiceBuilder, ResponseBody,
 };
-use xitca_service::{fn_service, ServiceExt};
+use xitca_service::{ServiceExt, fn_service};
 
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).init();

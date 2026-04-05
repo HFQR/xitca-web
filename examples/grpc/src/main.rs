@@ -3,7 +3,7 @@
 use xitca_web::{
     App,
     handler::{
-        grpc::{GrpcError, Grpc, GrpcStatus},
+        grpc::{Grpc, GrpcError, GrpcStatus},
         handler_service,
     },
 };

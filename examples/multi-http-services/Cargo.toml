@@ -5,9 +5,9 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2024"
 
 [dependencies]
-xitca-http = { version = "0.7", features = ["http2", "http3", "openssl", "rustls"] }
-xitca-server = { version = "0.5", features = ["quic"] }
-xitca-service = "0.3"
+xitca-http = { workspace = true, features = ["http2", "http3", "openssl", "rustls"] }
+xitca-server = { workspace = true, features = ["quic"] }
+xitca-service = { workspace = true }
 
 openssl = "0.10.44"
 quinn = { version = "0.11", features = ["ring"] }

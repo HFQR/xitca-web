@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use xitca_web::{
+    App,
     handler::{handler_service, state::StateRef},
     route::get,
-    App,
 };
 
 fn main() -> std::io::Result<()> {

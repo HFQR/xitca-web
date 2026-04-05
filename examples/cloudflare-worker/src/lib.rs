@@ -11,14 +11,14 @@ use std::{cell::OnceCell, rc::Rc};
 use futures_util::{future::FutureExt, stream::Stream};
 use worker::{Context, Env};
 use xitca_web::{
+    App,
     body::{BoxBody, RequestBody},
     bytes::Bytes,
     error::BodyError,
     handler::redirect::Redirect,
     http::{self, RequestExt, WebRequest, WebResponse},
     service::file::ServeDir,
-    service::{object, Service, ServiceExt},
-    App,
+    service::{Service, ServiceExt, object},
 };
 
 // type alias to reduce type complexity.

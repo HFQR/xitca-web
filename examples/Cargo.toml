@@ -26,11 +26,23 @@ members = [
 [profile.dev]
 debug-assertions = false
 
+[workspace.dependencies]
+xitca-postgres = "0.4.0"
+xitca-server = "0.7.0"
+xitca-service = "0.3.0"
+xitca-http = "0.9.0"
+xitca-web = "0.8.0"
+
 [patch.crates-io]
 tokio-uring-xitca = { path = "../tokio-uring" }
 xitca-tls= { path = "../tls" }
 xitca-io= { path = "../io" }
 xitca-server = { path = "../server" }
 xitca-http = { path = "../http" }
+xitca-router = { path = "../router" }
 xitca-web = { path = "../web" }
 http-body-alt = { path = "../http-body" }
+http-ws = { path = "../http-ws" }
+http-file = { path = "../http-file" }
+http-encoding = { path = "../http-encoding" }
+http-multipart = { path = "../http-multipart" }

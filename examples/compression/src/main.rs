@@ -4,9 +4,9 @@ use std::io;
 
 use tracing::info;
 use xitca_web::{
-    handler::handler_service,
-    middleware::{compress::Compress, decompress::Decompress, Logger},
     App,
+    handler::handler_service,
+    middleware::{Logger, compress::Compress, decompress::Decompress},
 };
 
 fn main() -> io::Result<()> {

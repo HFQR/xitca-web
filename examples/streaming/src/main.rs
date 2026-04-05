@@ -14,15 +14,16 @@ use std::{
 };
 
 use xitca_web::{
-    body::{AsyncBody, BoxBody, RequestBody, ResponseBody},
+    App, WebContext,
+    body::{AsyncBody, Body, BoxBody, Frame, RequestBody, ResponseBody, StreamDataBody},
+    bytes::Bytes,
     handler::handler_service,
     http::{
         const_header_value::TEXT_UTF8,
-        header::{HeaderName, HeaderValue, CONTENT_TYPE},
+        header::{CONTENT_TYPE, HeaderName, HeaderValue},
     },
     route::{get, post},
     service::Service,
-    App, WebContext,
 };
 
 fn main() -> io::Result<()> {
@@ -45,9 +46,9 @@ fn main() -> io::Result<()> {
 async fn nightly() -> ((HeaderName, HeaderValue), ResponseBody) {
     (
         (CONTENT_TYPE, TEXT_UTF8),
-        ResponseBody::box_stream(AsyncBody::from(async gen {
-            yield Ok("hello,");
-            yield Ok::<_, Infallible>("world!");
+        ResponseBody::boxed(AsyncBody::from(async gen {
+            yield Ok(Bytes::from_static(b"hello,"));
+            yield Ok::<_, Infallible>(Bytes::from_static(b"world!"));
         })),
     )
 }
@@ -57,17 +58,17 @@ async fn nightly() -> ((HeaderName, HeaderValue), ResponseBody) {
 async fn r#macro() -> ((HeaderName, HeaderValue), ResponseBody) {
     (
         (CONTENT_TYPE, TEXT_UTF8),
-        ResponseBody::box_stream(async_stream::stream! {
-            yield Ok("hello,");
-            yield Ok::<_, Infallible>("world!");
-        }),
+        ResponseBody::boxed(StreamDataBody::new(async_stream::stream! {
+            yield Ok(Bytes::from_static(b"hello,"));
+            yield Ok::<_, Infallible>(Bytes::from_static(b"world!"));
+        })),
     )
 }
 
 // streaming with stable Rust and futures::Stream trait implement.
 // low level stream type and trait implement requires no extra dep.
 async fn stable() -> ((HeaderName, HeaderValue), ResponseBody) {
-    ((CONTENT_TYPE, TEXT_UTF8), ResponseBody::box_stream(Hello::Step1))
+    ((CONTENT_TYPE, TEXT_UTF8), ResponseBody::boxed(Hello::Step1))
 }
 
 // typed stream and trait implement.
@@ -77,19 +78,20 @@ enum Hello {
     Step3,
 }
 
-impl futures::stream::Stream for Hello {
-    type Item = Result<&'static str, Infallible>;
+impl Body for Hello {
+    type Data = Bytes;
+    type Error = Infallible;
 
-    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_frame(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let this = self.get_mut();
         match *this {
             Self::Step1 => {
                 *this = Hello::Step2;
-                Poll::Ready(Some(Ok("hello,")))
+                Poll::Ready(Some(Ok(Frame::Data(Bytes::from_static(b"world!")))))
             }
             Self::Step2 => {
                 *this = Hello::Step3;
-                Poll::Ready(Some(Ok("world!")))
+                Poll::Ready(Some(Ok(Frame::Data(Bytes::from_static(b"world!")))))
             }
             Self::Step3 => Poll::Ready(None),
         }
@@ -127,12 +129,11 @@ where
         let mut counter = Counter(0);
 
         // request body does not implement AsyncIterator and futures crate must be used for async yielding.
-        use futures::stream::StreamExt;
-        while let Some(res) = body_own.next().await {
+        use xitca_web::body::BodyExt;
+        while let Some(res) = body_own.data().await {
             // record every successful bytes and yield body item.
-            yield res.map(|bytes| {
+            yield res.inspect(|bytes| {
                 counter.0 += bytes.len();
-                bytes
             });
         }
     });
