@@ -16,10 +16,7 @@ use xitca_http::{
     h1, h2, h3,
     http::{Request, RequestExt, Response},
 };
-use xitca_io::{
-    bytes::Bytes,
-    net::{Stream as NetStream, TcpStream},
-};
+use xitca_io::{bytes::Bytes, net::Stream as NetStream};
 use xitca_server::{Builder, ServerFuture, ServerHandle};
 use xitca_service::{Service, ServiceExt, ready::ReadyService};
 
@@ -59,17 +56,12 @@ where
     B: Body<Data = Bytes, Error = E> + 'static,
     E: fmt::Debug + 'static,
 {
-    #[cfg(not(feature = "io-uring"))]
-    {
-        test_server::<_, (TcpStream, SocketAddr)>(service.enclosed(HttpServiceBuilder::h1()))
-    }
+    let builder = HttpServiceBuilder::h1();
 
     #[cfg(feature = "io-uring")]
-    {
-        test_server::<_, (xitca_io::net::io_uring::TcpStream, SocketAddr)>(
-            service.enclosed(HttpServiceBuilder::h1().io_uring()),
-        )
-    }
+    let builder = builder.io_uring();
+
+    test_server(service.enclosed(builder))
 }
 
 /// A specialized http/2 server on top of [test_server]
@@ -82,16 +74,17 @@ where
     B: Body<Data = Bytes, Error = E> + 'static,
     E: fmt::Debug + 'static,
 {
-    test_server::<_, (TcpStream, SocketAddr)>(
-        service.enclosed(
-            HttpServiceBuilder::h2().config(
-                HttpServiceConfig::new()
-                    .request_head_timeout(Duration::from_millis(500))
-                    .tls_accept_timeout(Duration::from_millis(500))
-                    .keep_alive_timeout(Duration::from_millis(500)),
-            ),
-        ),
-    )
+    let builder = HttpServiceBuilder::h2().config(
+        HttpServiceConfig::new()
+            .request_head_timeout(Duration::from_millis(500))
+            .tls_accept_timeout(Duration::from_millis(500))
+            .keep_alive_timeout(Duration::from_millis(500)),
+    );
+
+    #[cfg(feature = "io-uring")]
+    let builder = builder.io_uring();
+
+    test_server(service.enclosed(builder))
 }
 
 /// A specialized http/3 server

@@ -477,6 +477,12 @@ impl WriterQueue {
         self.pending_conn_window += size;
     }
 
+    pub(super) fn push_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) {
+        let mut data = data::Data::new(id, payload);
+        data.set_end_stream(end_stream);
+        self.push(Message::Data(data));
+    }
+
     /// Push a RST_STREAM caused by a client protocol error. Returns `true` if
     /// the reset queue has reached `CLIENT_RESET_QUEUE_CAP`, indicating the
     /// caller should send GOAWAY and close the connection.
@@ -512,9 +518,7 @@ impl WriterQueue {
     #[cold]
     #[inline(never)]
     fn push_end_stream_cold(&mut self, stream_id: StreamId) {
-        let mut data = data::Data::new(stream_id, Bytes::new());
-        data.set_end_stream(true);
-        self.push(Message::Data(data));
+        self.push_data(stream_id, Bytes::new(), true);
     }
 
     fn close(&mut self) {
@@ -1274,16 +1278,12 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                             break 'body;
                         };
 
-                        let chunk = bytes.split_to(aval);
-                        let mut data = data::Data::new(stream_id, chunk);
+                        let payload = bytes.split_to(aval);
+                        let end_stream = bytes.is_empty() && body.is_end_stream();
 
-                        let is_end_stream = bytes.is_empty() && body.is_end_stream();
+                        ctx.borrow_mut().queue.push_data(stream_id, payload, end_stream);
 
-                        data.set_end_stream(is_end_stream);
-
-                        ctx.borrow_mut().queue.push(Message::Data(data));
-
-                        if is_end_stream {
+                        if end_stream {
                             break 'body;
                         }
                     }
