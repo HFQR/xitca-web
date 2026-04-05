@@ -1,4 +1,4 @@
-# unrleased 0.5.0
+# unrleased 0.4.2
 ## Change
 - update to Rust edition 2024
 

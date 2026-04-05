@@ -1,7 +1,7 @@
 //! http body types and traits.
 
 pub use xitca_http::body::{
-    Body, BodyExt, BoxBody, Empty, Frame, Full, RequestBody, ResponseBody, SizeHint, StreamDataBody,
+    Body, BodyExt, BoxBody, Empty, Frame, Full, RequestBody, ResponseBody, SizeHint, StreamDataBody, Trailers,
 };
 
 pub(crate) use xitca_http::body::Either;

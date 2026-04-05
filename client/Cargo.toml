@@ -68,7 +68,7 @@ xitca-tls = { workspace = true, optional = true }
 webpki-roots = { version = "1", optional = true }
 
 # compression
-http-encoding = { workspace = true, features = ["br", "gz", "de"], optional = true }
+http-encoding = { workspace = true, features = ["all"], optional = true }
 
 # serde
 serde = { version = "1.0.130", default-features = false, optional = true }

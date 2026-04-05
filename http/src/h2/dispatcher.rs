@@ -944,18 +944,15 @@ impl<'a, S> DecodeContext<'a, S> {
                 // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
                 if !is_end_stream {
                     flow.remove_recv(id);
-                    drop(inner);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
                 if state.recv_closed() {
-                    drop(inner);
                     return Err(Error::Reset(id, Reason::STREAM_CLOSED, None));
                 }
                 // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
                 if let Err(err) = state.recv_state.content_length.ensure_zero() {
                     state.try_set_err(err);
                     flow.remove_stream(id);
-                    drop(inner);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
                 state.try_push_frame(Frame::Trailers(headers));
@@ -980,7 +977,6 @@ impl<'a, S> DecodeContext<'a, S> {
         // Do NOT update last_stream_id: REFUSED_STREAM means no application
         // processing occurred and the client should retry (RFC 7540 §8.1.4).
         if flow.open_streams >= self.max_concurrent_streams {
-            drop(inner);
             return Err(Error::Reset(id, Reason::REFUSED_STREAM, None));
         }
         flow.open_streams += 1;
@@ -1244,61 +1240,59 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                     });
                     break;
                 }
-                Some(Ok(frame)) => match frame {
-                    Frame::Data(mut bytes) => {
-                        while !bytes.is_empty() {
-                            let len = bytes.len();
+                Some(Ok(Frame::Data(mut bytes))) => {
+                    while !bytes.is_empty() {
+                        let len = bytes.len();
 
-                            let aval = poll_fn(|cx| {
-                                let mut inner = ctx.borrow_mut();
-                                let f = &mut inner.flow;
+                        let aval = poll_fn(|cx| {
+                            let mut inner = ctx.borrow_mut();
+                            let f = &mut inner.flow;
 
-                                let Some(state) = f.stream_map.get_mut(&stream_id) else {
-                                    return Poll::Ready(None);
-                                };
-                                if state.send_closed() {
-                                    return Poll::Ready(None);
-                                }
-
-                                let sf = &mut state.send_state;
-                                if f.send_connection_window == 0 || sf.window <= 0 {
-                                    sf.waker = Some(cx.waker().clone());
-                                    return Poll::Pending;
-                                }
-
-                                let len = cmp::min(len, sf.frame_size);
-                                let aval = cmp::min(sf.window as usize, f.send_connection_window);
-                                let aval = cmp::min(aval, len);
-                                sf.window -= aval as i64;
-                                f.send_connection_window -= aval;
-                                Poll::Ready(Some(aval))
-                            })
-                            .await;
-
-                            let Some(aval) = aval else {
-                                break 'body;
+                            let Some(state) = f.stream_map.get_mut(&stream_id) else {
+                                return Poll::Ready(None);
                             };
-
-                            let chunk = bytes.split_to(aval);
-                            let mut data = data::Data::new(stream_id, chunk);
-
-                            let is_end_stream = bytes.is_empty() && body.is_end_stream();
-
-                            data.set_end_stream(is_end_stream);
-
-                            ctx.borrow_mut().queue.push(Message::Data(data));
-
-                            if is_end_stream {
-                                break 'body;
+                            if state.send_closed() {
+                                return Poll::Ready(None);
                             }
+
+                            let sf = &mut state.send_state;
+                            if f.send_connection_window == 0 || sf.window <= 0 {
+                                sf.waker = Some(cx.waker().clone());
+                                return Poll::Pending;
+                            }
+
+                            let len = cmp::min(len, sf.frame_size);
+                            let aval = cmp::min(sf.window as usize, f.send_connection_window);
+                            let aval = cmp::min(aval, len);
+                            sf.window -= aval as i64;
+                            f.send_connection_window -= aval;
+                            Poll::Ready(Some(aval))
+                        })
+                        .await;
+
+                        let Some(aval) = aval else {
+                            break 'body;
+                        };
+
+                        let chunk = bytes.split_to(aval);
+                        let mut data = data::Data::new(stream_id, chunk);
+
+                        let is_end_stream = bytes.is_empty() && body.is_end_stream();
+
+                        data.set_end_stream(is_end_stream);
+
+                        ctx.borrow_mut().queue.push(Message::Data(data));
+
+                        if is_end_stream {
+                            break 'body;
                         }
                     }
-                    Frame::Trailers(trailers) => {
-                        let trailer = headers::Headers::trailers(stream_id, trailers);
-                        ctx.borrow_mut().queue.push(Message::Trailer(trailer));
-                        break;
-                    }
-                },
+                }
+                Some(Ok(Frame::Trailers(trailers))) => {
+                    let trailer = headers::Headers::trailers(stream_id, trailers);
+                    ctx.borrow_mut().queue.push(Message::Trailer(trailer));
+                    break;
+                }
             }
         }
     }

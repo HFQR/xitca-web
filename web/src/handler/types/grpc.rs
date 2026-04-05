@@ -19,21 +19,15 @@
 //! }
 //! ```
 
-use core::{
-    convert::Infallible,
-    fmt,
-    pin::Pin,
-    task::{Context, Poll, ready},
-};
+use core::{convert::Infallible, fmt};
 
-use pin_project_lite::pin_project;
 use prost::Message;
 
 use crate::{
-    body::{Body, BodyStream, Empty, Frame, Full, ResponseBody, SizeHint},
+    body::{BodyExt, BodyStream, Empty, Full, ResponseBody, Trailers},
     bytes::{BufMut, Bytes, BytesMut},
     context::WebContext,
-    error::Error,
+    error::{BodyError, Error},
     handler::{FromRequest, Responder},
     http::{
         WebResponse,
@@ -129,10 +123,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for GrpcError {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let body = GrpcBody {
-            body: Empty::<Bytes>::new(),
-            trailers: Some(self.trailers()),
-        };
+        let body = Empty::<Bytes>::new().chain(Trailers::new(self.trailers()));
         let mut res = ctx.into_response(ResponseBody::boxed(body));
         res.headers_mut().insert(CONTENT_TYPE, GRPC);
         Ok(res)
@@ -244,36 +235,29 @@ where
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         // encode protobuf message first (without the 5-byte gRPC prefix)
         let encoded_len = self.0.encoded_len();
-        let mut proto_buf = BytesMut::with_capacity(encoded_len);
-        self.0
-            .encode(&mut proto_buf)
-            .map_err(|e| GrpcError::new(GrpcStatus::Internal, format!("protobuf encode: {e}")))?;
-        let proto_bytes = proto_buf.freeze();
+        let mut payload = payload_with_prefix::<false>(encoded_len);
 
-        let (compressed, encoding_name) = if COMPRESS {
-            grpc_compress(ctx.req().headers(), proto_bytes.clone())
+        self.0
+            .encode(&mut payload)
+            .map_err(|e| GrpcError::new(GrpcStatus::Internal, format!("protobuf encode: {e}")))?;
+
+        let (mut payload, encoding) = if COMPRESS {
+            grpc_compress(ctx.req().headers(), payload).await?
         } else {
-            (None, None)
+            (payload, None)
         };
 
-        let payload = compressed.as_ref().unwrap_or(&proto_bytes);
-
-        let mut buf = BytesMut::with_capacity(5 + payload.len());
-        buf.put_u8(if compressed.is_some() { 1 } else { 0 });
-        buf.put_u32(payload.len() as u32);
-        buf.extend_from_slice(payload);
+        let len = (payload.len() - 5) as u32;
+        payload[1..5].copy_from_slice(&len.to_be_bytes());
 
         let mut trailers = HeaderMap::with_capacity(1);
         trailers.insert(GRPC_STATUS, HeaderValue::from_static("0"));
 
-        let body = GrpcBody {
-            body: Full::new(buf.freeze()),
-            trailers: Some(trailers),
-        };
+        let body = Full::new(payload.freeze()).chain(Trailers::new(trailers));
 
         let mut res = ctx.into_response(ResponseBody::boxed(body));
         res.headers_mut().insert(CONTENT_TYPE, GRPC);
-        if let Some(name) = encoding_name {
+        if let Some(name) = encoding {
             res.headers_mut().insert(GRPC_ENCODING, HeaderValue::from_static(name));
         }
         Ok(res)
@@ -284,103 +268,56 @@ const GRPC_ENCODING: HeaderName = HeaderName::from_static("grpc-encoding");
 
 /// Try to compress payload based on `grpc-accept-encoding` request header.
 /// Returns the compressed bytes and the encoding name, or (None, None) if no compression applied.
-#[cfg(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de"))]
-fn grpc_compress(headers: &HeaderMap, payload: Bytes) -> (Option<Bytes>, Option<&'static str>) {
-    use core::pin::pin;
-
-    use http_encoding::{ContentEncoding, encoder};
-    use xitca_unsafe_collection::futures::NowOrPanic;
-
-    use crate::body::{BodyExt, Full};
-    use crate::http::Response;
+#[cfg(any(
+    feature = "compress-br",
+    feature = "compress-gz",
+    feature = "compress-de",
+    feature = "compress-zs"
+))]
+async fn grpc_compress(headers: &HeaderMap, payload: BytesMut) -> Result<(BytesMut, Option<&'static str>), BodyError> {
+    use http_encoding::ContentEncoding;
 
     const GRPC_ACCEPT_ENCODING: HeaderName = HeaderName::from_static("grpc-accept-encoding");
 
-    // parse grpc-accept-encoding into a synthetic accept-encoding header
-    // so ContentEncoding::from_headers can pick the best match
-    let encoding = {
-        let mut synthetic = HeaderMap::new();
-        for val in headers.get_all(GRPC_ACCEPT_ENCODING) {
-            synthetic.append(crate::http::header::ACCEPT_ENCODING, val.clone());
-        }
-        ContentEncoding::from_headers(&synthetic)
-    };
+    let encoding = ContentEncoding::from_headers_with(headers, &GRPC_ACCEPT_ENCODING);
 
-    if matches!(encoding, ContentEncoding::NoOp) {
-        return (None, None);
+    if matches!(encoding, ContentEncoding::Identity) {
+        return Ok((payload, None));
     }
 
-    let original_len = payload.len();
+    let name = encoding.as_str();
 
-    // wrap payload in a Response<Full<Bytes>> and run it through the encoder
-    let res = Response::new(Full::new(payload));
-    let res = encoder(res, encoding);
+    let len = payload.len();
 
-    // resolve the encoding name from the content-encoding header the encoder set
-    let encoding_name = res
-        .headers()
-        .get(crate::http::header::CONTENT_ENCODING)
-        .and_then(|v| v.to_str().ok());
+    let body = encoding.encode_body(Full::new(payload));
 
-    let name = match encoding_name {
-        Some(n) if n.eq_ignore_ascii_case("gzip") => "gzip",
-        Some(n) if n.eq_ignore_ascii_case("deflate") => "deflate",
-        Some(n) if n.eq_ignore_ascii_case("br") => "br",
-        _ => return (None, None),
-    };
+    let mut compressed = payload_with_prefix::<true>(len);
+
+    let mut body = core::pin::pin!(body);
 
     // collect the compressed body synchronously (Full yields once, encoder buffers in memory)
-    let mut body = pin!(res.into_body());
-    let mut out = BytesMut::new();
-    while let Some(Ok(frame)) = body.as_mut().data().now_or_panic() {
-        out.extend_from_slice(frame.as_ref());
+    while let Some(frame) = body.as_mut().data().await {
+        compressed.extend_from_slice(frame?.as_ref());
     }
 
-    // only use compressed output if it's actually smaller
-    if out.len() < original_len {
-        (Some(out.freeze()), Some(name))
-    } else {
-        (None, None)
-    }
+    Ok((compressed, Some(name)))
 }
 
-#[cfg(not(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de")))]
-fn grpc_compress(_: &HeaderMap, _: Bytes) -> (Option<Bytes>, Option<&'static str>) {
-    (None, None)
+#[cfg(not(any(
+    feature = "compress-br",
+    feature = "compress-gz",
+    feature = "compress-de",
+    feature = "compress-zs"
+)))]
+async fn grpc_compress(_: &HeaderMap, payload: BytesMut) -> Result<(BytesMut, Option<&'static str>), BodyError> {
+    Ok((payload, None))
 }
 
-pin_project! {
-    /// Body type that yields a single gRPC data frame followed by trailers.
-    struct GrpcBody<B> {
-        #[pin]
-        body: B,
-        trailers: Option<HeaderMap>,
-    }
-}
-
-impl<B> Body for GrpcBody<B>
-where
-    B: Body,
-{
-    type Data = B::Data;
-    type Error = B::Error;
-
-    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        let this = self.project();
-        match ready!(this.body.poll_frame(cx)) {
-            Some(Ok(Frame::Trailers(_))) => unreachable!("GrpcBody::<B> MUST not yield trailers from B"),
-            None => Poll::Ready(this.trailers.take().map(|trailers| Ok(Frame::Trailers(trailers)))),
-            res => Poll::Ready(res),
-        }
-    }
-
-    #[inline]
-    fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream() && self.trailers.is_none()
-    }
-
-    #[inline]
-    fn size_hint(&self) -> SizeHint {
-        self.body.size_hint()
-    }
+// make a bytesmut with 5 byte prefix for protobuf.
+fn payload_with_prefix<const COMPRESS: bool>(cap: usize) -> BytesMut {
+    let mut payload = BytesMut::with_capacity(cap + 5);
+    let comperss = if COMPRESS { 1 } else { 0 };
+    payload.put_u8(comperss);
+    payload.put_u32(0);
+    payload
 }

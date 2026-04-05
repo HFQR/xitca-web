@@ -79,7 +79,7 @@ where
 
     fn is_end_stream(&self) -> bool {
         // forward is_end_stream to coder as it determines the data length after (de)compress.
-        self.coder.is_end_stream(&self.body)
+        self.coder.is_end_stream(&self.body) && self.trailers.is_none()
     }
 
     #[inline]
@@ -164,6 +164,10 @@ pub enum FeaturedCode {
     DecodeDe(super::deflate::Decoder),
     #[cfg(feature = "de")]
     EncodeDe(super::deflate::Encoder),
+    #[cfg(feature = "zs")]
+    DecodeZs(super::zstandard::Decoder),
+    #[cfg(feature = "zs")]
+    EncodeZs(super::zstandard::Encoder),
 }
 
 impl Default for FeaturedCode {
@@ -193,6 +197,10 @@ where
             Self::DecodeDe(coder) => coder.code(item),
             #[cfg(feature = "de")]
             Self::EncodeDe(coder) => coder.code(item),
+            #[cfg(feature = "zs")]
+            Self::DecodeZs(coder) => coder.code(item),
+            #[cfg(feature = "zs")]
+            Self::EncodeZs(coder) => coder.code(item),
         }
     }
 
@@ -211,6 +219,10 @@ where
             Self::DecodeDe(coder) => <super::deflate::Decoder as Code<T>>::code_eof(coder),
             #[cfg(feature = "de")]
             Self::EncodeDe(coder) => <super::deflate::Encoder as Code<T>>::code_eof(coder),
+            #[cfg(feature = "zs")]
+            Self::DecodeZs(coder) => <super::zstandard::Decoder as Code<T>>::code_eof(coder),
+            #[cfg(feature = "zs")]
+            Self::EncodeZs(coder) => <super::zstandard::Encoder as Code<T>>::code_eof(coder),
         }
     }
 
@@ -229,6 +241,10 @@ where
             Self::DecodeDe(coder) => <super::deflate::Decoder as Code<T>>::is_end_stream(coder, body),
             #[cfg(feature = "de")]
             Self::EncodeDe(coder) => <super::deflate::Encoder as Code<T>>::is_end_stream(coder, body),
+            #[cfg(feature = "zs")]
+            Self::DecodeZs(coder) => <super::zstandard::Decoder as Code<T>>::is_end_stream(coder, body),
+            #[cfg(feature = "zs")]
+            Self::EncodeZs(coder) => <super::zstandard::Encoder as Code<T>>::is_end_stream(coder, body),
         }
     }
 
@@ -247,6 +263,10 @@ where
             Self::DecodeDe(coder) => <super::deflate::Decoder as Code<T>>::size_hint(coder, body),
             #[cfg(feature = "de")]
             Self::EncodeDe(coder) => <super::deflate::Encoder as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "zs")]
+            Self::DecodeZs(coder) => <super::zstandard::Decoder as Code<T>>::size_hint(coder, body),
+            #[cfg(feature = "zs")]
+            Self::EncodeZs(coder) => <super::zstandard::Encoder as Code<T>>::size_hint(coder, body),
         }
     }
 }

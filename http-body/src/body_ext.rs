@@ -24,8 +24,9 @@ pub trait BodyExt: Body {
 
     fn chain<B>(self, other: B) -> ChainBody<Self, B>
     where
+        B: Body<Data = Self::Data>,
         Self: Sized,
-        B: Body<Data = Self::Data, Error = Self::Error>,
+        Self::Error: From<B::Error>,
     {
         ChainBody {
             first: self,
@@ -84,7 +85,8 @@ pin_project! {
 impl<A, B> Body for ChainBody<A, B>
 where
     A: Body,
-    B: Body<Data = A::Data, Error = A::Error>,
+    B: Body<Data = A::Data>,
+    A::Error: From<B::Error>,
 {
     type Data = A::Data;
     type Error = A::Error;
@@ -94,7 +96,7 @@ where
 
         match ready!(this.first.poll_frame(cx)) {
             Some(frame) => Poll::Ready(Some(frame)),
-            None => this.second.poll_frame(cx),
+            None => this.second.poll_frame(cx).map_err(Into::into),
         }
     }
 

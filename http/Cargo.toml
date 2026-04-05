@@ -65,14 +65,14 @@ h3-quinn = { version = "0.0.10", optional = true }
 tokio = { workspace = true, features = ["rt", "time"], optional = true }
 
 # util service support
-xitca-router = { version = "0.4.1", optional = true }
+xitca-router = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 socket2 = { version = "0.6.0", features = ["all"] }
 
 [dev-dependencies]
 criterion = "0.8"
-xitca-server = "0.7.0"
+xitca-server = { workspace = true }
 
 [[bench]]
 name = "h1_decode"

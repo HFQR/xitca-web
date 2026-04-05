@@ -7,6 +7,7 @@ use core::{
 
 use bytes::Buf;
 use futures_core::stream::Stream;
+use http::header::HeaderMap;
 use pin_project_lite::pin_project;
 
 use super::{body::Body, frame::Frame, size_hint::SizeHint};
@@ -270,5 +271,86 @@ where
     #[inline]
     fn size_hint(&self) -> SizeHint {
         SizeHint::from_stream_size_hint(self.value.size_hint())
+    }
+}
+
+pin_project! {
+    pub struct Data<B> {
+        #[pin]
+        body: B
+    }
+}
+
+impl<B> Data<B>
+where
+    B: Body,
+{
+    pub fn new(body: B) -> Self {
+        Self { body }
+    }
+}
+
+impl<B> Body for Data<B>
+where
+    B: Body,
+{
+    type Data = B::Data;
+    type Error = B::Error;
+
+    #[inline]
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        match self.project().body.poll_frame(cx) {
+            Poll::Ready(Some(Ok(Frame::Trailers(_)))) => Poll::Ready(None),
+            res => res,
+        }
+    }
+
+    #[inline]
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
+    }
+}
+
+pub struct Trailers<D> {
+    trailers: Option<HeaderMap>,
+    _data: PhantomData<fn(D)>,
+}
+
+impl<D> Trailers<D> {
+    pub fn new(trailers: HeaderMap) -> Self {
+        Self {
+            trailers: Some(trailers),
+            _data: PhantomData,
+        }
+    }
+}
+
+impl<D> Body for Trailers<D> {
+    type Data = D;
+    type Error = Infallible;
+
+    #[inline]
+    fn poll_frame(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        Poll::Ready(
+            self.get_mut()
+                .trailers
+                .take()
+                .map(|trailers| Ok(Frame::Trailers(trailers))),
+        )
+    }
+
+    #[inline]
+    fn is_end_stream(&self) -> bool {
+        self.trailers.is_none()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::None
     }
 }

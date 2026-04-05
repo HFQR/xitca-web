@@ -15,10 +15,8 @@ where
 
     let mut res = Vec::new();
 
-    while let Some(frame) = body.as_mut().frame().await {
-        if let Some(data) = frame?.data_ref() {
-            res.extend_from_slice(data.as_ref());
-        }
+    while let Some(frame) = body.as_mut().data().await {
+        res.extend_from_slice(frame?.as_ref());
     }
 
     Ok(res)

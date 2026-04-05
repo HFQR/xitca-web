@@ -1,13 +1,13 @@
 use core::{marker::PhantomData, time::Duration};
 
 use crate::{
-    body::{Body, BodyError, BoxBody, Full},
+    body::{Body, BodyError, BodyExt, BoxBody, Data, Full, Trailers},
     bytes::Bytes,
     client::Client,
     error::Error,
     http::{
         self, Extensions, Method, Version, const_header_value,
-        header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderValue},
+        header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, TRAILER},
     },
     response::Response,
     service::ServiceRequest,
@@ -43,7 +43,7 @@ impl RequestBuilder<'_, marker::Http> {
         Bytes: From<B1>,
     {
         self.headers_mut().insert(CONTENT_TYPE, const_header_value::TEXT_UTF8);
-        self.body(text)
+        self.bytes(text)
     }
 
     #[cfg(feature = "json")]
@@ -52,7 +52,7 @@ impl RequestBuilder<'_, marker::Http> {
         match serde_json::to_vec(&body) {
             Ok(body) => {
                 self.headers_mut().insert(CONTENT_TYPE, const_header_value::JSON);
-                self.body(body)
+                self.bytes(body)
             }
             Err(e) => {
                 self.push_error(e.into());
@@ -66,13 +66,13 @@ impl RequestBuilder<'_, marker::Http> {
         let form = crate::multipart::Form::new(parts);
         self.headers_mut().insert(CONTENT_TYPE, form.content_type());
         self.method(Method::POST)
-            .stream(xitca_http::body::StreamDataBody::new(form))
+            .body(xitca_http::body::StreamDataBody::new(form))
     }
 
     /// Use pre allocated bytes as request body.
     ///
     /// Input type must implement [From] trait with [Bytes].
-    pub fn body<B>(mut self, body: B) -> Self
+    pub fn bytes<B>(mut self, body: B) -> Self
     where
         Bytes: From<B>,
     {
@@ -84,12 +84,34 @@ impl RequestBuilder<'_, marker::Http> {
 
     /// Use streaming type as request body.
     #[inline]
-    pub fn stream<B, E>(self, body: B) -> Self
+    pub fn body<B, E>(self, body: B) -> Self
     where
         B: Body<Data = Bytes, Error = E> + Send + 'static,
         E: Into<BodyError>,
     {
         self.map_body(body)
+    }
+
+    /// Append HTTP trailers to the request body.
+    ///
+    /// The current body is wrapped with [`WithTrailers`] so that trailer frames are
+    /// sent after all data frames. The `TRAILER` header is automatically populated
+    /// with the trailer field names (required for HTTP/1.1 chunked transfer).
+    ///
+    /// This method can be called after setting the body via [`body`](Self::body),
+    /// [`text`](Self::text), [`json`](Self::json), or [`stream`](Self::stream).
+    pub fn trailers(mut self, trailers: HeaderMap) -> Self {
+        // Set the TRAILER header with comma-separated field names for h1 compat.
+        let names = trailers.keys().map(HeaderName::as_str).collect::<Vec<_>>().join(", ");
+        if let Ok(val) = HeaderValue::from_str(&names) {
+            self.headers_mut().insert(TRAILER, val);
+        }
+
+        // Wrap the current body with WithTrailers.
+        self.req = self
+            .req
+            .map(|body| BoxBody::new(Data::new(body).chain(Trailers::new(trailers))));
+        self
     }
 
     /// Finish request builder and send it to server.

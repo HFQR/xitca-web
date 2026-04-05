@@ -28,7 +28,7 @@ impl<S, E> Service<Result<S, E>> for Compress {
     }
 }
 mod service {
-    use http_encoding::{Coder, ContentEncoding, encoder};
+    use http_encoding::{Coder, ContentEncoding};
 
     use crate::{
         body::{BodyStream, SizeHint},
@@ -53,12 +53,12 @@ mod service {
 
             // TODO: expose encoding filter as public api.
             match res.body().size_hint() {
-                SizeHint::Exact(size) if size < 64 => encoding = ContentEncoding::NoOp,
-                SizeHint::None => encoding = ContentEncoding::NoOp,
+                SizeHint::Exact(size) if size < 64 => encoding = ContentEncoding::Identity,
+                SizeHint::None => encoding = ContentEncoding::Identity,
                 _ => {}
             }
 
-            Ok(encoder(res, encoding))
+            Ok(encoding.try_encode(res))
         }
     }
 

@@ -91,9 +91,9 @@ where
     if !is_eof {
         let mut body = pin!(body);
 
-        while let Some(res) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-            match res.map_err(BodyError::from)? {
-                Frame::Data(mut chunk) => {
+        'out: loop {
+            match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+                Some(Ok(Frame::Data(mut chunk))) => {
                     while !chunk.is_empty() {
                         let len = chunk.len();
 
@@ -106,17 +106,26 @@ where
                         // Split chuck to writeable size and send to client.
                         let bytes = chunk.split_to(cmp::min(cap, len));
 
-                        stream.send_data(bytes, false)?;
+                        let end_stream = chunk.is_empty() && body.is_end_stream();
+
+                        stream.send_data(bytes, end_stream)?;
+
+                        if end_stream {
+                            break 'out;
+                        }
                     }
                 }
-                Frame::Trailers(trailers) => {
+                Some(Ok(Frame::Trailers(trailers))) => {
                     stream.send_trailers(trailers)?;
                     break;
                 }
+                None => {
+                    stream.send_data(Bytes::new(), true)?;
+                    break;
+                }
+                Some(Err(e)) => return Err(BodyError::from(e).into()),
             }
         }
-
-        stream.send_data(Bytes::new(), true)?;
     }
 
     let res = fut.await?;

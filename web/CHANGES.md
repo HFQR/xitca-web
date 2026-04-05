@@ -11,6 +11,7 @@
 = update `xitca-io` to `0.6.0`
 - update `http-encoding` to `0.3.0`
 - update `http-file` to `0.3.0`
+- update `http-ws` to `0.4.0`
 
 # 0.7.0
 ## Add

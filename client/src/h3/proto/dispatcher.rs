@@ -82,6 +82,9 @@ where
             while let Some(bytes) = stream.recv_data().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
                 yield Ok::<_, BodyError>(Frame::Data(Bytes::copy_from_slice(bytes.chunk())));
             }
+            if let Some(trailers) = stream.recv_trailers().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
+                yield Ok::<_, BodyError>(Frame::Trailers(trailers));
+            }
         };
         let body = crate::h3::body::ResponseBody(Box::pin(StreamBody::new(body)));
 

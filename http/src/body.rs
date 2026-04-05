@@ -3,10 +3,7 @@
 //! body types are generic over [Body] trait and mutation of body type must also implement said
 //! trait for being accepted as body type that xitca-http know of.
 
-pub use http_body_alt::{
-    Body, BodyExt, Frame, SizeHint,
-    util::{Either, Empty, Full, StreamBody, StreamDataBody},
-};
+pub use http_body_alt::{Body, BodyExt, Frame, SizeHint, util::*};
 
 use core::{
     pin::Pin,

@@ -41,6 +41,7 @@ urlencoded = ["serde", "serde_urlencoded" ]
 compress-br = ["http-encoding/br"]
 compress-gz = ["http-encoding/gz"]
 compress-de = ["http-encoding/de"]
+compress-zs = ["http-encoding/zs"]
 
 # cookie handler type
 cookie = ["dep:cookie"]
@@ -120,13 +121,13 @@ cookie = { version = "0.18", features = ["percent-encode", "secure"], optional =
 prost = { version = "0.14", optional = true }
 
 # multipart
-http-multipart = { version = "0.1", optional = true }
+http-multipart = { version = "0.1.2", optional = true }
 
 # websocket
-http-ws = { version = "0.3", optional = true }
+http-ws = { version = "0.4.0", optional = true }
 
 # static file
-http-file = { version = "0.3", default-features = false, optional = true }
+http-file = { version = "0.3.0", default-features = false, optional = true }
 
 # rate limit
 http-rate = { version = "0.1", optional = true }

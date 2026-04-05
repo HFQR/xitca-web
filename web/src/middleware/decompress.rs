@@ -105,7 +105,7 @@ mod service {
 
 #[cfg(test)]
 mod test {
-    use http_encoding::{ContentEncoding, encoder};
+    use http_encoding::ContentEncoding;
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
@@ -190,7 +190,7 @@ mod test {
 
         let encoding = encoding();
 
-        let (mut parts, body) = encoder(res, encoding).into_parts();
+        let (mut parts, body) = encoding.try_encode(res).into_parts();
 
         let body = collect_body(body).now_or_panic().unwrap();
 

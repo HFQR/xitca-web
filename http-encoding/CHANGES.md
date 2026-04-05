@@ -1,8 +1,15 @@
 # unreleased 0.3.0
+## Add
+- add `zs` feature for zstd format
+- add `ContentEncoding::{try_encode, encode_body}` for encoding response and body type
+- add `ContentEncoding::from_headers_with` for extended negotiation with arbitrary header name
+
 ## Change
+- rename `ContentEncoding::NoOp` to `ContentEncoding::Identity`
 - use `http-body-alt` as streaming interface to enable trailer support
 
 ## Remove
+- remove `encoder` function
 - remove `futures::Stream` implementation
 
 ## Fix

@@ -74,6 +74,7 @@ tokio-uring-xitca = "0.2.0"
 
 xitca-io = "0.6.0"
 xitca-http = { version = "0.9.0", default-features = false }
+xitca-router = "0.4.2"
 xitca-server = "0.7.0"
 xitca-service = "0.3.0"
 xitca-tls = "0.6.0"

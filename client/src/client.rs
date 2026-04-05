@@ -4,7 +4,7 @@ use tokio::time::{Instant, Sleep};
 use xitca_io::net::{TcpSocket, TcpStream};
 
 use crate::{
-    body::{BodyError, BoxBody},
+    body::{Body, BodyError, BoxBody},
     builder::ClientBuilder,
     bytes::Bytes,
     connect::Connect,
@@ -76,7 +76,7 @@ impl Client {
     #[inline]
     pub fn request<B, E>(&self, req: http::Request<B>) -> RequestBuilder<'_>
     where
-        B: xitca_http::body::Body<Data = Bytes, Error = E> + Send + 'static,
+        B: Body<Data = Bytes, Error = E> + Send + 'static,
         BodyError: From<E>,
     {
         RequestBuilder::new(req, self)

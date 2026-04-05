@@ -1,5 +1,5 @@
 pub(crate) use xitca_http::{
-    body::{Body, Empty, Frame, Full, SizeHint},
+    body::{Body, BodyExt, Data, Empty, Frame, Full, SizeHint, Trailers},
     error::BodyError,
 };
 
@@ -108,7 +108,7 @@ impl BoxBody {
         B: Body<Data = Bytes, Error = E> + Send + 'static,
         E: Into<BodyError>,
     {
-        Self(Box::pin(BoxBodyMapErr { body }))
+        Self(Box::pin(BoxBodyMap { body }))
     }
 }
 
@@ -133,23 +133,31 @@ impl Body for BoxBody {
 }
 
 pin_project! {
-    struct BoxBodyMapErr<B> {
+    struct BoxBodyMap<B> {
         #[pin]
         body: B
     }
 }
 
-impl<B, E> Body for BoxBodyMapErr<B>
+impl<B> Body for BoxBodyMap<B>
 where
-    B: Body<Data = Bytes, Error = E>,
-    E: Into<BodyError>,
+    B: Body,
+    B::Data: Into<Bytes>,
+    B::Error: Into<BodyError>,
 {
     type Data = Bytes;
     type Error = BodyError;
 
     #[inline]
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
-        self.project().body.poll_frame(cx).map_err(Into::into)
+        self.project()
+            .body
+            .poll_frame(cx)
+            .map_ok(|frame| match frame {
+                Frame::Data(data) => Frame::Data(data.into()),
+                Frame::Trailers(trailers) => Frame::Trailers(trailers),
+            })
+            .map_err(Into::into)
     }
 
     #[inline]

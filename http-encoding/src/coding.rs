@@ -1,6 +1,13 @@
-use http::header::{ACCEPT_ENCODING, HeaderMap};
+use http::{
+    Response, StatusCode,
+    header::{self, ACCEPT_ENCODING, HeaderMap, HeaderName},
+};
+use http_body_alt::Body;
 
-use super::error::FeatureError;
+use super::{
+    coder::{Coder, FeaturedCode},
+    error::FeatureError,
+};
 
 /// Represents a supported content encoding.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -11,25 +18,131 @@ pub enum ContentEncoding {
     Deflate,
     /// Gzip algorithm.
     Gzip,
+    /// Zstandard algorithm.
+    Zstd,
     /// Indicates no operation is done with encoding.
     #[default]
-    NoOp,
+    Identity,
 }
 
 impl ContentEncoding {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Br => "br",
+            Self::Deflate => "deflate",
+            Self::Gzip => "gzip",
+            Self::Zstd => "zstd",
+            Self::Identity => "identity",
+        }
+    }
+
+    /// Negotiate content encoding from the `accept-encoding` header.
+    ///
+    /// Returns the highest q-value encoding that is supported by enabled crate features.
+    /// Returns [`ContentEncoding::NoOp`] if no supported encoding is found.
     pub fn from_headers(headers: &HeaderMap) -> Self {
         let mut prefer = ContentEncodingWithQValue::default();
 
-        for encoding in Self::_from_headers(headers) {
+        for encoding in Self::_from_headers(headers, &ACCEPT_ENCODING) {
             prefer.try_update(encoding);
         }
 
         prefer.enc
     }
 
-    fn _from_headers(headers: &HeaderMap) -> impl Iterator<Item = ContentEncodingWithQValue> + '_ {
+    /// Negotiate content encoding from a caller-specified header name.
+    ///
+    /// Same as [`from_headers`](Self::from_headers) but reads from `needle` instead of
+    /// `accept-encoding`. Useful for protocols that use a different header for encoding
+    /// negotiation (e.g. `grpc-accept-encoding` for gRPC).
+    pub fn from_headers_with(headers: &HeaderMap, needle: &HeaderName) -> Self {
+        let mut prefer = ContentEncodingWithQValue::default();
+
+        for encoding in Self::_from_headers(headers, needle) {
+            prefer.try_update(encoding);
+        }
+
+        prefer.enc
+    }
+
+    /// Encode a response body, updating response headers accordingly.
+    ///
+    /// Skips encoding if the response already has a `Content-Encoding` header, or if the
+    /// status is `101 Switching Protocols` or `204 No Content`.
+    ///
+    /// # Headers
+    /// Sets `Content-Encoding` and removes `Content-Length` when compression is applied.
+    /// For HTTP/1.1 responses, `Transfer-Encoding: chunked` is appended. Callers should avoid
+    /// modifying `Content-Encoding` or `Transfer-Encoding` headers after calling this method,
+    /// as inconsistent values may cause incorrect behavior in downstream clients.
+    pub fn try_encode<S>(mut self, response: Response<S>) -> Response<Coder<S, FeaturedCode>>
+    where
+        S: Body,
+        S::Data: AsRef<[u8]> + 'static,
+    {
+        #[allow(unused_mut)]
+        let (mut parts, body) = response.into_parts();
+
+        if parts.headers.contains_key(&header::CONTENT_ENCODING)
+            || parts.status == StatusCode::SWITCHING_PROTOCOLS
+            || parts.status == StatusCode::NO_CONTENT
+        {
+            self = ContentEncoding::Identity;
+        }
+
+        self.update_header(&mut parts.headers, parts.version);
+
+        let body = self.encode_body(body);
+        Response::from_parts(parts, body)
+    }
+
+    /// Encode a [`Body`] with featured encoder
+    pub fn encode_body<S>(self, body: S) -> Coder<S, FeaturedCode>
+    where
+        S: Body,
+        S::Data: AsRef<[u8]> + 'static,
+    {
+        let encoder = match self {
+            #[cfg(feature = "de")]
+            ContentEncoding::Deflate => FeaturedCode::EncodeDe(super::deflate::Encoder::new(
+                super::writer::BytesMutWriter::new(),
+                flate2::Compression::fast(),
+            )),
+            #[cfg(feature = "gz")]
+            ContentEncoding::Gzip => FeaturedCode::EncodeGz(super::gzip::Encoder::new(
+                super::writer::BytesMutWriter::new(),
+                flate2::Compression::fast(),
+            )),
+            #[cfg(feature = "br")]
+            ContentEncoding::Br => FeaturedCode::EncodeBr(super::brotli::Encoder::new(3)),
+            #[cfg(feature = "zs")]
+            ContentEncoding::Zstd => FeaturedCode::EncodeZs(super::zstandard::Encoder::new(3)),
+            _ => FeaturedCode::default(),
+        };
+
+        Coder::new(body, encoder)
+    }
+
+    fn update_header(self, headers: &mut HeaderMap, version: http::Version) {
+        if matches!(self, ContentEncoding::Identity) {
+            return;
+        }
+
+        let value = self.as_str();
+
+        headers.insert(header::CONTENT_ENCODING, header::HeaderValue::from_static(value));
+        headers.remove(header::CONTENT_LENGTH);
+
+        // Connection specific headers are not allowed in HTTP/2 and later versions.
+        // see https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.2
+        if version == http::Version::HTTP_11 {
+            headers.append(header::TRANSFER_ENCODING, header::HeaderValue::from_static("chunked"));
+        }
+    }
+
+    fn _from_headers(headers: &HeaderMap, needle: &HeaderName) -> impl Iterator<Item = ContentEncodingWithQValue> {
         headers
-            .get_all(ACCEPT_ENCODING)
+            .get_all(needle)
             .iter()
             .filter_map(|hval| hval.to_str().ok())
             .flat_map(|s| s.split(','))
@@ -52,8 +165,10 @@ impl ContentEncoding {
             Ok(Self::Deflate)
         } else if s.eq_ignore_ascii_case("br") {
             Ok(Self::Br)
+        } else if s.eq_ignore_ascii_case("zstd") {
+            Ok(Self::Zstd)
         } else if s.eq_ignore_ascii_case("identity") {
-            Ok(Self::NoOp)
+            Ok(Self::Identity)
         } else {
             Err(FeatureError::Unknown(s.to_string().into_boxed_str()))
         }
@@ -68,7 +183,7 @@ struct ContentEncodingWithQValue {
 impl Default for ContentEncodingWithQValue {
     fn default() -> Self {
         Self {
-            enc: ContentEncoding::NoOp,
+            enc: ContentEncoding::Identity,
             val: QValue::zero(),
         }
     }
@@ -84,6 +199,8 @@ impl ContentEncodingWithQValue {
                 ContentEncoding::Deflate => return,
                 #[cfg(not(feature = "gz"))]
                 ContentEncoding::Gzip => return,
+                #[cfg(not(feature = "zs"))]
+                ContentEncoding::Zstd => return,
                 _ => {}
             };
             *self = other;

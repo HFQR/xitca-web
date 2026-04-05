@@ -32,7 +32,7 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
     {
         match ContentEncoding::try_parse(enc) {
             Ok(encoding) => match encoding {
-                ContentEncoding::NoOp => break,
+                ContentEncoding::Identity => break,
                 ContentEncoding::Br => {
                     #[cfg(feature = "br")]
                     return Ok(FeaturedCode::DecodeBr(super::brotli::Decoder::new()));
@@ -48,6 +48,10 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
                     return Ok(FeaturedCode::DecodeDe(super::deflate::Decoder::new(
                         super::writer::BytesMutWriter::new(),
                     )));
+                }
+                ContentEncoding::Zstd => {
+                    #[cfg(feature = "zs")]
+                    return Ok(FeaturedCode::DecodeZs(super::zstandard::Decoder::new()));
                 }
             },
             Err(e) => err = Some(e),
