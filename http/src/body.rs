@@ -32,6 +32,19 @@ pub enum RequestBody {
     None,
 }
 
+impl RequestBody {
+    pub fn into_boxed(self) -> BoxBody {
+        match self {
+            #[cfg(feature = "http2")]
+            Self::H2(body) => BoxBody::new(body),
+            #[cfg(feature = "http3")]
+            Self::H3(body) => BoxBody::new(body),
+            Self::Boxed(body) => body,
+            Self::None => BoxBody::new(Empty::<Bytes>::new()),
+        }
+    }
+}
+
 impl Body for RequestBody {
     type Data = Bytes;
     type Error = BodyError;

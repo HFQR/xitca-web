@@ -47,13 +47,12 @@ use marker::*;
 ///     .enclosed(limit.clone());
 ///
 /// // group middleware is suggested way of handling of use case like this.
-/// let group = Group::new()
-///     .enclosed(eraser)
-///     .enclosed(limit);
+/// let group = Group::new().enclosed(eraser.clone()).enclosed(limit.clone());
 ///
-/// // it's also suggested to group multiple type mutation middlewares together and apply
-/// // eraser on them once if possible. the reason being TypeErase has a cost and by
-/// // grouping you only pay the cost once.
+/// // it's suggested to group multiple type mutation middlewares together and apply
+/// // eraser on them once if possible. reason being TypeErase has a cost and by
+/// // grouping you only pay for it once.
+/// let group = group.enclosed(limit);
 ///
 /// App::new()
 ///     .at("/", handler_service(handler))
@@ -110,13 +109,7 @@ mod service {
     use core::cell::RefCell;
 
     use crate::{
-        WebContext,
-        body::{BodyStream, BoxBody},
-        body::{RequestBody, ResponseBody},
-        bytes::Bytes,
-        error::Error,
-        http::WebResponse,
-        service::ready::ReadyService,
+        WebContext, body::BodyStream, body::ResponseBody, error::Error, http::WebResponse, service::ready::ReadyService,
     };
 
     use super::*;
@@ -129,15 +122,16 @@ mod service {
     impl<'r, S, C, ReqB, ResB, Err> Service<WebContext<'r, C, ReqB>> for EraserService<EraseReqBody, S>
     where
         S: for<'rs> Service<WebContext<'rs, C>, Response = WebResponse<ResB>, Error = Err>,
-        ReqB: BodyStream<Data = Bytes> + Default + 'static,
-        ResB: BodyStream<Data = Bytes> + 'static,
+        ReqB: BodyStream + Default + 'static,
+        ResB: BodyStream + 'static,
     {
         type Response = WebResponse;
         type Error = Err;
 
         async fn call(&self, mut ctx: WebContext<'r, C, ReqB>) -> Result<Self::Response, Self::Error> {
             let body = ctx.take_body_mut();
-            let mut body = RefCell::new(RequestBody::Boxed(BoxBody::new(body)));
+            let body = crate::body::downcast_body(body);
+            let mut body = RefCell::new(body);
             let WebContext { req, ctx, .. } = ctx;
             let res = self.service.call(WebContext::new(req, &mut body, ctx)).await?;
             Ok(res.map(ResponseBody::boxed))
@@ -147,7 +141,7 @@ mod service {
     impl<S, Req, ResB> Service<Req> for EraserService<EraseResBody, S>
     where
         S: Service<Req, Response = WebResponse<ResB>>,
-        ResB: BodyStream<Data = Bytes> + 'static,
+        ResB: BodyStream + 'static,
     {
         type Response = WebResponse;
         type Error = S::Error;

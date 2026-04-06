@@ -195,7 +195,7 @@ pin_project! {
     #[derive(Debug)]
     pub struct StreamBody<T> {
         #[pin]
-        value: T
+        pub(crate) value: T
     }
 }
 

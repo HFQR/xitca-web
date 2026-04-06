@@ -6,13 +6,63 @@
 //!
 //! fn main() -> std::io::Result<()> {
 //!     App::new()
-//!         .at("/", get(handler_service(|| async { "Hello,World!" })))
+//!         .at("/", get(handler_service(async || "Hello,World!")))
 //!         .serve()
 //!         .bind("localhost:8080")?
 //!         .run()
 //!         .wait()
 //! }
 //! ```
+//!
+//! # Feature flags
+//! Most features are disabled by default and can be enabled selectively in your `Cargo.toml`.
+//!
+//! ## HTTP versions
+//! - **`http1`** *(default)* — HTTP/1.1 server support.
+//! - **`http2`** — HTTP/2 server support.
+//! - **`http3`** — HTTP/3 (QUIC) server support.
+//!
+//! ## IO
+//! - **`io-uring`** — Linux io-uring based async IO for the server runtime.
+//!
+//! ## TLS
+//! - **`openssl`** — TLS via OpenSSL.
+//! - **`rustls`** — TLS via Rustls.
+//!
+//! ## Extractors / Responders
+//! - **`params`** — Path parameters type extractor (enables `serde`).
+//! - **`json`** — JSON type extractor/responder (enables `serde`).
+//! - **`urlencoded`** — URL-encoded form type extractor (enables `serde`).
+//! - **`multipart`** — Multipart form data type extractor.
+//! - **`grpc`** — gRPC type extractor/responder (via `prost`).
+//! - **`websocket`** — WebSocket type extractor/responder.
+//! - **`cookie`** — Cookie handler type.
+//!
+//! ## Compression middlewares
+//! - **`compress-br`** — Brotli (de)compression.
+//! - **`compress-gz`** — Gzip (de)compression.
+//! - **`compress-de`** — Deflate (de)compression.
+//! - **`compress-zs`** — Zstd (de)compression.
+//!
+//! ## Static file serving
+//! - **`file`** — Static file serving with default file system backend.
+//! - **`file-io-uring`** — Static file serving using io-uring (implies `io-uring` and `file`).
+//! - **`file-raw`** — Static file serving without a default file system backend.
+//!
+//! ## Middleware
+//! - **`rate-limit`** — Rate-limiting middleware.
+//! - **`logger`** — Tracing/logging middleware (via `tracing` and `tracing-subscriber`).
+//!
+//! ## Codegen
+//! - **`codegen`** — Proc-macro code generation (`#[route]`, `#[derive(State)]`, etc.).
+//!
+//! ## Interop
+//! - **`tower-http-compat`** — Compatibility layer for using `tower-http` services and layers.
+//!
+//! ## Other
+//! - **`serde`** — Shared (de)serialization support. Automatically enabled by `params`, `json`, and `urlencoded`.
+//! - **`nightly`** — Enables nightly-only Rust features. **Unstable** — breaking changes to nightly-gated
+//!   APIs are not considered semver-breaking.
 //!
 //! # Memory efficient
 //! - zero copy magic types

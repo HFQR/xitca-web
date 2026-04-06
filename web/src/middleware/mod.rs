@@ -293,10 +293,12 @@
 //! [`RequestBody`]: crate::body::RequestBody
 //! [`WebResponse<B>`]: crate::http::WebResponse
 
-#[cfg(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de"))]
+#[cfg(feature = "__compress")]
 pub mod compress;
-#[cfg(any(feature = "compress-br", feature = "compress-gz", feature = "compress-de"))]
+#[cfg(feature = "__compress")]
 pub mod decompress;
+#[cfg(feature = "grpc")]
+pub mod grpc_timeout;
 #[cfg(feature = "rate-limit")]
 pub mod rate_limit;
 #[cfg(not(target_family = "wasm"))]

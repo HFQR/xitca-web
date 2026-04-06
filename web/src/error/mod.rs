@@ -72,12 +72,16 @@
 
 mod body;
 mod extension;
+#[cfg(feature = "grpc")]
+mod grpc;
 mod header;
 mod router;
 mod status;
 
 pub use body::*;
 pub use extension::*;
+#[cfg(feature = "grpc")]
+pub use grpc::*;
 pub use header::*;
 pub use router::*;
 pub use status::*;
@@ -358,6 +362,7 @@ macro_rules! error_from_service {
 
 pub(crate) use error_from_service;
 
+#[allow(unused_macros)]
 macro_rules! blank_error_service {
     ($type: ty, $status: path) => {
         impl<'r, C, B> crate::service::Service<crate::WebContext<'r, C, B>> for $type {
@@ -373,6 +378,7 @@ macro_rules! blank_error_service {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use blank_error_service;
 
 macro_rules! forward_blank_internal {

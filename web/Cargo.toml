@@ -38,10 +38,10 @@ json = ["serde", "serde_json"]
 urlencoded = ["serde", "serde_urlencoded" ]
 
 # (de)compression middlewares
-compress-br = ["http-encoding/br"]
-compress-gz = ["http-encoding/gz"]
-compress-de = ["http-encoding/de"]
-compress-zs = ["http-encoding/zs"]
+compress-br = ["__compress", "http-encoding/br"]
+compress-gz = ["__compress", "http-encoding/gz"]
+compress-de = ["__compress", "http-encoding/de"]
+compress-zs = ["__compress", "http-encoding/zs"]
 
 # cookie handler type
 cookie = ["dep:cookie"]
@@ -50,7 +50,7 @@ cookie = ["dep:cookie"]
 multipart = ["http-multipart"]
 
 # grpc type extractor/responder
-grpc = ["prost"]
+grpc = ["prost", "tokio/time"]
 
 # websocket type extractor/responder
 websocket = ["http-ws/stream", "tokio/time"]
@@ -83,6 +83,9 @@ tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 
 # (de)serialization shared feature.
 serde = ["dep:serde_core"]
+
+# privtate compress shared feature
+__compress = []
 
 # private http server feature
 __server = ["xitca-http/runtime", "xitca-server"]

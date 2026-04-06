@@ -123,6 +123,35 @@ impl ContentEncoding {
         Coder::new(body, encoder)
     }
 
+    /// Decode a [`Body`] with featured decoder.
+    ///
+    /// Symmetric to [`encode_body`](Self::encode_body). Use this when decoding outside of
+    /// an HTTP response context (e.g. gRPC request decompression) where the encoding is
+    /// determined by a protocol-specific header rather than `Content-Encoding`.
+    pub fn decode_body<S>(self, body: S) -> Coder<S, FeaturedCode>
+    where
+        S: Body,
+        S::Data: AsRef<[u8]> + 'static,
+    {
+        let decoder = match self {
+            #[cfg(feature = "de")]
+            ContentEncoding::Deflate => {
+                FeaturedCode::DecodeDe(super::deflate::Decoder::new(super::writer::BytesMutWriter::new()))
+            }
+            #[cfg(feature = "gz")]
+            ContentEncoding::Gzip => {
+                FeaturedCode::DecodeGz(super::gzip::Decoder::new(super::writer::BytesMutWriter::new()))
+            }
+            #[cfg(feature = "br")]
+            ContentEncoding::Br => FeaturedCode::DecodeBr(super::brotli::Decoder::new()),
+            #[cfg(feature = "zs")]
+            ContentEncoding::Zstd => FeaturedCode::DecodeZs(super::zstandard::Decoder::new()),
+            _ => FeaturedCode::default(),
+        };
+
+        Coder::new(body, decoder)
+    }
+
     fn update_header(self, headers: &mut HeaderMap, version: http::Version) {
         if matches!(self, ContentEncoding::Identity) {
             return;

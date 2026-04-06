@@ -53,7 +53,10 @@ pub mod const_header_name {
     const_name!(
         (PROTOCOL, "protocol"),
         (GRPC_STATUS, "grpc-status"),
-        (GRPC_MESSAGE, "grpc-message")
+        (GRPC_MESSAGE, "grpc-message"),
+        (GRPC_ENCODING, "grpc-encoding"),
+        (GRPC_ACCEPT_ENCODING, "grpc-accept-encoding"),
+        (GRPC_TIMEOUT, "grpc-timeout")
     );
 }
 
