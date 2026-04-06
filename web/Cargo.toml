@@ -85,7 +85,7 @@ tower-http-compat = ["tower-service", "tower-layer", "http-body"]
 serde = ["dep:serde_core"]
 
 # privtate compress shared feature
-__compress = []
+__compress = ["dep:http-encoding"]
 
 # private http server feature
 __server = ["xitca-http/runtime", "xitca-server"]
