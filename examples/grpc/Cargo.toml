@@ -1,5 +1,5 @@
 [package]
-name = "xitca-http-grpc"
+name = "xitca-web-grpc"
 version = "0.1.0"
 authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2024"

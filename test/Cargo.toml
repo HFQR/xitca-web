@@ -17,12 +17,17 @@ xitca-io = "0.6.0"
 xitca-server = { version = "0.7.0", features = ["quic"] }
 xitca-service = "0.3.0"
 xitca-unsafe-collection = "0.2"
-xitca-web = { version = "0.8", features = ["codegen"] }
+xitca-web = { version = "0.8", features = ["codegen", "grpc", "http2"] }
 
 http-ws = { version = "0.4", features = ["stream"] }
 
 async-stream = "0.3"
 futures-util = "0.3.17"
 h3-quinn = "0.0.10"
+prost = "0.14"
+percent-encoding = "2"
 rustls-pemfile = "2"
 tokio = { version = "1.30", features = ["macros", "rt"] }
+
+[build-dependencies]
+prost-build = "0.14"

@@ -19,7 +19,7 @@ io-uring = ["dep:tokio-uring-xitca"]
 [dependencies]
 xitca-io = { workspace = true, features = ["runtime"] }
 xitca-service = { workspace = true, features = ["alloc"] }
-xitca-unsafe-collection = "0.2.0"
+xitca-unsafe-collection = { workspace = true }
 
 tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { version = "0.1.40", default-features = false }

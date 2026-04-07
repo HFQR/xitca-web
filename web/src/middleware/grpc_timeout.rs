@@ -23,8 +23,7 @@ use core::time::Duration;
 use tokio::time::Instant;
 
 use crate::{
-    body::{BodyExt, Empty, ResponseBody, Trailers},
-    bytes::Bytes,
+    body::ResponseBody,
     context::WebContext,
     error::{GrpcError, GrpcStatus},
     http::{
@@ -33,7 +32,7 @@ use crate::{
         const_header_value::GRPC,
         header::{CONTENT_TYPE, HeaderValue},
     },
-    service::Service,
+    service::{Service, ready::ReadyService},
 };
 
 /// Middleware that enforces the `grpc-timeout` deadline on the inner service call.
@@ -73,15 +72,27 @@ where
                     Ok(result) => result,
                     Err(_elapsed) => {
                         let err = GrpcError::new(GrpcStatus::DeadlineExceeded, "deadline exceeded");
-                        let body = Empty::<Bytes>::new().chain(Trailers::new(err.trailers()));
-                        let mut res = WebResponse::new(ResponseBody::boxed(body));
+                        let mut res = WebResponse::new(ResponseBody::empty());
                         res.headers_mut().insert(CONTENT_TYPE, GRPC);
+                        res.headers_mut().extend(err.trailers());
                         Ok(res)
                     }
                 }
             }
             None => self.service.call(ctx).await,
         }
+    }
+}
+
+impl<S> ReadyService for GrpcTimeoutService<S>
+where
+    S: ReadyService,
+{
+    type Ready = S::Ready;
+
+    #[inline]
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
     }
 }
 

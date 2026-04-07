@@ -122,6 +122,19 @@ where
         self
     }
 
+    /// Enable HTTP/2 cleartext (h2c) with prior knowledge.
+    ///
+    /// When enabled, the server peeks at the first bytes of each connection to detect whether
+    /// the client is speaking HTTP/2 (via the connection preface) or HTTP/1.1, and dispatches
+    /// accordingly. This allows a single listener to serve both protocols without TLS-based
+    /// ALPN negotiation.
+    ///
+    /// Typically required for gRPC over plaintext, as most gRPC clients expect HTTP/2.
+    pub fn h2c_prior_knowledge(mut self) -> Self {
+        self.config = self.config.peek_protocol();
+        self
+    }
+
     /// Change max size for request head.
     ///
     /// Request has a bigger head than it would be reject with error.

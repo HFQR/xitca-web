@@ -9,7 +9,7 @@ use xitca_service::{Service, ready::ReadyService};
 
 use super::{
     body::RequestBody,
-    bytes::Bytes,
+    bytes::{Bytes, BytesMut},
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
     error::{HttpServiceError, TimeoutError},
@@ -102,12 +102,21 @@ where
                     .await
                     .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
 
-                let version = if self.config.peek_protocol {
-                    // peek version from connection to figure out the real protocol used
-                    // regardless of AsVersion's outcome.
-                    todo!("peek version is not implemented yet!")
-                } else {
-                    _tls_stream.as_version()
+                #[allow(unused_mut)]
+                let mut version = _tls_stream.as_version();
+                #[allow(unused_mut)]
+                let mut read_buf = BytesMut::new();
+
+                #[cfg(feature = "http2")]
+                if self.config.peek_protocol {
+                    let (ver, buf) = super::h2::dispatcher::peek_version(&_tls_stream, BytesMut::new())
+                        .timeout(timer.as_mut())
+                        .await
+                        // TODO: more precise error handling
+                        .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
+                        .map_err(|e| HttpServiceError::H1(super::h1::Error::Io(e)))?;
+                    version = ver;
+                    read_buf = buf;
                 };
 
                 match version {
@@ -115,6 +124,7 @@ where
                     super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::Dispatcher::run(
                         _tls_stream,
                         _addr,
+                        read_buf,
                         timer.as_mut(),
                         self.config,
                         &self.service,
@@ -130,6 +140,7 @@ where
                         super::h2::dispatcher::run(
                             _tls_stream,
                             _addr,
+                            read_buf,
                             timer.as_mut(),
                             &self.service,
                             self.date.get(),
@@ -157,6 +168,7 @@ where
                     super::h1::Dispatcher::run(
                         io,
                         crate::unspecified_socket_addr(),
+                        BytesMut::new(),
                         timer.as_mut(),
                         self.config,
                         &self.service,

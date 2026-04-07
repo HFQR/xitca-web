@@ -45,7 +45,7 @@ use super::{
 use self::generic::GenericDriver;
 
 #[cfg(feature = "tls")]
-use xitca_tls::rustls::{ClientConnection, TlsStream};
+use xitca_tls::rustls_poll::{ClientConnection, TlsStream};
 
 #[cfg(unix)]
 use xitca_io::net::UnixStream;

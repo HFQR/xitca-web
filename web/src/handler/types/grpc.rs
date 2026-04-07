@@ -20,13 +20,12 @@
 //! ```
 
 use core::{
-    convert::Infallible,
     marker::PhantomData,
+    mem,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
-use futures_core::stream::Stream;
 use prost::Message;
 
 #[cfg(feature = "__compress")]
@@ -72,7 +71,7 @@ where
     type Error = Error;
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-        let mut stream = GrpcStream::<T, RequestBody, LIMIT>::from_request(ctx).await?;
+        let mut stream = GrpcStreamRequest::<T, LIMIT>::from_request(ctx).await?;
         let msg = stream
             .message()
             .await?
@@ -89,35 +88,8 @@ where
     type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        GrpcStream::<T, Once<T>, 0>::once(self.0).respond(ctx).await
+        GrpcStreamResponse::<T>::once(self.0).respond(ctx).await
     }
-}
-
-/// Streaming type for gRPC methods.
-///
-/// Wraps a stream `S` that yields `Result<T, E>` items and encodes each `T: Message` with gRPC
-/// length-prefixed framing, appending `grpc-status: 0` trailers on completion.
-///
-/// For the extractor (client-streaming) use case, see [`GrpcStreamRequest`].
-///
-/// # Example
-/// ```ignore
-/// use xitca_web::handler::grpc::{Grpc, GrpcStream};
-///
-/// async fn server_stream(Grpc(req): Grpc<MyRequest>) -> GrpcStream<MyReply, impl Stream<Item = Result<MyReply, Error>>> {
-///     GrpcStream::new(async_stream::stream! {
-///         yield Ok(MyReply { .. });
-///         yield Ok(MyReply { .. });
-///     })
-/// }
-/// ```
-pub struct GrpcStream<T, S = RequestBody, const LIMIT: usize = DEFAULT_LIMIT> {
-    value: S,
-    #[cfg(feature = "__compress")]
-    encoding: ContentEncoding,
-    buf: BytesMut,
-    done: bool,
-    _msg: PhantomData<fn() -> T>,
 }
 
 /// Client-streaming extractor that yields a stream of `T: Message` from the request body.
@@ -151,203 +123,13 @@ pub struct GrpcStream<T, S = RequestBody, const LIMIT: usize = DEFAULT_LIMIT> {
 /// ```
 pub type GrpcStreamRequest<T, const LIMIT: usize = DEFAULT_LIMIT> = GrpcStream<T, RequestBody, LIMIT>;
 
-impl<T, S, const LIMIT: usize> GrpcStream<T, S, LIMIT> {
-    pub fn new(value: S) -> Self {
-        Self {
-            value,
-            #[cfg(feature = "__compress")]
-            encoding: ContentEncoding::default(),
-            buf: BytesMut::new(),
-            done: false,
-            _msg: PhantomData,
-        }
-    }
-
-    #[cfg(feature = "__compress")]
-    pub fn set_encoding(mut self, encoding: ContentEncoding) -> Self {
-        self.encoding = encoding;
-        self
-    }
-
-    /// Finalize the gRPC frame in `self.buf`. Optionally compresses the protobuf payload
-    /// and writes the compressed flag + length prefix.
-    #[cfg(feature = "__compress")]
-    fn encode_frame(&mut self) -> Result<(), BodyError> {
-        if !matches!(self.encoding, ContentEncoding::Identity) {
-            let payload = self.buf.split_off(5);
-            let coder = self.encoding.encode_body(crate::body::Full::new(payload));
-
-            // clear buf and write compressed frame header
-            self.buf.clear();
-            self.buf.put_u8(1); // compressed flag
-            self.buf.put_u32(0); // placeholder length
-
-            // drive the coder synchronously — Full yields once and never returns Pending
-            let mut coder = core::pin::pin!(coder);
-            let waker = core::task::Waker::noop();
-            let mut cx = core::task::Context::from_waker(waker);
-            loop {
-                match Body::poll_frame(coder.as_mut(), &mut cx) {
-                    Poll::Ready(Some(Ok(Frame::Data(data)))) => self.buf.extend_from_slice(data.as_ref()),
-                    Poll::Ready(Some(Err(err))) => return Err(err),
-                    Poll::Ready(None) => break,
-                    Poll::Pending | Poll::Ready(Some(Ok(Frame::Trailers(_)))) => {
-                        unreachable!("Full body never returns Pending")
-                    }
-                }
-            }
-        }
-
-        // write the actual payload length (after the 1-byte flag)
-        let len = (self.buf.len() - 5) as u32;
-        self.buf[1..5].copy_from_slice(&len.to_be_bytes());
-
-        Ok(())
-    }
-
-    #[cfg(not(feature = "__compress"))]
-    fn encode_frame(&mut self) -> Result<(), BodyError> {
-        let len = (self.buf.len() - 5) as u32;
-        self.buf[1..5].copy_from_slice(&len.to_be_bytes());
-        Ok(())
-    }
-}
-
-impl<T, const LIMIT: usize> GrpcStream<T, Once<T>, LIMIT> {
-    /// Create a single-item stream for unary responses.
-    pub fn once(msg: T) -> Self {
-        GrpcStream::new(Once(Some(msg)))
-    }
-}
-
-/// Single-item stream that yields one `Ok(T)` then completes.
-pub struct Once<T>(Option<T>);
-
-impl<T: Unpin> Stream for Once<T> {
-    type Item = Result<T, Infallible>;
-
-    #[inline]
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(self.get_mut().0.take().map(Ok))
-    }
-}
-
-impl<T, S, E, const LIMIT: usize> Body for GrpcStream<T, S, LIMIT>
-where
-    T: Message,
-    S: Stream<Item = Result<T, E>> + Unpin,
-    E: Into<BodyError>,
-{
-    type Data = Bytes;
-    type Error = BodyError;
-
-    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        let this = self.get_mut();
-        match this._poll_frame(cx) {
-            Poll::Ready(Some(Err(e))) => {
-                this.done = true;
-                let err = GrpcError::new(GrpcStatus::Internal, e.to_string());
-                Poll::Ready(Some(Ok(Frame::Trailers(err.trailers()))))
-            }
-            poll => poll,
-        }
-    }
-
-    #[inline]
-    fn is_end_stream(&self) -> bool {
-        self.done
-    }
-}
-
-impl<T, S, E, const LIMIT: usize> GrpcStream<T, S, LIMIT>
-where
-    T: Message,
-    S: Stream<Item = Result<T, E>> + Unpin,
-    E: Into<BodyError>,
-{
-    fn _poll_frame(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
-        if self.done {
-            return Poll::Ready(None);
-        }
-
-        match Pin::new(&mut self.value).poll_next(cx) {
-            Poll::Ready(Some(Ok(msg))) => {
-                let encoded_len = msg.encoded_len();
-                self.buf.reserve(5 + encoded_len);
-                self.buf.put_u8(0); // no compression flag (overwritten below if compressed)
-                self.buf.put_u32(0); // placeholder length
-
-                msg.encode(&mut self.buf)
-                    .map_err(|e| BodyError::from(Box::new(e) as Box<dyn core::error::Error + Send + Sync>))?;
-
-                self.encode_frame()?;
-
-                Poll::Ready(Some(Ok(Frame::Data(self.buf.split().freeze()))))
-            }
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
-            Poll::Ready(None) => {
-                self.done = true;
-                let mut trailers = HeaderMap::with_capacity(1);
-                trailers.insert(GRPC_STATUS, HeaderValue::from_static("0"));
-                Poll::Ready(Some(Ok(Frame::Trailers(trailers))))
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl<'r, C, B, T, S, E, const LIMIT: usize> Responder<WebContext<'r, C, B>> for GrpcStream<T, S, LIMIT>
-where
-    T: Message + 'static,
-    S: futures_core::Stream<Item = Result<T, E>> + Unpin + 'static,
-    E: Into<BodyError> + 'static,
-{
-    type Response = WebResponse;
-    type Error = Error;
-
-    async fn respond(mut self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        self.buf.clear();
-
-        #[cfg(feature = "__compress")]
-        let encoding = {
-            let encoding = ContentEncoding::from_headers_with(ctx.req().headers(), &GRPC_ACCEPT_ENCODING);
-            self = self.set_encoding(encoding);
-            encoding
-        };
-
-        let mut res = ctx.into_response(ResponseBody::boxed(self));
-
-        res.headers_mut().insert(CONTENT_TYPE, GRPC);
-
-        #[cfg(feature = "__compress")]
-        if !matches!(encoding, ContentEncoding::Identity) {
-            res.headers_mut()
-                .insert(GRPC_ENCODING, HeaderValue::from_static(encoding.as_str()));
-        }
-
-        Ok(res)
-    }
-
-    fn map(self, _: Self::Response) -> Result<Self::Response, Self::Error>
-    where
-        Self: Sized,
-    {
-        panic!(
-            "GrpcStream must be the first item from a series of Responder type. It needs WebContext for content encoding"
-        )
-    }
-}
-
-impl<T, S, const LIMIT: usize> GrpcStream<T, S, LIMIT> {
+impl<T, const LIMIT: usize> GrpcStreamRequest<T, LIMIT> {
     /// Read the next message from the stream.
     ///
     /// Returns `Ok(None)` when the client has closed the stream.
     pub async fn message(&mut self) -> Result<Option<T>, Error>
     where
         T: Message + Default,
-        S: Body + Unpin,
-        S::Data: AsRef<[u8]>,
-        S::Error: Into<BodyError>,
     {
         let mut compressed = false;
         let mut len = 0;
@@ -357,7 +139,7 @@ impl<T, S, const LIMIT: usize> GrpcStream<T, S, LIMIT> {
             match self.value.data().await {
                 Some(Ok(data)) => self.buf.extend_from_slice(data.as_ref()),
                 Some(Err(e)) => {
-                    return Err(GrpcError::new(GrpcStatus::Internal, format!("body read: {}", e.into())).into());
+                    return Err(GrpcError::new(GrpcStatus::Internal, format!("body read: {e}")).into());
                 }
                 None => {
                     // stream ended; empty buf means clean EOF, partial buf means truncated frame
@@ -422,7 +204,7 @@ impl<T, S, const LIMIT: usize> GrpcStream<T, S, LIMIT> {
     }
 }
 
-impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for GrpcStream<T, RequestBody, LIMIT>
+impl<'a, 'r, C, B, T, const LIMIT: usize> FromRequest<'a, WebContext<'r, C, B>> for GrpcStreamRequest<T, LIMIT>
 where
     B: BodyStream + Default + 'static,
     T: Message + Default,
@@ -445,5 +227,299 @@ where
         }
 
         Ok(stream)
+    }
+}
+
+pub type GrpcStreamResponse<T> = GrpcStream<T, GrcpStreamBody<T>, DEFAULT_LIMIT>;
+
+use tokio::sync::mpsc::{Receiver, Sender, channel};
+
+pub struct GrcpStreamBody<T> {
+    headers: Option<HeaderMap>,
+    trailers: Option<HeaderMap>,
+    rx: MessageReciever<T>,
+}
+
+impl<T> GrcpStreamBody<T> {
+    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<Frame<T>>> {
+        match &mut self.rx {
+            MessageReciever::Once(_) => {
+                let MessageReciever::Once(msg) = mem::replace(&mut self.rx, MessageReciever::Trailers(None)) else {
+                    unreachable!()
+                };
+                Poll::Ready(Some(Frame::Data(msg)))
+            }
+            MessageReciever::Repeat(rx) => {
+                let trailers = match ready!(rx.poll_recv(cx)) {
+                    Some(Frame::Trailers(trailers)) => Some(trailers),
+                    Some(msg) => return Poll::Ready(Some(msg)),
+                    None => None,
+                };
+
+                self.rx = MessageReciever::Trailers(trailers);
+
+                self.poll_recv(cx)
+            }
+
+            MessageReciever::Trailers(..) => {
+                let MessageReciever::Trailers(trailers) = mem::replace(&mut self.rx, MessageReciever::Eof) else {
+                    unreachable!()
+                };
+
+                let mut trailers_output = self.trailers.take().unwrap_or_else(|| HeaderMap::with_capacity(1));
+
+                if let Some(trailers) = trailers {
+                    trailers_output.extend(trailers);
+                }
+
+                trailers_output.insert(GRPC_STATUS, HeaderValue::from_static("0"));
+
+                Poll::Ready(Some(Frame::Trailers(trailers_output)))
+            }
+            MessageReciever::Eof => Poll::Ready(None),
+        }
+    }
+
+    #[inline]
+    fn is_end_stream(&self) -> bool {
+        matches!(self.rx, MessageReciever::Eof)
+    }
+
+    fn set_end_stream(&mut self) {
+        self.rx = MessageReciever::Eof;
+    }
+}
+
+enum MessageReciever<T> {
+    Once(T),
+    Repeat(Receiver<Frame<T>>),
+    Trailers(Option<HeaderMap>),
+    Eof,
+}
+pub struct GrpcStreamSender<T> {
+    tx: Sender<Frame<T>>,
+}
+
+impl<T> GrpcStreamSender<T> {
+    pub async fn send_message(&mut self, msg: T) -> Result<(), T> {
+        self.tx.send(Frame::Data(msg)).await.map_err(|e| {
+            let Frame::Data(msg) = e.0 else { unreachable!() };
+            msg
+        })
+    }
+
+    pub async fn send_trailers(self, trailers: HeaderMap) -> Result<(), HeaderMap> {
+        self.tx.send(Frame::Trailers(trailers)).await.map_err(|e| {
+            let Frame::Trailers(trailers) = e.0 else { unreachable!() };
+            trailers
+        })
+    }
+}
+
+impl<T> GrpcStreamResponse<T> {
+    pub fn repeat() -> (GrpcStreamSender<T>, Self) {
+        let (tx, rx) = channel(8);
+        (
+            GrpcStreamSender { tx },
+            Self::new(GrcpStreamBody {
+                headers: None,
+                trailers: None,
+                rx: MessageReciever::Repeat(rx),
+            }),
+        )
+    }
+
+    pub fn once(msg: T) -> Self {
+        Self::new(GrcpStreamBody {
+            headers: None,
+            trailers: None,
+            rx: MessageReciever::Once(msg),
+        })
+    }
+
+    /// Set initial metadata (response headers) sent before the first data frame.
+    ///
+    /// These are merged into the HTTP/2 response headers alongside `content-type: application/grpc`.
+    pub fn initial_metadata(mut self, headers: HeaderMap) -> Self {
+        self.value.headers = Some(headers);
+        self
+    }
+
+    /// Set trailing metadata merged into the final trailers frame.
+    ///
+    /// These are combined with `grpc-status` and any trailers pushed via [`GrpcStreamSender::send_trailers`].
+    /// Trailers set here take lower priority — values pushed through the sender will be appended on top.
+    pub fn trailing_metadata(mut self, trailers: HeaderMap) -> Self {
+        self.value.trailers = Some(trailers);
+        self
+    }
+}
+
+impl<T> Body for GrpcStreamResponse<T>
+where
+    T: Message + Unpin,
+{
+    type Data = Bytes;
+    type Error = BodyError;
+
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        match this._poll_frame(cx) {
+            Poll::Ready(Some(Err(e))) => {
+                this.value.set_end_stream();
+                let err = GrpcError::new(GrpcStatus::Internal, e.to_string());
+                Poll::Ready(Some(Ok(Frame::Trailers(err.trailers()))))
+            }
+            poll => poll,
+        }
+    }
+
+    #[inline]
+    fn is_end_stream(&self) -> bool {
+        self.value.is_end_stream()
+    }
+}
+
+impl<T> GrpcStreamResponse<T>
+where
+    T: Message,
+{
+    fn _poll_frame(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
+        let opt = match ready!(self.value.poll_recv(cx)) {
+            Some(Frame::Data(msg)) => {
+                let encoded_len = msg.encoded_len();
+                self.buf.reserve(5 + encoded_len);
+                self.buf.put_u8(0); // no compression flag (overwritten below if compressed)
+                self.buf.put_u32(0); // placeholder length
+
+                msg.encode(&mut self.buf)
+                    .map_err(|e| BodyError::from(Box::new(e) as Box<dyn core::error::Error + Send + Sync>))?;
+
+                self.encode_frame()?;
+
+                Some(Ok(Frame::Data(self.buf.split().freeze())))
+            }
+            Some(Frame::Trailers(trailers)) => Some(Ok(Frame::Trailers(trailers))),
+            None => None,
+        };
+
+        Poll::Ready(opt)
+    }
+}
+
+impl<'r, C, B, T> Responder<WebContext<'r, C, B>> for GrpcStreamResponse<T>
+where
+    T: Message + Unpin + 'static,
+{
+    type Response = WebResponse;
+    type Error = Error;
+
+    async fn respond(mut self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        self.buf.clear();
+
+        #[cfg(feature = "__compress")]
+        let encoding = {
+            let encoding = ContentEncoding::from_headers_with(ctx.req().headers(), &GRPC_ACCEPT_ENCODING);
+            self = self.set_encoding(encoding);
+            encoding
+        };
+
+        let headers = self.value.headers.take();
+        let mut res = ctx.into_response(ResponseBody::boxed(self));
+
+        res.headers_mut().insert(CONTENT_TYPE, GRPC);
+
+        if let Some(meta) = headers {
+            res.headers_mut().extend(meta);
+        }
+
+        #[cfg(feature = "__compress")]
+        if !matches!(encoding, ContentEncoding::Identity) {
+            res.headers_mut()
+                .insert(GRPC_ENCODING, HeaderValue::from_static(encoding.as_str()));
+        }
+
+        Ok(res)
+    }
+
+    fn map(self, _: Self::Response) -> Result<Self::Response, Self::Error>
+    where
+        Self: Sized,
+    {
+        panic!(
+            "GrpcStreamResponse must be the first item from a series of Responder type. It needs WebContext for content encoding"
+        )
+    }
+}
+
+/// Generic typed streaming for gRPC methods
+///
+/// Only reach for this type if neither [`GrpcStreamRequest`] and [`GrpcStreamResponse`] suit
+pub struct GrpcStream<T, S, const LIMIT: usize = DEFAULT_LIMIT> {
+    value: S,
+    #[cfg(feature = "__compress")]
+    encoding: ContentEncoding,
+    buf: BytesMut,
+    _msg: PhantomData<fn() -> T>,
+}
+
+impl<T, S, const LIMIT: usize> GrpcStream<T, S, LIMIT> {
+    pub fn new(value: S) -> Self {
+        Self {
+            value,
+            #[cfg(feature = "__compress")]
+            encoding: ContentEncoding::default(),
+            buf: BytesMut::new(),
+            _msg: PhantomData,
+        }
+    }
+
+    #[cfg(feature = "__compress")]
+    pub fn set_encoding(mut self, encoding: ContentEncoding) -> Self {
+        self.encoding = encoding;
+        self
+    }
+
+    /// Finalize the gRPC frame in `self.buf`. Optionally compresses the protobuf payload
+    /// and writes the compressed flag + length prefix.
+    #[cfg(feature = "__compress")]
+    fn encode_frame(&mut self) -> Result<(), BodyError> {
+        if !matches!(self.encoding, ContentEncoding::Identity) {
+            let payload = self.buf.split_off(5);
+            let coder = self.encoding.encode_body(crate::body::Full::new(payload));
+
+            // clear buf and write compressed frame header
+            self.buf.clear();
+            self.buf.put_u8(1); // compressed flag
+            self.buf.put_u32(0); // placeholder length
+
+            // drive the coder synchronously — Full yields once and never returns Pending
+            let mut coder = core::pin::pin!(coder);
+            let waker = core::task::Waker::noop();
+            let mut cx = core::task::Context::from_waker(waker);
+            loop {
+                match Body::poll_frame(coder.as_mut(), &mut cx) {
+                    Poll::Ready(Some(Ok(Frame::Data(data)))) => self.buf.extend_from_slice(data.as_ref()),
+                    Poll::Ready(Some(Err(err))) => return Err(err),
+                    Poll::Ready(None) => break,
+                    Poll::Pending | Poll::Ready(Some(Ok(Frame::Trailers(_)))) => {
+                        unreachable!("Full body never returns Pending")
+                    }
+                }
+            }
+        }
+
+        // write the actual payload length (after the 1-byte flag)
+        let len = (self.buf.len() - 5) as u32;
+        self.buf[1..5].copy_from_slice(&len.to_be_bytes());
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "__compress"))]
+    fn encode_frame(&mut self) -> Result<(), BodyError> {
+        let len = (self.buf.len() - 5) as u32;
+        self.buf[1..5].copy_from_slice(&len.to_be_bytes());
+        Ok(())
     }
 }

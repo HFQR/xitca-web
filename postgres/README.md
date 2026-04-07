@@ -19,6 +19,11 @@
 - Connection Pool:
     - built in connection pool with pipelining support enabled
 
+- io_uring:
+
+    - TCP network through `tokio-uring-xitca` for completion based async IO
+    - require nightly rust compiler
+
 ## Quick Start
 ```rust
 use std::future::IntoFuture;
@@ -120,8 +125,7 @@ fn query(client: &Client) -> Result<(), Error> {
 ```
 
 ## Zero Copy Row Parse
-Row data in `xitca-postgres` is stored as atomic reference counted byte buffer. enabling cheap slicing and smart 
-pointer based zero copy parsing
+Row data in `xitca-postgres` is stored as atomic reference counted byte buffer. enabling cheap slicing and smart pointer based zero copy parsing
 ```rust
 use std::ops::Range;
 use xitca_io::bytes::{Bytes, BytesStr};
@@ -129,11 +133,10 @@ use xitca_postgres::{row::Row, types::Type, FromSqlExt};
 
 fn parse(row: Row<'_>) {
     // parse column foo to Bytes. it's a reference counted byte slice. 
-    // can be roughly seen as Arc<[u8]>. it references Row's internal buffer
-    // which is also a reference counted byte slice.
+    // can be roughly seen as Arc<[u8]>.
     let bytes: Bytes = row.get_zc("foo");    
 
-    // parse column bar to BytesStr. it's also a reference counted slice but for String.
+    // parse column bar to BytesStr. it's a reference counted slice but for String.
     // can be roughly seen as Arc<str>.
     let str: BytesStr = row.get_zc("bar");
 

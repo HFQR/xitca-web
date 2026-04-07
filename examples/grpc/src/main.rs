@@ -2,10 +2,8 @@
 
 use xitca_web::{
     App,
-    handler::{
-        grpc::{Grpc, GrpcError, GrpcStatus},
-        handler_service,
-    },
+    error::{GrpcError, GrpcStatus},
+    handler::{grpc::Grpc, handler_service},
 };
 
 mod hello_world {

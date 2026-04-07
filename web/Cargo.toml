@@ -50,7 +50,7 @@ cookie = ["dep:cookie"]
 multipart = ["http-multipart"]
 
 # grpc type extractor/responder
-grpc = ["prost", "tokio/time"]
+grpc = ["prost", "percent-encoding", "tokio/time"]
 
 # websocket type extractor/responder
 websocket = ["http-ws/stream", "tokio/time"]
@@ -106,7 +106,7 @@ xitca-server = { workspace = true, optional = true }
 xitca-tls = { workspace = true, optional = true }
 
 # (de)serialization shared.
-serde_core = { version = "1", optional = true }
+serde_core = { workspace = true, optional = true }
 
 # json
 serde_json = { version = "1", optional = true }
@@ -122,6 +122,7 @@ cookie = { version = "0.18", features = ["percent-encode", "secure"], optional =
 
 # grpc
 prost = { version = "0.14", optional = true }
+percent-encoding = { version = "2", optional = true }
 
 # multipart
 http-multipart = { version = "0.1.2", optional = true }
@@ -152,11 +153,11 @@ xitca-io = { workspace = true, optional = true }
 
 [dev-dependencies]
 xitca-codegen = { version = "0.4" }
-xitca-web = { version = "0.8", features = ["json"] }
+xitca-web = { workspace = true, features = ["json"] }
 
 futures-util = { version = "0.3", features = ["alloc"] }
-serde = { version = "1.0.137", features = ["derive"] }
-tokio = { version = "1", features = ["macros"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros"] }
 tower-http = { version = "0.6", features = ["fs", "set-status"] }
 tracing = "0.1"
 

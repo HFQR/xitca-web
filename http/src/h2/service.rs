@@ -46,9 +46,17 @@ where
         // update timer to first request timeout.
         self.update_first_request_deadline(timer.as_mut());
 
-        dispatcher::run(io, addr, timer, &self.service, self.date.get(), &self.config)
-            .await
-            .unwrap();
+        dispatcher::run(
+            io,
+            addr,
+            crate::bytes::BytesMut::new(),
+            timer,
+            &self.service,
+            self.date.get(),
+            &self.config,
+        )
+        .await
+        .unwrap();
 
         Ok(())
     }

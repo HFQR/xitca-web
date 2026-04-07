@@ -33,8 +33,9 @@ use crate::{
     date::{DateTime, DateTimeHandle},
     error::BodyError,
     http::{
-        Extension, HeaderMap, Request, RequestExt, Response, Version,
+        Extension, HeaderMap, Request, RequestExt, Response, Uri, Version,
         header::{CONTENT_LENGTH, DATE},
+        uri,
     },
     util::{
         futures::Queue,
@@ -96,7 +97,8 @@ impl BodySize for SizeHint {
             headers
                 .get(CONTENT_LENGTH)
                 .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.trim().parse::<u64>().ok())
+                // TODO: should the length parse return with error?
+                .and_then(|s| headers::parse_u64(s.as_bytes()).ok())
                 .map_or(Self::Unknown, Self::Exact)
         }
     }
@@ -150,6 +152,10 @@ impl StreamState {
     /// until `RECV_CLOSED` is also set so WINDOW_UPDATE overflow can still
     /// be detected (RFC §6.9.1).
     const SEND_CLOSED: u8 = 1 << 2;
+
+    #[allow(dead_code)]
+    // TODO: strip response body for HEAD method request.
+    const HEAD_METHOD: u8 = 1 << 3;
 
     fn recv_canceled(&self) -> bool {
         self.flag & Self::RECV_CANCELED == Self::RECV_CANCELED
@@ -1004,6 +1010,35 @@ impl<'a, S> DecodeContext<'a, S> {
         *req.headers_mut() = headers;
         *req.method_mut() = method;
 
+        // TODO: make this fallible
+        {
+            let mut uri_parts = uri::Parts::default();
+
+            if let Some(authority) = pseudo.authority {
+                if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
+                    uri_parts.authority = Some(a);
+                }
+            }
+
+            if let Some(scheme) = pseudo.scheme {
+                if uri_parts.authority.is_some() {
+                    if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
+                        uri_parts.scheme = Some(s);
+                    }
+                }
+            }
+
+            if let Some(path) = pseudo.path {
+                if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
+                    uri_parts.path_and_query = Some(pq);
+                }
+            }
+
+            if let Ok(uri) = Uri::from_parts(uri_parts) {
+                *req.uri_mut() = uri;
+            }
+        }
+
         let body = RequestBody::new(id, content_length, Rc::clone(self.ctx));
 
         let flag = if is_end_stream {
@@ -1349,6 +1384,40 @@ const CLIENT_RESET_QUEUE_CAP: usize = 64;
 /// the write side cannot keep up.
 const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64 KiB
 
+/// Peek into the given buffer (and read more if needed) to determine whether
+/// the connection speaks HTTP/2.  Returns `(version, buf)` where `buf` contains
+/// all bytes read so far (unconsumed) so the caller can forward them to the
+/// chosen dispatcher.
+pub(crate) async fn peek_version(
+    io: &(impl AsyncBufRead + AsyncBufWrite),
+    mut buf: BytesMut,
+) -> io::Result<(crate::http::Version, BytesMut)> {
+    use crate::http::Version;
+
+    // We only need to see the first few bytes to distinguish h2 from h1.
+    // The h2 client preface starts with "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" (24 bytes).
+    // Reading up to PREFACE.len() is enough for an unambiguous decision.
+    while buf.len() < PREFACE.len() {
+        let len = buf.len();
+        buf.reserve(PREFACE.len() - len);
+        let (res, b) = io.read(buf.slice(len..)).await;
+        buf = b.into_inner();
+        match res {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    let version = if buf.starts_with(PREFACE) {
+        Version::HTTP_2
+    } else {
+        Version::HTTP_11
+    };
+
+    Ok((version, buf))
+}
+
 pub(crate) async fn run<
     Io,
     S,
@@ -1361,6 +1430,7 @@ pub(crate) async fn run<
 >(
     io: Io,
     addr: SocketAddr,
+    read_buf: BytesMut,
     mut ka: Pin<&mut KeepAlive>,
     service: &S,
     date: &DateTimeHandle,
@@ -1382,7 +1452,7 @@ where
     settings.set_max_header_list_size(Some(config.h2_max_header_list_size));
     settings.set_enable_connect_protocol(Some(1));
 
-    let (buf, mut write_buf) = handshake(&io, &settings, ka.as_mut()).await?;
+    let (buf, mut write_buf) = handshake(&io, read_buf, &settings, ka.as_mut()).await?;
     let mut read_buf = ReadBuf { buf, cap: READ_BUF_CAP };
 
     let recv_initial_window_size = settings
@@ -1549,16 +1619,14 @@ type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 #[inline(never)]
 fn handshake<'a>(
     io: &'a (impl AsyncBufRead + AsyncBufWrite),
+    buf: BytesMut,
     settings: &'a settings::Settings,
     timer: Pin<&'a mut KeepAlive>,
 ) -> BoxedFuture<'a, io::Result<(BytesMut, BytesMut)>> {
     Box::pin(async {
         async {
             // No cap during preface: the buffer is tiny and always fully drained.
-            let mut rbuf = ReadBuf {
-                buf: BytesMut::new(),
-                cap: usize::MAX,
-            };
+            let mut rbuf = ReadBuf { buf, cap: usize::MAX };
             while rbuf.buf.len() < PREFACE.len() {
                 let (res, b) = read_io(rbuf, io).await;
                 rbuf = b;

@@ -65,13 +65,28 @@ impl Body for ResponseBody {
     type Data = Bytes;
     type Error = BodyError;
 
-    #[inline]
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
-        self.get_mut()
-            .rx
-            .poll_data(cx)
-            .map_ok(Frame::Data)
-            .map_err(|e| e.into())
+        let this = self.get_mut();
+
+        // Try to read data frames first.
+        match this.rx.poll_data(cx) {
+            Poll::Ready(Some(Ok(data))) => {
+                // TODO: less aggressive window update
+                this.rx.flow_control().release_capacity(data.len())?;
+                return Poll::Ready(Some(Ok(Frame::Data(data))));
+            }
+            Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e.into()))),
+            Poll::Ready(None) => {}
+            Poll::Pending => return Poll::Pending,
+        }
+
+        // Data stream is exhausted — try to read trailers.
+        match this.rx.poll_trailers(cx) {
+            Poll::Ready(Ok(Some(trailers))) => Poll::Ready(Some(Ok(Frame::Trailers(trailers)))),
+            Poll::Ready(Ok(None)) => Poll::Ready(None),
+            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e.into()))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 
     fn is_end_stream(&self) -> bool {

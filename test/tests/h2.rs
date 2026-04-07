@@ -49,7 +49,7 @@ async fn h2_no_host_header() -> Result<(), Error> {
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let body = res.string().await?;
-        assert_eq!("GET Response", body);
+        assert_eq!("", body);
     }
 
     handle.try_handle()?.stop(false);

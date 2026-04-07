@@ -53,6 +53,7 @@ where
     pub async fn run(
         io: Io,
         addr: SocketAddr,
+        read_buf: BytesMut,
         timer: Pin<&'a mut KeepAlive>,
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
@@ -66,15 +67,16 @@ where
             _phantom: PhantomData,
         };
 
-        let mut read_buf = BytesMut::new();
+        let mut read_buf = read_buf;
         let mut write_buf = BytesMut::new();
 
-        loop {
+        let res = loop {
             let (res, r_buf, w_buf) = dispatcher._run(read_buf, write_buf).await;
             read_buf = r_buf;
             write_buf = w_buf;
+
             if let Err(err) = res {
-                handle_error(&mut dispatcher.ctx, &mut write_buf, err)?;
+                break Err(err);
             }
 
             let (res, w_buf) = write_buf.write(dispatcher.io.io()).await;
@@ -83,9 +85,28 @@ where
             res?;
 
             if dispatcher.ctx.is_connection_closed() {
-                return dispatcher.shutdown().await;
+                break Ok(());
             }
+
+            dispatcher.timer.update(dispatcher.ctx.date().now());
+
+            match read_buf.read(dispatcher.io.io()).timeout(dispatcher.timer.get()).await {
+                Ok((res, r_buf)) => {
+                    read_buf = r_buf;
+
+                    if res? == 0 {
+                        break Ok(());
+                    }
+                }
+                Err(_) => break Err(dispatcher.timer.map_to_err()),
+            }
+        };
+
+        if let Err(err) = res {
+            handle_error(&mut dispatcher.ctx, &mut write_buf, err)?;
         }
+
+        dispatcher.shutdown(write_buf).await
     }
 
     async fn _run(
@@ -93,25 +114,6 @@ where
         mut read_buf: BytesMut,
         mut write_buf: BytesMut,
     ) -> (Result<(), Error<S::Error, BE>>, BytesMut, BytesMut) {
-        self.timer.update(self.ctx.date().now());
-
-        match read_buf.read(self.io.io()).timeout(self.timer.get()).await {
-            Ok((res, r_buf)) => {
-                read_buf = r_buf;
-                match res {
-                    Ok(read) => {
-                        if read == 0 {
-                            self.ctx.set_close();
-                            return (Ok(()), read_buf, write_buf);
-                        }
-                    }
-                    Err(e) => return (Err(e.into()), read_buf, write_buf),
-                }
-            }
-            // read_buf is lost during timeout cancel. make an empty new one instead
-            Err(_) => return (Err(self.timer.map_to_err()), BytesMut::new(), write_buf),
-        }
-
         loop {
             let (req, decoder) = match self.ctx.decode_head::<R_LIMIT>(&mut read_buf) {
                 Ok(Some(req)) => req,
@@ -202,8 +204,11 @@ where
 
     #[cold]
     #[inline(never)]
-    async fn shutdown(self) -> Result<(), Error<S::Error, BE>> {
-        self.io.into_io().shutdown(Shutdown::Both).await.map_err(Into::into)
+    async fn shutdown(self, write_buf: BytesMut) -> Result<(), Error<S::Error, BE>> {
+        let io = self.io.into_io();
+        let (res, _) = write_buf.write(&io).await;
+        res?;
+        io.shutdown(Shutdown::Both).await.map_err(Into::into)
     }
 }
 
