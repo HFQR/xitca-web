@@ -1,9 +1,15 @@
 # unreleased 0.4.0
 ## Add
 - add `client_request_extend` function for extending websocket headers/methods to an existing `Request` type.
+- add `ResponseSender::{continuation, ping}` methods
 
 ## Change
 - `client_request_from_uri` becomes infallible by receive `Uri` type without try conversion.
+- `ProtocolError` covers more error condition and it's part in control flow has been updated
+- `ResponseSender::text` method receives a type that can be converted to `Bytes` type. Enable possible zero copy String text message. Unless you already have a valid string type it would be more efficient to pass a u8 buffer to this API. utf-8 validation would be checked in method 
+
+## Remove
+- remove `ResponseSender::send` method to reduce possible misuse
 
 # 0.3.0
 ## Add

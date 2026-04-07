@@ -19,6 +19,7 @@ members = [
     "http-file",
     "http-multipart",
     "http-rate",
+    "http-grpc",
     "http-ws",
     "tokio-uring"
 ]
@@ -40,6 +41,7 @@ xitca-tls = { path = "./tls" }
 xitca-unsafe-collection = { path = "./unsafe_collection" }
 xitca-web = { path = "./web" }
 http-body-alt = { path = "./http-body" }
+http-grpc = { path = "./http-grpc" }
 http-encoding = { path = "./http-encoding" }
 http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }
@@ -66,11 +68,14 @@ new_without_default = "allow"
 bytes = "1.11.1"
 futures-core = { version = "0.3.32", default-features = false }
 http = "1.4.0"
+httparse = "1.10.1"
 http-body-alt = "0.1.0"
+http-grpc = "0.1.0"
 http-encoding = "0.3.0"
 pin-project-lite = "0.2.17"
 serde_core = "1"
 serde = "1"
+socket2 = "0.6.3"
 tokio = "1.51.0"
 tokio-uring-xitca = "0.2.0"
 

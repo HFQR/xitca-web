@@ -24,6 +24,22 @@ pin_project! {
     /// Decode `S` type into Stream of websocket [Message].
     /// `S` type must impl `Stream` trait and output `Result<T, E>` as `Stream::Item`
     /// where `T` type impl `AsRef<[u8]>` trait. (`&[u8]` is needed for parsing messages)
+    ///
+    /// # Stream termination
+    ///
+    /// This stream never returns `None`. Callers should expect one of the following outcomes:
+    ///
+    /// - `Ok(Message::Close(_))`: The remote peer initiated a clean close. The caller should
+    ///   send a close frame back via [ResponseSender] and then stop polling.
+    /// - `Err(WsError::Protocol(ProtocolError::RecvClosed))`: The stream was polled after a
+    ///   close frame had already been received. The caller should have stopped polling after
+    ///   observing `Message::Close`.
+    /// - `Err(WsError::Protocol(ProtocolError::UnexpectedEof))`: The underlying transport
+    ///   ended without a close frame. This is an abnormal closure and the associated
+    ///   connection should not be reused.
+    /// - `Err(WsError::Protocol(_))`: A protocol violation occurred (e.g. bad opcode,
+    ///   continuation error). The connection should be dropped.
+    /// - `Err(WsError::Stream(_))`: The underlying stream produced an error.
     pub struct RequestStream<S> {
         #[pin]
         stream: S,
@@ -112,15 +128,15 @@ where
         let mut this = self.project();
 
         loop {
-            if let Some(msg) = this.codec.decode(this.buf)? {
-                return Poll::Ready(Some(Ok(msg)));
-            }
-            match ready!(this.stream.as_mut().poll_next(cx)) {
-                Some(res) => {
-                    let item = res.map_err(WsError::Stream)?;
-                    this.buf.extend_from_slice(item.as_ref())
-                }
-                None => return Poll::Ready(None),
+            match this.codec.decode(this.buf)? {
+                Some(msg) => return Poll::Ready(Some(Ok(msg))),
+                None => match ready!(this.stream.as_mut().poll_next(cx)) {
+                    Some(res) => {
+                        let item = res.map_err(WsError::Stream)?;
+                        this.buf.extend_from_slice(item.as_ref())
+                    }
+                    None => return Poll::Ready(Some(Err(WsError::Protocol(ProtocolError::UnexpectedEof)))),
+                },
             }
         }
     }
@@ -147,12 +163,10 @@ pub struct ResponseSender {
 
 impl ResponseSender {
     fn new(tx: Sender<Item>, codec: Codec) -> Self {
+        let buf = BytesMut::with_capacity(codec.max_size());
         Self {
             inner: Arc::new(_ResponseSender {
-                encoder: Mutex::new(Encoder {
-                    codec,
-                    buf: BytesMut::with_capacity(codec.max_size()),
-                }),
+                encoder: Mutex::new(Encoder { codec, buf }),
                 tx,
             }),
         }
@@ -165,65 +179,10 @@ impl ResponseSender {
         }
     }
 
-    /// encode [Message] and add to [ResponseStream].
-    #[inline]
-    pub fn send(&self, msg: Message) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
-        self.inner.send(msg)
-    }
-
     /// add [io::Error] to [ResponseStream].
     ///
     /// the error should be used as a signal to the TCP connection associated with `ResponseStream`
     /// to close immediately.
-    ///
-    /// # Examples
-    /// ```rust
-    /// use std::{future::poll_fn, pin::Pin, time::Duration};
-    ///
-    /// use futures_core::Stream;
-    /// use http_ws::{CloseCode, Message, RequestStream, ResponseSender, ResponseStream};
-    /// use tokio::{io::AsyncWriteExt, time::timeout, net::TcpStream};
-    ///
-    /// // thread1:
-    /// // read and write websocket message.
-    /// async fn sender<S, T, E>(tx: ResponseSender, mut rx: Pin<&mut RequestStream<S>>)
-    /// where
-    ///     S: Stream<Item = Result<T, E>>,
-    ///     T: AsRef<[u8]>,
-    /// {
-    ///     // send close message to client
-    ///     tx.send(Message::Close(Some(CloseCode::Away.into()))).await.unwrap();
-    ///
-    ///     // the client failed to respond to close message in 5 seconds time window.
-    ///     if let Err(_) = timeout(Duration::from_secs(5), poll_fn(|cx| rx.as_mut().poll_next(cx))).await {
-    ///         // send io error to thread2
-    ///         tx.send_error(std::io::ErrorKind::UnexpectedEof.into()).await.unwrap();
-    ///     }
-    /// }
-    ///
-    /// // thread2:
-    /// // receive websocket message from thread1 and transfer it on tcp connection.
-    /// async fn io_write(conn: &mut TcpStream, mut rx: Pin<&mut ResponseStream>) {
-    ///     // the first message is the "go away" close message in Ok branch.
-    ///     let msg = poll_fn(|cx| rx.as_mut().poll_next(cx)).await.unwrap().unwrap();
-    ///
-    ///     // send msg to client
-    ///     conn.write_all(&msg).await.unwrap();
-    ///
-    ///     // the second message is the io::Error in Err branch.
-    ///     let err = poll_fn(|cx| rx.as_mut().poll_next(cx)).await.unwrap().unwrap_err();
-    ///
-    ///     // at this point we should close the tcp connection by either graceful close or
-    ///     // just return immediately and drop the TcpStream.
-    ///     let _ = conn.shutdown().await;
-    /// }
-    ///
-    /// // thread3:
-    /// // receive message from tcp connection and send it to thread1:
-    /// async fn io_read(conn: &mut TcpStream) {
-    ///     // this part is ignored as it has no relation to the send_error api.
-    /// }
-    /// ```
     #[inline]
     pub fn send_error(&self, err: io::Error) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.inner.send_error(err)
@@ -231,8 +190,10 @@ impl ResponseSender {
 
     /// encode [Message::Text] variant and add to [ResponseStream].
     #[inline]
-    pub fn text(&self, txt: impl Into<String>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
-        self.send(Message::Text(Bytes::from(txt.into())))
+    pub async fn text(&self, txt: impl Into<Bytes>) -> Result<(), ProtocolError> {
+        let bytes = txt.into();
+        core::str::from_utf8(&bytes).map_err(|_| ProtocolError::BadOpCode)?;
+        self.send(Message::Text(bytes)).await
     }
 
     /// encode [Message::Binary] variant and add to [ResponseStream].
@@ -241,10 +202,27 @@ impl ResponseSender {
         self.send(Message::Binary(bin.into()))
     }
 
+    /// encode [Message::Continuation] variant and add to [ResponseStream].
+    #[inline]
+    pub fn continuation(&self, item: super::codec::Item) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.send(Message::Continuation(item))
+    }
+
+    /// encode [Message::Ping] variant and add to [ResponseStream].
+    #[inline]
+    pub fn ping(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.send(Message::Ping(bin.into()))
+    }
+
     /// encode [Message::Close] variant and add to [ResponseStream].
     /// take ownership of Self as after close message no more message can be sent to client.
     pub async fn close(self, reason: Option<impl Into<CloseReason>>) -> Result<(), ProtocolError> {
         self.send(Message::Close(reason.map(Into::into))).await
+    }
+
+    #[inline]
+    fn send(&self, msg: Message) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.inner.send(msg)
     }
 }
 
@@ -256,9 +234,12 @@ pub struct ResponseWeakSender {
 
 impl ResponseWeakSender {
     /// upgrade self to strong response sender.
-    /// return None when [ResponseSender] is already dropped.
+    /// return None when [ResponseSender] is already dropped or session is already closed
     pub fn upgrade(&self) -> Option<ResponseSender> {
-        self.inner.upgrade().map(|inner| ResponseSender { inner })
+        self.inner.upgrade().and_then(|inner| {
+            let closed = inner.encoder.lock().unwrap().codec.send_closed();
+            (!closed).then(|| ResponseSender { inner })
+        })
     }
 }
 
@@ -278,7 +259,7 @@ impl _ResponseSender {
     // send message to response stream. it would produce Ok(bytes) when succeed where
     // the bytes is encoded binary websocket message ready to be sent to client.
     async fn send(&self, msg: Message) -> Result<(), ProtocolError> {
-        let permit = self.tx.reserve().await.map_err(|_| ProtocolError::Closed)?;
+        let permit = self.tx.reserve().await.map_err(|_| ProtocolError::SendClosed)?;
         let buf = {
             let mut encoder = self.encoder.lock().unwrap();
             let Encoder { codec, buf } = &mut *encoder;
@@ -294,6 +275,6 @@ impl _ResponseSender {
     // the consumer observing the error should close the stream and the tcp connection
     // the stream belongs to.
     async fn send_error(&self, err: io::Error) -> Result<(), ProtocolError> {
-        self.tx.send(Err(err)).await.map_err(|_| ProtocolError::Closed)
+        self.tx.send(Err(err)).await.map_err(|_| ProtocolError::SendClosed)
     }
 }

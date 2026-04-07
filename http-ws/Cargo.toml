@@ -19,7 +19,7 @@ stream = ["pin-project-lite", "tokio/sync"]
 [dependencies]
 base64 = { version = "0.22.0", default-features = false }
 bytes = { workspace = true }
-futures-core = { version = "0.3.25", default-features = false }
+futures-core = { workspace = true, default-features = false }
 http = { workspace = true }
 rand = { version = "0.10.0" }
 sha1 = "0.11.0"

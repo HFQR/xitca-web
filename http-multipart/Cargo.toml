@@ -11,9 +11,9 @@ readme= "README.md"
 
 [dependencies]
 bytes = { workspace = true }
-futures-core = "0.3.21"
+futures-core = { workspace = true }
 http = { workspace = true }
-httparse = "1.8"
+httparse = { workspace = true }
 memchr = "2.5.0"
 pin-project-lite = { workspace = true }
 

@@ -5,6 +5,61 @@ use std::error;
 use super::proto::OpCode;
 
 /// WebSocket protocol errors.
+///
+/// # Close handshake errors
+///
+/// [`SendClosed`](Self::SendClosed), [`RecvClosed`](Self::RecvClosed), and
+/// [`UnexpectedEof`](Self::UnexpectedEof) are related to the WebSocket close handshake.
+/// Their meaning depends on the context in which they are observed:
+///
+/// ## `SendClosed`
+///
+/// Returned by [`ResponseSender::send`] when a Close frame has already been sent on this
+/// session. This can happen in two scenarios:
+///
+/// - **You called `close()` and then tried to send more messages.** After sending a Close
+///   frame, no further messages are permitted per RFC 6455.
+/// - **A concurrent sender (via [`ResponseWeakSender::upgrade`]) already initiated the
+///   close.** The caller observing this error should return gracefully — the shutdown is
+///   already in progress.
+///
+/// ## `RecvClosed`
+///
+/// Returned by [`RequestStream`] (as `WsError::Protocol(ProtocolError::RecvClosed)`) when
+/// the stream is polled after a Close frame has already been received and yielded. The
+/// caller should have stopped polling after observing `Message::Close`. Receiving this
+/// error means:
+///
+/// - The remote peer sent a Close frame, which was already yielded as
+///   `Ok(Message::Close(_))`.
+/// - The caller should respond with a Close frame via [`ResponseSender`] (if not already
+///   sent) and then drop both the stream and sender.
+///
+/// ## `UnexpectedEof`
+///
+/// Returned by [`RequestStream`] when the underlying transport closed without a Close
+/// frame. This is an abnormal closure — the remote peer disconnected without following the
+/// WebSocket protocol. The associated connection should not be reused.
+///
+/// # Typical close flows
+///
+/// **Remote-initiated close:**
+/// 1. [`RequestStream`] yields `Ok(Message::Close(reason))`.
+/// 2. Caller sends a Close frame back via [`ResponseSender::close`].
+/// 3. Caller drops both the stream and sender.
+///
+/// **Local-initiated close:**
+/// 1. Caller calls [`ResponseSender::close`].
+/// 2. Caller continues polling [`RequestStream`] for the peer's Close echo.
+/// 3. [`RequestStream`] yields `Ok(Message::Close(_))` — handshake complete.
+/// 4. Caller drops the stream. Any concurrent senders attempting to send will observe
+///    `SendClosed`.
+///
+/// **Timeout on close echo:**
+/// 1. Caller calls [`ResponseSender::close`].
+/// 2. Caller polls [`RequestStream`] with a timeout.
+/// 3. Timeout expires — caller sends an error via [`ResponseSender::send_error`] to signal
+///    the I/O layer to shut down the connection.
 #[derive(Debug)]
 pub enum ProtocolError {
     UnmaskedFrame,
@@ -16,7 +71,12 @@ pub enum ProtocolError {
     ContinuationNotStarted,
     ContinuationStarted,
     ContinuationFragment(OpCode),
-    Closed,
+    /// A Close frame has already been sent. No further messages can be sent.
+    SendClosed,
+    /// A Close frame has already been received. The caller should stop polling the stream.
+    RecvClosed,
+    /// The underlying transport closed without a Close frame. This is an abnormal closure.
+    UnexpectedEof,
 }
 
 impl fmt::Display for ProtocolError {
@@ -31,7 +91,9 @@ impl fmt::Display for ProtocolError {
             Self::ContinuationNotStarted => f.write_str("Continuation is not started."),
             Self::ContinuationStarted => f.write_str("Received new continuation but it is already started."),
             Self::ContinuationFragment(ref code) => write!(f, "Unknown continuation fragment with OpCode: {code}."),
-            Self::Closed => f.write_str("Connection already closed."),
+            Self::SendClosed => f.write_str("Close message has already been sent."),
+            Self::RecvClosed => f.write_str("Close message has alredy been received"),
+            Self::UnexpectedEof => f.write_str("Connection is closed prematurely without Close message"),
         }
     }
 }

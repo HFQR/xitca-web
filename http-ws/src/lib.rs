@@ -266,8 +266,9 @@ pub type WsOutput<B> = (RequestStream<B>, Response<ResponseStream>, ResponseSend
 /// // req_stream must be polled with Stream interface to receive websocket message
 /// use futures_util::stream::StreamExt;
 /// if let Some(Ok(msg)) = req_stream.next().await {
-///     // res_stream can be used to send websocket message to client.
-///     res_stream.send(msg).await.unwrap();
+///     if let Message::Text(text) = msg {
+///         res_stream.text(text).await.unwrap();
+///     }
 /// }
 ///
 /// # }

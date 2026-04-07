@@ -306,7 +306,8 @@ where
     fn is_end_stream(&self) -> bool {
         match self.inner {
             ResponseBodyInner::None => true,
-            ResponseBodyInner::Bytes { ref bytes } => bytes.is_empty(),
+            // see poll_frame method for reason. bytes variant always yield once on poll
+            ResponseBodyInner::Bytes { .. } => false,
             ResponseBodyInner::Body { ref stream } => stream.is_end_stream(),
         }
     }

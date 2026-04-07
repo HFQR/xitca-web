@@ -1,9 +1,12 @@
+use std::io;
+
 use crate::error::HttpServiceError;
 
 #[derive(Debug)]
 pub enum Error<S, B> {
     Service(S),
     Body(B),
+    Io(io::Error),
 }
 
 impl<S, B> From<Error<S, B>> for HttpServiceError<S, B> {

@@ -114,7 +114,7 @@ where
                         .await
                         // TODO: more precise error handling
                         .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
-                        .map_err(|e| HttpServiceError::H1(super::h1::Error::Io(e)))?;
+                        .map_err(super::h2::Error::Io)?;
                     version = ver;
                     read_buf = buf;
                 };
