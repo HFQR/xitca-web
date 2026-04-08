@@ -8,7 +8,7 @@ use self::table::{DECODE_TABLE, ENCODE_TABLE};
 
 // Constructed in the generated `table.rs` file
 struct Decoder {
-    state: usize,
+    state: u8,
     maybe_eos: bool,
 }
 
@@ -77,7 +77,7 @@ impl Decoder {
     // Decodes 4 bits
     fn decode4(&mut self, input: u8) -> Result<Option<u8>, DecoderError> {
         // (next-state, byte, flags)
-        let (next, byte, flags) = DECODE_TABLE[self.state][input as usize];
+        let (next, byte, flags) = DECODE_TABLE[self.state as usize][input as usize];
 
         if flags & ERROR == ERROR {
             // Data followed the EOS marker
