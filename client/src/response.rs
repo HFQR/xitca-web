@@ -7,10 +7,14 @@ use core::{
 };
 use tokio::time::{Instant, Sleep};
 use tracing::debug;
-use xitca_http::{bytes::BytesMut, http};
+use xitca_http::{
+    body::SizeHint,
+    bytes::BytesMut,
+    http::{self, HeaderMap},
+};
 
 use crate::{
-    body::{Frame, ResponseBody},
+    body::{Body, Frame, ResponseBody},
     error::{Error, TimeoutError},
     timeout::Timeout,
 };
@@ -116,24 +120,19 @@ impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
         Ok(serde_json::from_slice(bytes.chunk())?)
     }
 
-    async fn collect<B>(self) -> Result<B, Error>
+    pub(crate) async fn collect<B>(self) -> Result<B, Error>
     where
         B: Collectable,
     {
-        use xitca_http::body::Body;
-
-        let (res, body) = self.res.into_parts();
+        let body = self.res.into_body();
         let mut timer = self.timer;
 
         let mut body = pin!(body);
 
-        let limit = res
-            .headers
-            .get(http::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok().and_then(|str| str.parse::<usize>().ok()))
-            .unwrap_or(PAYLOAD_LIMIT);
-
-        let limit = std::cmp::min(limit, PAYLOAD_LIMIT);
+        let limit = match body.size_hint() {
+            SizeHint::Exact(len) => core::cmp::min(len as usize, PAYLOAD_LIMIT),
+            _ => PAYLOAD_LIMIT,
+        };
 
         // TODO: use a meaningful capacity.
         let mut b = B::with_capacity(1024);
@@ -152,16 +151,20 @@ impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
                         }
                     };
 
-                    let Frame::Data(buf) = frame else {
-                        continue;
-                    };
+                    match frame {
+                        Frame::Data(data) => {
+                            b.try_extend_from_slice(&data)?;
 
-                    b.try_extend_from_slice(&buf)?;
-
-                    if buf.len() > limit {
-                        debug!("PAYLOAD_LIMIT reached and only part of the response body is collected.");
-                        body.destroy_on_drop();
-                        break;
+                            if data.len() > limit {
+                                debug!("PAYLOAD_LIMIT reached and only part of the response body is collected.");
+                                body.destroy_on_drop();
+                                break;
+                            }
+                        }
+                        Frame::Trailers(trailers) => {
+                            b.set_trailers(trailers);
+                            break;
+                        }
                     }
                 }
                 Ok(None) => break,
@@ -187,10 +190,34 @@ impl<const PAYLOAD_LIMIT: usize> Response<PAYLOAD_LIMIT> {
     }
 }
 
-trait Collectable {
+pub(crate) trait Collectable {
     fn with_capacity(cap: usize) -> Self;
 
     fn try_extend_from_slice(&mut self, slice: &[u8]) -> Result<(), Error>;
+
+    fn set_trailers(&mut self, trailers: HeaderMap) {
+        drop(trailers);
+    }
+}
+
+impl<T> Collectable for (T, Option<HeaderMap>)
+where
+    T: Collectable,
+{
+    #[inline]
+    fn with_capacity(cap: usize) -> Self {
+        (T::with_capacity(cap), None)
+    }
+
+    #[inline]
+    fn try_extend_from_slice(&mut self, slice: &[u8]) -> Result<(), Error> {
+        self.0.try_extend_from_slice(slice)
+    }
+
+    #[inline]
+    fn set_trailers(&mut self, trailers: HeaderMap) {
+        self.1 = Some(trailers);
+    }
 }
 
 impl Collectable for BytesMut {

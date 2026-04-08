@@ -36,7 +36,7 @@ impl HttpTunnelRequest<'_> {
         if res.status() != expect_status {
             return Err(Error::from(ErrorResponse {
                 expect_status,
-                res,
+                res: res.res.map(|_| ()),
                 description: "connect tunnel can't be established",
             }));
         }

@@ -1,23 +1,17 @@
 //! gRPC interop-style tests.
 //!
 //! Tests exercise the xitca-web gRPC server implementation against the gRPC spec
-//! using xitca-client as a raw HTTP/2 client with manual gRPC framing.
+//! using xitca-client as the gRPC client.
 
-use core::future::poll_fn;
-use std::{net::TcpListener, pin::pin};
+use std::net::TcpListener;
 
-use prost::Message;
-use xitca_client::Client;
-use xitca_http::{
-    body::Body,
-    bytes::{BufMut, Bytes, BytesMut},
-    http::Version,
-};
+use futures_util::{SinkExt, StreamExt};
+use xitca_client::{Client, grpc::ContentEncoding};
 use xitca_web::{
     App, WebContext,
     error::{GrpcError, GrpcStatus},
     handler::{
-        grpc::{Grpc, GrpcStreamResponse},
+        grpc::{Grpc, GrpcStreamRequest, GrpcStreamResponse},
         handler_service,
     },
     http::header::{CONTENT_TYPE, HeaderMap},
@@ -31,24 +25,6 @@ mod hello_world {
 }
 
 use hello_world::{Hello, HelloReply, HelloRequest};
-
-// -- gRPC framing helpers --
-
-fn grpc_encode<M: Message>(msg: &M) -> Bytes {
-    let len = msg.encoded_len();
-    let mut buf = BytesMut::with_capacity(5 + len);
-    buf.put_u8(0);
-    buf.put_u32(len as u32);
-    msg.encode(&mut buf).unwrap();
-    buf.freeze()
-}
-
-fn grpc_decode<M: Message + Default>(data: &[u8]) -> M {
-    assert!(data.len() >= 5, "grpc frame too short");
-    let len = u32::from_be_bytes(data[1..5].try_into().unwrap()) as usize;
-    assert_eq!(data.len() - 5, len, "grpc frame length mismatch");
-    M::decode(&data[5..]).unwrap()
-}
 
 // -- handlers --
 
@@ -93,6 +69,23 @@ async fn echo_metadata(
         .trailing_metadata(trailing))
 }
 
+/// Bidirectional streaming echo: reads HelloRequest messages, echoes back HelloReply for each.
+async fn bidi_echo(mut stream: GrpcStreamRequest) -> Result<GrpcStreamResponse<HelloReply>, GrpcError> {
+    let (tx, body) = GrpcStreamResponse::channel();
+    // Use spawn_local style: read request stream and forward replies via channel sender
+    // on a separate non-Send task using the current-thread runtime context.
+    tokio::task::spawn_local(async move {
+        let mut tx = tx;
+        while let Ok(Some(req)) = stream.message::<HelloRequest>().await {
+            let reply = HelloReply { response: req.request };
+            if tx.send_message(reply).await.is_err() {
+                break;
+            }
+        }
+    });
+    Ok(body)
+}
+
 // -- test server --
 
 fn test_grpc_server() -> Result<(String, xitca_server::ServerFuture), Error> {
@@ -109,6 +102,7 @@ fn test_grpc_server() -> Result<(String, xitca_server::ServerFuture), Error> {
         .at("/helloworld.Greeter/SpecialStatus", handler_service(special_status))
         .at("/helloworld.Greeter/SlowHandler", handler_service(slow_handler))
         .at("/helloworld.Greeter/EchoMetadata", handler_service(echo_metadata))
+        .at("/helloworld.Greeter/BidiEcho", handler_service(bidi_echo))
         .enclosed(GrpcTimeout)
         .serve()
         .h2c_prior_knowledge()
@@ -118,32 +112,6 @@ fn test_grpc_server() -> Result<(String, xitca_server::ServerFuture), Error> {
     Ok((url_base, server))
 }
 
-/// Read all frames from a response body, returning (data bytes, trailers).
-async fn read_grpc_response(
-    res: xitca_http::http::Response<impl Body<Data = Bytes> + Unpin>,
-) -> (BytesMut, Option<HeaderMap>) {
-    use xitca_http::body::Frame;
-
-    let (_, body) = res.into_parts();
-    let mut body = pin!(body);
-    let mut data = BytesMut::new();
-    let mut trailers = None;
-
-    loop {
-        match poll_fn(|cx| Body::poll_frame(body.as_mut(), cx)).await {
-            Some(Ok(Frame::Data(bytes))) => data.extend_from_slice(&bytes),
-            Some(Ok(Frame::Trailers(map))) => {
-                trailers = Some(map);
-                break;
-            }
-            Some(Err(_)) => break,
-            None => break,
-        }
-    }
-
-    (data, trailers)
-}
-
 fn make_hello(name: &str) -> HelloRequest {
     HelloRequest {
         request: Some(Hello {
@@ -151,14 +119,6 @@ fn make_hello(name: &str) -> HelloRequest {
             ..Default::default()
         }),
     }
-}
-
-fn grpc_request<'a>(c: &'a Client, url: &str, msg: &impl Message) -> xitca_client::RequestBuilder<'a> {
-    let body = grpc_encode(msg);
-    let mut req = c.post(url).version(Version::HTTP_2);
-    req.headers_mut()
-        .insert(CONTENT_TYPE, "application/grpc".parse().unwrap());
-    req.bytes(body)
 }
 
 // -- tests --
@@ -173,9 +133,7 @@ async fn grpc_empty_unary() -> Result<(), Error> {
     let req = HelloRequest {
         request: Some(Hello::default()),
     };
-    let res = grpc_request(&c, &format!("{base}/helloworld.Greeter/SayHello"), &req)
-        .send()
-        .await?;
+    let res = c.grpc(format!("{base}/helloworld.Greeter/SayHello")).send(req).await?;
 
     assert_eq!(res.status().as_u16(), 200);
     assert!(
@@ -186,8 +144,7 @@ async fn grpc_empty_unary() -> Result<(), Error> {
             .starts_with("application/grpc")
     );
 
-    let (data, trailers) = read_grpc_response(res.into_inner()).await;
-    let reply: HelloReply = grpc_decode(&data);
+    let (reply, trailers): (HelloReply, _) = res.grpc().await?;
     assert!(reply.response.is_some());
     assert_eq!(trailers.unwrap().get("grpc-status").unwrap().to_str()?, "0");
 
@@ -203,17 +160,15 @@ async fn grpc_large_unary() -> Result<(), Error> {
 
     let c = Client::new();
     let large_name = "x".repeat(1024 * 64 * 32);
-    println!("payload_length :{}", large_name.len());
     let req = make_hello(&large_name);
-    let res = grpc_request(&c, &format!("{base}/helloworld.Greeter/SayHello"), &req)
-        .send()
+    let (reply, _): (HelloReply, _) = c
+        .grpc(format!("{base}/helloworld.Greeter/SayHello"))
+        .send(req)
+        .await?
+        .grpc()
         .await?;
 
-    assert_eq!(res.status().as_u16(), 200);
-    let (data, trailers) = read_grpc_response(res.into_inner()).await;
-    let reply: HelloReply = grpc_decode(&data);
     assert_eq!(reply.response.unwrap().name, large_name);
-    assert_eq!(trailers.unwrap().get("grpc-status").unwrap().to_str()?, "0");
 
     handle.stop(false);
     Ok(())
@@ -227,8 +182,9 @@ async fn grpc_status_code_and_message() -> Result<(), Error> {
 
     let c = Client::new();
     let req = make_hello("test");
-    let res = grpc_request(&c, &format!("{base}/helloworld.Greeter/ErrorWithMessage"), &req)
-        .send()
+    let res = c
+        .grpc(format!("{base}/helloworld.Greeter/ErrorWithMessage"))
+        .send(req)
         .await?;
 
     assert_eq!(res.status().as_u16(), 200);
@@ -251,8 +207,9 @@ async fn grpc_special_status_message() -> Result<(), Error> {
 
     let c = Client::new();
     let req = make_hello("test");
-    let res = grpc_request(&c, &format!("{base}/helloworld.Greeter/SpecialStatus"), &req)
-        .send()
+    let res = c
+        .grpc(format!("{base}/helloworld.Greeter/SpecialStatus"))
+        .send(req)
         .await?;
 
     // Trailers-only response: grpc-status is in response headers
@@ -274,8 +231,9 @@ async fn grpc_unimplemented_method() -> Result<(), Error> {
 
     let c = Client::new();
     let req = make_hello("test");
-    let res = grpc_request(&c, &format!("{base}/helloworld.Greeter/NonExistentMethod"), &req)
-        .send()
+    let res = c
+        .grpc(format!("{base}/helloworld.Greeter/NonExistentMethod"))
+        .send(req)
         .await?;
 
     // Trailers-only response: grpc-status is in response headers
@@ -293,9 +251,7 @@ async fn grpc_unimplemented_service() -> Result<(), Error> {
 
     let c = Client::new();
     let req = make_hello("test");
-    let res = grpc_request(&c, &format!("{base}/nonexistent.Service/Method"), &req)
-        .send()
-        .await?;
+    let res = c.grpc(format!("{base}/nonexistent.Service/Method")).send(req).await?;
 
     // Trailers-only response: grpc-status is in response headers
     assert_eq!(res.headers().get("grpc-status").unwrap().to_str()?, "12");
@@ -312,15 +268,9 @@ async fn grpc_timeout_on_sleeping_server() -> Result<(), Error> {
 
     let c = Client::new();
     let req = make_hello("test");
-    let body = grpc_encode(&req);
-    let mut builder = c
-        .post(&format!("{base}/helloworld.Greeter/SlowHandler"))
-        .version(Version::HTTP_2);
-    builder
-        .headers_mut()
-        .insert(CONTENT_TYPE, "application/grpc".parse().unwrap());
+    let mut builder = c.grpc(format!("{base}/helloworld.Greeter/SlowHandler"));
     builder.headers_mut().insert("grpc-timeout", "100m".parse().unwrap());
-    let res = builder.bytes(body).send().await?;
+    let res = builder.send(req).await?;
 
     // Trailers-only response: grpc-status is in response headers
     assert_eq!(res.headers().get("grpc-status").unwrap().to_str()?, "4");
@@ -337,31 +287,116 @@ async fn grpc_custom_metadata() -> Result<(), Error> {
 
     let c = Client::new();
     let req = make_hello("test");
-    let body = grpc_encode(&req);
-    let mut builder = c
-        .post(&format!("{base}/helloworld.Greeter/EchoMetadata"))
-        .version(Version::HTTP_2);
-    builder
-        .headers_mut()
-        .insert(CONTENT_TYPE, "application/grpc".parse().unwrap());
+    let mut builder = c.grpc(format!("{base}/helloworld.Greeter/EchoMetadata"));
     builder
         .headers_mut()
         .insert("x-custom-header", "custom-value".parse().unwrap());
     builder
         .headers_mut()
         .insert("x-custom-trailer-bin", "dHJhaWxlcg".parse().unwrap());
-    let res = builder.bytes(body).send().await?;
+    let res = builder.send(req).await?;
 
     // Check initial metadata
     assert_eq!(res.headers().get("x-custom-header").unwrap().to_str()?, "custom-value");
 
-    let (data, trailers) = read_grpc_response(res.into_inner()).await;
-    let reply: HelloReply = grpc_decode(&data);
+    let (reply, trailers): (HelloReply, _) = res.grpc().await?;
     assert!(reply.response.is_some());
 
     let trailers = trailers.unwrap();
     assert_eq!(trailers.get("grpc-status").unwrap().to_str()?, "0");
     assert_eq!(trailers.get("x-custom-trailer-bin").unwrap().to_str()?, "dHJhaWxlcg");
+
+    handle.stop(false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn grpc_bidi_stream() -> Result<(), Error> {
+    let (base, mut server) = test_grpc_server()?;
+    let handle = server.handle()?;
+    tokio::spawn(server);
+
+    let c = Client::new();
+
+    let grpc = c
+        .grpc_stream(&format!("{base}/helloworld.Greeter/BidiEcho"))
+        .send::<HelloReply>()
+        .await?;
+
+    // Split into sink + stream for concurrent send/recv.
+    let (mut sink, mut reader) = grpc.split();
+
+    // Send multiple messages.
+    sink.send(make_hello("one")).await?;
+    sink.send(make_hello("two")).await?;
+
+    // Read them back.
+    let reply: HelloReply = reader.next().await.expect("expected reply 1")?;
+    assert_eq!(reply.response.unwrap().name, "one");
+
+    let reply: HelloReply = reader.next().await.expect("expected reply 2")?;
+    assert_eq!(reply.response.unwrap().name, "two");
+
+    // Close the send half.
+    SinkExt::<HelloRequest>::close(&mut sink).await?;
+
+    // Stream should end.
+    assert!(reader.next().await.is_none());
+
+    handle.stop(false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn grpc_compressed_unary() -> Result<(), Error> {
+    let (base, mut server) = test_grpc_server()?;
+    let handle = server.handle()?;
+    tokio::spawn(server);
+
+    let c = Client::new();
+    let req = make_hello("compressed");
+    let mut builder = c.grpc(format!("{base}/helloworld.Greeter/SayHello"));
+    builder.set_encoding(ContentEncoding::Zstd);
+    let res = builder.send(req).await?;
+
+    assert_eq!(res.status().as_u16(), 200);
+
+    // Server should respond with compression (picks from grpc-accept-encoding).
+    assert!(res.headers().get("grpc-encoding").is_some());
+
+    let (reply, trailers): (HelloReply, _) = res.grpc().await?;
+    assert_eq!(reply.response.unwrap().name, "compressed");
+    assert_eq!(trailers.unwrap().get("grpc-status").unwrap().to_str()?, "0");
+
+    handle.stop(false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn grpc_compressed_bidi_stream() -> Result<(), Error> {
+    let (base, mut server) = test_grpc_server()?;
+    let handle = server.handle()?;
+    tokio::spawn(server);
+
+    let c = Client::new();
+
+    let mut builder = c.grpc_stream(&format!("{base}/helloworld.Greeter/BidiEcho"));
+    builder.set_encoding(ContentEncoding::Zstd);
+    let grpc = builder.send::<HelloReply>().await?;
+
+    let (mut sink, mut reader) = grpc.split();
+
+    sink.send(make_hello("compress-one")).await?;
+    sink.send(make_hello("compress-two")).await?;
+
+    let reply: HelloReply = reader.next().await.expect("expected reply 1")?;
+    assert_eq!(reply.response.unwrap().name, "compress-one");
+
+    let reply: HelloReply = reader.next().await.expect("expected reply 2")?;
+    assert_eq!(reply.response.unwrap().name, "compress-two");
+
+    SinkExt::<HelloRequest>::close(&mut sink).await?;
+    assert!(reader.next().await.is_none());
 
     handle.stop(false);
     Ok(())

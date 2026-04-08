@@ -58,6 +58,9 @@ mod h2;
 #[cfg(feature = "http3")]
 mod h3;
 
+#[cfg(all(feature = "grpc", feature = "http2"))]
+pub mod grpc;
+
 #[cfg(feature = "websocket")]
 pub mod ws;
 

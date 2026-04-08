@@ -1,15 +1,7 @@
 use core::{cmp, future::poll_fn, pin::pin};
 
 use ::h2::client;
-use xitca_http::{
-    date::DateTime,
-    http::{
-        self,
-        const_header_name::PROTOCOL,
-        header::{CONNECTION, CONTENT_LENGTH, DATE, HOST, HeaderValue, TRANSFER_ENCODING, UPGRADE},
-        method::Method,
-    },
-};
+use xitca_http::{date::DateTime, http::header::CONTENT_TYPE};
 use xitca_io::io::{AsyncIo, PollIoAdapter};
 
 use crate::{
@@ -17,16 +9,24 @@ use crate::{
     bytes::Bytes,
     date::DateTimeHandle,
     h2::{Connection, Error, body::ResponseBody as H2ResponseBody},
+    http::{
+        self,
+        const_header_name::PROTOCOL,
+        const_header_value::GRPC,
+        header::{CONNECTION, CONTENT_LENGTH, DATE, HOST, HeaderValue, TRANSFER_ENCODING, UPGRADE},
+        method::Method,
+    },
 };
 
-pub(crate) async fn send<B, E>(
+pub(crate) async fn send<B>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
     req: http::Request<B>,
 ) -> Result<http::Response<ResponseBody>, Error>
 where
-    B: Body<Data = Bytes, Error = E>,
-    BodyError: From<E>,
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: Send + Sync + 'static,
+    BodyError: From<B::Error>,
 {
     let (parts, body) = req.into_parts();
     let mut req = http::Request::from_parts(parts, ());
@@ -40,10 +40,6 @@ where
         SizeHint::Unknown => {
             req.headers_mut().remove(CONTENT_LENGTH);
             false
-        }
-        SizeHint::Exact(0) => {
-            req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
-            true
         }
         SizeHint::Exact(len) => {
             let mut buf = itoa::Buffer::new();
@@ -69,22 +65,33 @@ where
     }
 
     let mut end_stream = is_eof;
+    let mut is_head_method = false;
 
-    if req.method() == Method::CONNECT {
-        let protocol = req
-            .headers_mut()
-            .remove(PROTOCOL)
-            .and_then(|v| v.to_str().ok().map(::h2::ext::Protocol::from))
-            // if user did not provide any info about extended protocol assuming it wants tcp tunnel.
-            .unwrap_or_else(|| ::h2::ext::Protocol::from_static("connect-ip"));
+    match *req.method() {
+        Method::CONNECT => {
+            let protocol = req
+                .headers_mut()
+                .remove(PROTOCOL)
+                .and_then(|v| v.to_str().ok().map(::h2::ext::Protocol::from))
+                // if user did not provide any info about extended protocol assuming it wants tcp tunnel.
+                .unwrap_or_else(|| ::h2::ext::Protocol::from_static("connect-ip"));
 
-        req.extensions_mut().insert(protocol);
+            req.extensions_mut().insert(protocol);
 
-        // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
-        end_stream = false;
+            // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
+            end_stream = false;
+        }
+        Method::POST => {
+            if req.headers().get(CONTENT_TYPE).is_some_and(|val| val == &GRPC) {
+                // grpc stream may start with zero body. in that case
+                if is_eof {
+                    end_stream = false;
+                }
+            }
+        }
+        Method::HEAD => is_head_method = true,
+        _ => {}
     }
-
-    let is_head_method = *req.method() == Method::HEAD;
 
     let (fut, mut stream) = stream.send_request(req, end_stream)?;
 

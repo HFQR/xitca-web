@@ -9,7 +9,6 @@ use http::{
     HeaderValue, Request, Response,
     header::{CONTENT_TYPE, HeaderMap, HeaderName},
 };
-use http_body_alt::{Body, BodyExt, Frame};
 use pin_project_lite::pin_project;
 use prost::Message;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
@@ -20,10 +19,13 @@ use super::{
     status::GrpcStatus,
 };
 
-#[cfg(feature = "compress")]
+#[cfg(feature = "__body_impl")]
+use http_body_alt::{Body, BodyExt, Frame};
+
+#[cfg(feature = "__compress")]
 use http_encoding::ContentEncoding;
 
-#[cfg(feature = "compress")]
+#[cfg(feature = "__compress")]
 const GRPC_ENCODING: HeaderName = HeaderName::from_static("grpc-encoding");
 
 const GRPC_STATUS: HeaderName = HeaderName::from_static("grpc-status");
@@ -43,26 +45,26 @@ pin_project! {
         #[pin]
         body: B,
         codec: Codec,
+        buf: BytesMut,
     }
 }
 
 impl<B> RequestStream<B> {
-    #[allow(unused_variables)]
     pub fn new(headers: &HeaderMap, body: B) -> Self {
-        #[allow(unused_mut)]
-        let mut codec = Codec::new();
-
-        #[cfg(feature = "compress")]
-        {
-            let encoding = http_encoding::ContentEncoding::from_headers_with(headers, &GRPC_ENCODING);
-            codec = codec.set_encoding(encoding);
+        let codec = Codec::from_headers(headers);
+        Self {
+            body,
+            codec,
+            buf: BytesMut::new(),
         }
-
-        Self { body, codec }
     }
 
     pub fn with_codec(body: B, codec: Codec) -> Self {
-        Self { body, codec }
+        Self {
+            body,
+            codec,
+            buf: BytesMut::new(),
+        }
     }
 
     #[inline]
@@ -86,19 +88,19 @@ where
     /// Returns `Ok(None)` when the body has ended cleanly.
     pub async fn message<T: Message + Default>(&mut self) -> Result<Option<T>, GrpcError> {
         loop {
-            match self.codec.decode::<T>() {
+            match self.codec.decode::<T>(&mut self.buf) {
                 Ok(Some(msg)) => return Ok(Some(msg)),
                 Ok(None) => {}
                 Err(e) => return Err(GrpcError::new(GrpcStatus::Internal, e.to_string())),
             }
 
             match self.body.data().await {
-                Some(Ok(data)) => self.codec.feed(data.as_ref()),
+                Some(Ok(data)) => self.buf.extend_from_slice(data.as_ref()),
                 Some(Err(_)) => {
                     return Err(GrpcError::new(GrpcStatus::Internal, "body read error"));
                 }
                 None => {
-                    return if self.codec.is_buf_empty() {
+                    return if self.buf.is_empty() {
                         Ok(None)
                     } else {
                         Err(GrpcError::new(GrpcStatus::Internal, "incomplete grpc frame"))
@@ -172,11 +174,11 @@ impl<T> ResponseBody<T> {
     /// Convert self into a [`Response`] type where self is as the body.
     /// Take in the request it belongs to for potential compression header preparation.
     pub fn into_response(mut self, req: Request<()>) -> Response<Self> {
-        #[cfg(feature = "compress")]
+        #[cfg(feature = "__compress")]
         let encoding = {
             const GRPC_ACCEPT_ENCODING: HeaderName = HeaderName::from_static("grpc-accept-encoding");
             let encoding = ContentEncoding::from_headers_with(req.headers(), &GRPC_ACCEPT_ENCODING);
-            // TODO: apply encoding to response body codec
+            self.codec = self.codec.set_encoding(encoding);
             encoding
         };
 
@@ -196,10 +198,9 @@ impl<T> ResponseBody<T> {
             res.headers_mut().extend(meta);
         }
 
-        #[cfg(feature = "compress")]
+        #[cfg(feature = "__compress")]
         if !matches!(encoding, ContentEncoding::Identity) {
-            res.headers_mut()
-                .insert(GRPC_ENCODING, HeaderValue::from_static(encoding.as_str()));
+            res.headers_mut().insert(GRPC_ENCODING, encoding.as_header_value());
         }
 
         res

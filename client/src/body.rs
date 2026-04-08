@@ -103,10 +103,10 @@ impl Default for BoxBody {
 
 impl BoxBody {
     #[inline]
-    pub fn new<B, E>(body: B) -> Self
+    pub fn new<B>(body: B) -> Self
     where
-        B: Body<Data = Bytes, Error = E> + Send + 'static,
-        E: Into<BodyError>,
+        B: Body<Data = Bytes> + Send + 'static,
+        B::Error: Into<BodyError>,
     {
         Self(Box::pin(BoxBodyMap { body }))
     }

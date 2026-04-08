@@ -23,11 +23,13 @@ rustls = ["xitca-tls/rustls-poll-aws-crypto", "webpki-roots"]
 # rustls as tls handler with ring as crypto provider
 rustls-ring-crypto =  ["xitca-tls/rustls-poll-ring-crypto", "webpki-roots"]
 # compression and decompression middleware support
-compress = ["http-encoding"]
+compress = ["dep:http-encoding"]
 # json response body parsing support
 json = ["serde", "serde_json"]
 # websocket support. must be used together with http/1 and/or http/2 feature(s)
 websocket = ["http-ws"]
+# grpc support
+grpc = ["compress", "dep:http-grpc", "dep:prost", "http-grpc/compress-gz", "http-grpc/compress-br", "http-grpc/compress-de", "http-grpc/compress-zs"]
 # feature for trusted local network:
 # - http/2 clear text over plain tcp connection
 # - http/3 connection to server with self signed certificates
@@ -75,6 +77,10 @@ serde = { version = "1.0.130", default-features = false, optional = true }
 
 # json
 serde_json = { version = "1", optional = true }
+
+# grpc
+http-grpc = { version = "0.1", optional = true }
+prost = { version = "0.14", optional =true }
 
 # websocket
 http-ws = { version = "0.4", features = ["stream"], optional = true }

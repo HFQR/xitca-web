@@ -1,5 +1,5 @@
 use http::{
-    Response, StatusCode,
+    HeaderValue, Response, StatusCode,
     header::{self, ACCEPT_ENCODING, HeaderMap, HeaderName},
 };
 use http_body_alt::Body;
@@ -26,13 +26,13 @@ pub enum ContentEncoding {
 }
 
 impl ContentEncoding {
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_header_value(&self) -> HeaderValue {
         match self {
-            Self::Br => "br",
-            Self::Deflate => "deflate",
-            Self::Gzip => "gzip",
-            Self::Zstd => "zstd",
-            Self::Identity => "identity",
+            Self::Br => HeaderValue::from_static("br"),
+            Self::Deflate => HeaderValue::from_static("deflate"),
+            Self::Gzip => HeaderValue::from_static("gzip"),
+            Self::Zstd => HeaderValue::from_static("zstd"),
+            Self::Identity => HeaderValue::from_static("identity"),
         }
     }
 
@@ -157,9 +157,7 @@ impl ContentEncoding {
             return;
         }
 
-        let value = self.as_str();
-
-        headers.insert(header::CONTENT_ENCODING, header::HeaderValue::from_static(value));
+        headers.insert(header::CONTENT_ENCODING, self.as_header_value());
         headers.remove(header::CONTENT_LENGTH);
 
         // Connection specific headers are not allowed in HTTP/2 and later versions.

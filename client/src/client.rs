@@ -298,6 +298,26 @@ impl Client {
     {
         self.get(url).version(Version::HTTP_2).mutate_marker()
     }
+
+    #[cfg(all(feature = "grpc", feature = "http2"))]
+    pub fn grpc<U>(&self, url: U) -> crate::grpc::GrpcUnaryRequest<'_>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        let req = self.post(url).version(Version::HTTP_2);
+        crate::grpc::GrpcUnaryRequest::new(req)
+    }
+
+    #[cfg(all(feature = "grpc", feature = "http2"))]
+    pub fn grpc_stream<U>(&self, url: U) -> crate::grpc::GrpcStreamRequest<'_>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        let req = self.post(url).version(Version::HTTP_2);
+        crate::grpc::GrpcStreamRequest::new(req)
+    }
 }
 
 impl Client {

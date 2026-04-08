@@ -1,32 +1,45 @@
 use bytes::{BufMut, BytesMut};
+use http::HeaderMap;
 use prost::Message;
 
-#[cfg(feature = "compress")]
-use http_body_alt::Body;
+#[cfg(feature = "__compress")]
+use http_body_alt::{Body, Frame, util::Full};
+#[cfg(feature = "__compress")]
+use http_encoding::ContentEncoding;
 
 use super::error::ProtocolError;
 
 /// Default body size limit for gRPC messages (4 MiB).
 pub const DEFAULT_LIMIT: usize = 4 * 1024 * 1024;
 
+#[cfg(feature = "__compress")]
+const GRPC_ENCODING: http::HeaderName = http::HeaderName::from_static("grpc-encoding");
+
 /// gRPC length-prefixed framing codec.
 ///
 /// Handles the 5-byte gRPC frame header (1 byte compression flag + 4 byte big-endian length)
 /// and protobuf encode/decode with optional compression.
 pub struct Codec {
-    buf: BytesMut,
     limit: usize,
-    #[cfg(feature = "compress")]
-    encoding: http_encoding::ContentEncoding,
+    #[cfg(feature = "__compress")]
+    encoding: ContentEncoding,
 }
 
 impl Codec {
     pub fn new() -> Self {
         Self {
-            buf: BytesMut::new(),
             limit: DEFAULT_LIMIT,
-            #[cfg(feature = "compress")]
-            encoding: http_encoding::ContentEncoding::Identity,
+            #[cfg(feature = "__compress")]
+            encoding: Default::default(),
+        }
+    }
+
+    #[allow(unused_variables)]
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        Self {
+            limit: DEFAULT_LIMIT,
+            #[cfg(feature = "__compress")]
+            encoding: ContentEncoding::from_headers_with(headers, &GRPC_ENCODING),
         }
     }
 
@@ -41,30 +54,27 @@ impl Codec {
     }
 
     /// Set the content encoding for compression/decompression.
-    #[cfg(feature = "compress")]
-    pub fn set_encoding(mut self, encoding: http_encoding::ContentEncoding) -> Self {
+    #[cfg(feature = "__compress")]
+    pub fn set_encoding(mut self, encoding: ContentEncoding) -> Self {
         self.encoding = encoding;
         self
     }
 
-    /// Feed incoming data into the decode buffer.
-    pub fn feed(&mut self, data: &[u8]) {
-        self.buf.extend_from_slice(data);
-    }
-
-    /// Try to decode a complete gRPC message from the buffer.
+    /// Try to decode a complete gRPC message from `src`.
+    ///
+    /// Consumes the frame bytes from `src` on success.
     ///
     /// Returns:
     /// - `Ok(Some(message))` when a complete frame is available
     /// - `Ok(None)` when more data is needed
     /// - `Err` on protocol violations (size limit, decode error)
-    pub fn decode<T: Message + Default>(&mut self) -> Result<Option<T>, ProtocolError> {
-        if self.buf.len() < 5 {
+    pub fn decode<T: Message + Default>(&self, src: &mut BytesMut) -> Result<Option<T>, ProtocolError> {
+        if src.len() < 5 {
             return Ok(None);
         }
 
-        let compressed = self.buf[0] != 0;
-        let len = u32::from_be_bytes(self.buf[1..5].try_into().unwrap()) as usize;
+        let compressed = src[0] != 0;
+        let len = u32::from_be_bytes(src[1..5].try_into().unwrap()) as usize;
 
         if self.limit > 0 && len > self.limit {
             return Err(ProtocolError::MessageTooLarge {
@@ -73,23 +83,18 @@ impl Codec {
             });
         }
 
-        if self.buf.len() < 5 + len {
+        if src.len() < 5 + len {
             return Ok(None);
         }
 
-        let _ = self.buf.split_to(5);
-        let payload = self.buf.split_to(len);
+        let _ = src.split_to(5);
+        let payload = src.split_to(len);
 
         let payload = if compressed { self.decompress(payload)? } else { payload };
 
         let msg = Message::decode(payload).map_err(ProtocolError::Decode)?;
 
         Ok(Some(msg))
-    }
-
-    /// Returns true when the decode buffer is empty.
-    pub fn is_buf_empty(&self) -> bool {
-        self.buf.is_empty()
     }
 
     /// Encode a protobuf message into gRPC length-prefixed framing.
@@ -113,15 +118,13 @@ impl Codec {
         Ok(())
     }
 
-    #[cfg(feature = "compress")]
+    #[cfg(feature = "__compress")]
     fn decompress(&self, payload: BytesMut) -> Result<BytesMut, ProtocolError> {
-        use http_encoding::ContentEncoding;
-
         if matches!(self.encoding, ContentEncoding::Identity) {
             return Err(ProtocolError::CompressedWithoutEncoding);
         }
 
-        let body = self.encoding.decode_body(http_body_alt::util::Full::new(payload));
+        let body = self.encoding.decode_body(Full::new(payload));
         let mut body = core::pin::pin!(body);
         let mut out = BytesMut::new();
 
@@ -130,13 +133,13 @@ impl Codec {
         let mut cx = core::task::Context::from_waker(waker);
         loop {
             match Body::poll_frame(body.as_mut(), &mut cx) {
-                core::task::Poll::Ready(Some(Ok(http_body_alt::Frame::Data(data)))) => {
+                core::task::Poll::Ready(Some(Ok(Frame::Data(data)))) => {
                     out.extend_from_slice(data.as_ref());
                 }
                 core::task::Poll::Ready(Some(Err(e))) => {
                     return Err(ProtocolError::Compress(e.to_string()));
                 }
-                core::task::Poll::Ready(None | Some(Ok(http_body_alt::Frame::Trailers(_)))) => break,
+                core::task::Poll::Ready(None | Some(Ok(Frame::Trailers(_)))) => break,
                 core::task::Poll::Pending => unreachable!("Full body never returns Pending"),
             }
         }
@@ -144,21 +147,19 @@ impl Codec {
         Ok(out)
     }
 
-    #[cfg(not(feature = "compress"))]
+    #[cfg(not(feature = "__compress"))]
     fn decompress(&self, _: BytesMut) -> Result<BytesMut, ProtocolError> {
         Err(ProtocolError::CompressUnsupported)
     }
 
-    #[cfg(feature = "compress")]
+    #[cfg(feature = "__compress")]
     fn compress(&self, dst: &mut BytesMut) -> Result<(), ProtocolError> {
-        use http_encoding::ContentEncoding;
-
         if matches!(self.encoding, ContentEncoding::Identity) {
             return Ok(());
         }
 
         let payload = dst.split_off(5);
-        let body = self.encoding.encode_body(http_body_alt::util::Full::new(payload));
+        let body = self.encoding.encode_body(Full::new(payload));
         let mut body = core::pin::pin!(body);
 
         // clear and rewrite header
@@ -170,13 +171,13 @@ impl Codec {
         let mut cx = core::task::Context::from_waker(waker);
         loop {
             match Body::poll_frame(body.as_mut(), &mut cx) {
-                core::task::Poll::Ready(Some(Ok(http_body_alt::Frame::Data(data)))) => {
+                core::task::Poll::Ready(Some(Ok(Frame::Data(data)))) => {
                     dst.extend_from_slice(data.as_ref());
                 }
                 core::task::Poll::Ready(Some(Err(e))) => {
                     return Err(ProtocolError::Compress(e.to_string()));
                 }
-                core::task::Poll::Ready(None | Some(Ok(http_body_alt::Frame::Trailers(_)))) => break,
+                core::task::Poll::Ready(None | Some(Ok(Frame::Trailers(_)))) => break,
                 core::task::Poll::Pending => unreachable!("Full body never returns Pending"),
             }
         }
@@ -184,7 +185,7 @@ impl Codec {
         Ok(())
     }
 
-    #[cfg(not(feature = "compress"))]
+    #[cfg(not(feature = "__compress"))]
     fn compress(&self, _: &mut BytesMut) -> Result<(), ProtocolError> {
         Ok(())
     }
