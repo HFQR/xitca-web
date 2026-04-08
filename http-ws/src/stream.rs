@@ -179,16 +179,7 @@ impl ResponseSender {
         }
     }
 
-    /// add [io::Error] to [ResponseStream].
-    ///
-    /// the error should be used as a signal to the TCP connection associated with `ResponseStream`
-    /// to close immediately.
-    #[inline]
-    pub fn send_error(&self, err: io::Error) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
-        self.inner.send_error(err)
-    }
-
-    /// encode [Message::Text] variant and add to [ResponseStream].
+    /// encode [`Message::Text`] variant and add to [ResponseStream].
     #[inline]
     pub async fn text(&self, txt: impl Into<Bytes>) -> Result<(), ProtocolError> {
         let bytes = txt.into();
@@ -196,27 +187,33 @@ impl ResponseSender {
         self.send(Message::Text(bytes)).await
     }
 
-    /// encode [Message::Binary] variant and add to [ResponseStream].
+    /// encode [`Message::Binary`] variant and add to [ResponseStream].
     #[inline]
     pub fn binary(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.send(Message::Binary(bin.into()))
     }
 
-    /// encode [Message::Continuation] variant and add to [ResponseStream].
+    /// encode [`Message::Continuation`] variant and add to [ResponseStream].
     #[inline]
     pub fn continuation(&self, item: super::codec::Item) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.send(Message::Continuation(item))
     }
 
-    /// encode [Message::Ping] variant and add to [ResponseStream].
+    /// encode [`Message::Ping`] variant and add to [ResponseStream].
     #[inline]
     pub fn ping(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
         self.send(Message::Ping(bin.into()))
     }
 
-    /// encode [Message::Close] variant and add to [ResponseStream].
+    /// encode [`Message::Pong`] variant and add to [ResponseStream].
+    #[inline]
+    pub fn pong(&self, bin: impl Into<Bytes>) -> impl Future<Output = Result<(), ProtocolError>> + '_ {
+        self.send(Message::Pong(bin.into()))
+    }
+
+    /// encode [`Message::Close`] variant and add to [ResponseStream].
     /// take ownership of Self as after close message no more message can be sent to client.
-    pub async fn close(self, reason: Option<impl Into<CloseReason>>) -> Result<(), ProtocolError> {
+    pub async fn close(&mut self, reason: Option<impl Into<CloseReason>>) -> Result<(), ProtocolError> {
         self.send(Message::Close(reason.map(Into::into))).await
     }
 
@@ -268,13 +265,5 @@ impl _ResponseSender {
         };
         permit.send(Ok(buf));
         Ok(())
-    }
-
-    // send error to response stream. it would produce Err(io::Error) when succeed where
-    // the error is a representation of io error to the stream consumer. in most cases
-    // the consumer observing the error should close the stream and the tcp connection
-    // the stream belongs to.
-    async fn send_error(&self, err: io::Error) -> Result<(), ProtocolError> {
-        self.tx.send(Err(err)).await.map_err(|_| ProtocolError::SendClosed)
     }
 }

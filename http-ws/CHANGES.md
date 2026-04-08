@@ -10,6 +10,7 @@
 
 ## Remove
 - remove `ResponseSender::send` method to reduce possible misuse
+- remove `ResponseSender::send_error` emthod
 
 # 0.3.0
 ## Add

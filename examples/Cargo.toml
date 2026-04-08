@@ -42,6 +42,7 @@ xitca-http = { path = "../http" }
 xitca-router = { path = "../router" }
 xitca-web = { path = "../web" }
 http-body-alt = { path = "../http-body" }
+http-grpc = { path = "../http-grpc" }
 http-ws = { path = "../http-ws" }
 http-file = { path = "../http-file" }
 http-encoding = { path = "../http-encoding" }

@@ -6,8 +6,6 @@ use core::{
     time::Duration,
 };
 
-use std::io;
-
 use futures_core::stream::Stream;
 use http_ws::{
     HandshakeError, Item, Message as WsMessage, ProtocolError, WsOutput,
@@ -239,57 +237,46 @@ async fn spawn_task<B>(
                             continue;
                         }
                         WsMessage::Ping(ping) => {
-                            tx.send(WsMessage::Pong(ping)).await?;
+                            tx.pong(ping).await?;
                             continue;
                         }
                         WsMessage::Close(reason) => {
-                            match tx.send(WsMessage::Close(reason)).await {
-                                // ProtocolError::Closed error means someone already sent close message
-                                // so just ignore it and treat as success.
-                                Ok(_) | Err(ProtocolError::Closed) => return Ok(()),
-                                Err(e) => return Err(e.into()),
-                            }
+                            return match tx.close(reason).await {
+                                // close echoed back to remote successfully
+                                Ok(_) => Ok(()),
+                                // close is locally intialized and echo of it has already been received
+                                Err(ProtocolError::SendClosed) => Ok(()),
+                                Err(err) => Err(err.into()),
+                            };
                         }
                     };
 
                     on_msg(&mut tx, msg).await
                 }
-                SelectOutput::A(Some(Err(e))) => on_err(e).await,
-                SelectOutput::A(None) => return Ok(()),
+                SelectOutput::A(Some(Err(e))) => return Err(e),
+                // RequestSream never yields None. It's either Close message received or connection broken that mark the end of it
+                SelectOutput::A(None) => unreachable!("RequestStream never yields None"),
                 SelectOutput::B(_) => match un_answered_ping.cmp(&max_unanswered_ping) {
                     Ordering::Less => {
-                        if let Err(e) = tx.send(WsMessage::Ping(Bytes::new())).await {
+                        if let Err(e) = tx.ping(Bytes::new()).await {
                             // continue ping timer when websocket is closed.
                             // client may be lagging behind and not respond to close message immediately.
-                            if !matches!(e, ProtocolError::Closed) {
+                            if !matches!(e, ProtocolError::SendClosed) {
                                 return Err(e.into());
                             }
                         }
                         un_answered_ping += 1;
                         sleep.as_mut().reset(Instant::now() + ping_interval);
                     }
-                    // on last interval try to send close message to client to inform it connection
-                    // is going away.
-                    Ordering::Equal => match tx.send(WsMessage::Close(None)).await {
-                        Ok(_) => un_answered_ping += 1,
-                        // ProtocolError::Closed error means someone already sent close message
-                        // so just ignore it and end connection right away.
-                        Err(ProtocolError::Closed) => return Ok(()),
-                        Err(e) => return Err(e.into()),
-                    },
-                    // this will only happen when client fail to respond to the close message on last
-                    // interval in time and at this point just closed the connection with an io error.
-                    Ordering::Greater => {
-                        let _ = tx.send_error(io::ErrorKind::UnexpectedEof.into()).await;
-                        return Ok(());
-                    }
+                    // ping time out
+                    _ => return Ok(()),
                 },
             }
         }
     };
 
-    if let Err(e) = spawn_inner.await {
-        on_err(e).await;
+    if let Err(err) = spawn_inner.await {
+        on_err(err).await;
     }
 
     on_close(decode).await;
