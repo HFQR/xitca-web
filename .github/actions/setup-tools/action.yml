@@ -17,6 +17,17 @@ runs:
     - name: Cache Dependencies
       uses: Swatinem/rust-cache@v2
 
+    - name: Free up disk space
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: false
+        docker-images: false
+        swap-storage: true
+
     - name: Install cargo-hack
       if: inputs.cargo-hack == 'true'
       uses: taiki-e/install-action@v2

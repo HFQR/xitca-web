@@ -27,17 +27,6 @@ jobs:
         profile: minimal
         override: true
 
-    - name: Free up disk space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: false
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: true
-
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
@@ -72,17 +61,6 @@ jobs:
         toolchain: ${{ matrix.version }}
         profile: minimal
         override: true
-
-    - name: Free up disk space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: false
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -203,17 +181,6 @@ jobs:
         profile: minimal
         override: true
 
-    - name: Free up disk space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: false
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: true
-
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
@@ -278,17 +245,6 @@ jobs:
           toolchain: ${{ matrix.version }}
           profile: minimal
           override: true
-   
-      - name: Free up disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
 
       - name: Setup CI tools
         uses: ./.github/actions/setup-tools
