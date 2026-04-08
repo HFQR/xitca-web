@@ -1,5 +1,5 @@
 name: Setup CI Tools
-description: Install common CI tools (cargo-hack, protoc)
+description: Cache dependencies and install common CI tools (cargo-hack, protoc)
 
 inputs:
   cargo-hack:
@@ -14,6 +14,9 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@v2
+
     - name: Install cargo-hack
       if: inputs.cargo-hack == 'true'
       uses: taiki-e/install-action@v2

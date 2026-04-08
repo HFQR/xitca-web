@@ -13,7 +13,10 @@ jobs:
       with:
         toolchain: nightly
         components: clippy, rustfmt
-    - uses: Swatinem/rust-cache@v2
+    - name: Setup CI tools
+      uses: ./.github/actions/setup-tools
+      with:
+        protoc: 'true'
     - name: clippy
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::literal_string_with_formatting_args
     - name: fmt

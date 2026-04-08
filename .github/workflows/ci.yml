@@ -28,7 +28,6 @@ jobs:
         override: true
 
     - name: Free up disk space
-      if: matrix.target.os == 'ubuntu-latest'
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: false
@@ -38,9 +37,6 @@ jobs:
         large-packages: true
         docker-images: true
         swap-storage: true
-
-    - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v2
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -78,11 +74,15 @@ jobs:
         override: true
 
     - name: Free up disk space
-      if: matrix.target.os == 'ubuntu-latest'
-      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
-    - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v2
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -119,13 +119,6 @@ jobs:
         profile: minimal
         override: true
 
-    - name: Free up disk space
-      if: matrix.target.os == 'ubuntu-latest'
-      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
-    - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v2
-
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
@@ -161,17 +154,11 @@ jobs:
           profile: minimal
           override: true
 
-      - name: Free up disk space
-        if: matrix.target.os == 'ubuntu-latest'
-        run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
-      - name: Cache Dependencies
-        uses: Swatinem/rust-cache@v2
-
       - name: Setup CI tools
         uses: ./.github/actions/setup-tools
         with:
           cargo-hack: 'true'
+          protoc: 'true'
 
       - name: check-non-linux
         if: matrix.target.os != 'ubuntu-latest'
@@ -217,11 +204,15 @@ jobs:
         override: true
 
     - name: Free up disk space
-      if: matrix.target.os == 'ubuntu-latest'
-      run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
-    - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v2
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -245,26 +236,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
     - name: Install Rust nightly
       uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly
         profile: minimal
         override: true
-
-    - name: Free up disk space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: false
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: true
-
-    - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v2
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -293,19 +271,24 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Install Rust ${{ matrix.version }}
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.version }}
           profile: minimal
           override: true
-
+   
       - name: Free up disk space
-        if: matrix.target.os == 'ubuntu-latest'
-        run: sudo rm -rf /usr/share/dotnet && sudo rm -rf /usr/local/lib/android && sudo rm -rf /opt/ghc && sudo rm -rf "/usr/local/share/boost" && sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
-      - name: Cache Dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
 
       - name: Setup CI tools
         uses: ./.github/actions/setup-tools
