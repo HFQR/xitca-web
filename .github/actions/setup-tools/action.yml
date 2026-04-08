@@ -1,0 +1,27 @@
+name: Setup CI Tools
+description: Install common CI tools (cargo-hack, protoc)
+
+inputs:
+  cargo-hack:
+    description: Install cargo-hack
+    required: false
+    default: 'false'
+  protoc:
+    description: Install protoc
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Install cargo-hack
+      if: inputs.cargo-hack == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-hack
+
+    - name: Install protoc
+      if: inputs.protoc == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: protoc@3.23.4

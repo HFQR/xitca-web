@@ -42,10 +42,10 @@ jobs:
     - name: Cache Dependencies
       uses: Swatinem/rust-cache@v2
 
-    - name: Install cargo-hack
-      uses: taiki-e/install-action@v2
+    - name: Setup CI tools
+      uses: ./.github/actions/setup-tools
       with:
-        tool: cargo-hack
+        cargo-hack: 'true'
 
     - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
@@ -84,10 +84,10 @@ jobs:
     - name: Cache Dependencies
       uses: Swatinem/rust-cache@v2
 
-    - name: Install cargo-hack
-      uses: taiki-e/install-action@v2
+    - name: Setup CI tools
+      uses: ./.github/actions/setup-tools
       with:
-        tool: cargo-hack
+        cargo-hack: 'true'
 
     - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
@@ -126,10 +126,10 @@ jobs:
     - name: Cache Dependencies
       uses: Swatinem/rust-cache@v2
 
-    - name: Install cargo-hack
-      uses: taiki-e/install-action@v2
+    - name: Setup CI tools
+      uses: ./.github/actions/setup-tools
       with:
-        tool: cargo-hack
+        cargo-hack: 'true'
 
     - name: check-non-linux
       if: matrix.target.os != 'ubuntu-latest'
@@ -168,10 +168,10 @@ jobs:
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@v2
+      - name: Setup CI tools
+        uses: ./.github/actions/setup-tools
         with:
-          tool: cargo-hack
+          cargo-hack: 'true'
 
       - name: check-non-linux
         if: matrix.target.os != 'ubuntu-latest'
@@ -223,10 +223,11 @@ jobs:
     - name: Cache Dependencies
       uses: Swatinem/rust-cache@v2
 
-    - name: Install cargo-hack
-      uses: taiki-e/install-action@v2
+    - name: Setup CI tools
+      uses: ./.github/actions/setup-tools
       with:
-        tool: cargo-hack
+        cargo-hack: 'true'
+        protoc: 'true'
 
     - name: test-linux-other
       if: matrix.target.os == 'ubuntu-latest'
@@ -265,6 +266,11 @@ jobs:
     - name: Cache Dependencies
       uses: Swatinem/rust-cache@v2
 
+    - name: Setup CI tools
+      uses: ./.github/actions/setup-tools
+      with:
+        protoc: 'true'
+
     - name: Install h2spec
       run: |
         curl -sSL https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz \
@@ -301,15 +307,11 @@ jobs:
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@v2
+      - name: Setup CI tools
+        uses: ./.github/actions/setup-tools
         with:
-          tool: cargo-hack
-
-      - name: Install protoc
-        uses: taiki-e/install-action@v2
-        with:
-          tool: protoc@3.23.4
+          cargo-hack: 'true'
+          protoc: 'true'
 
       - name: check-non-linux
         if: matrix.target.os != 'ubuntu-latest'
