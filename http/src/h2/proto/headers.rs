@@ -279,7 +279,7 @@ pub fn parse_u64(src: &[u8]) -> Result<u64, ()> {
     let mut ret = 0;
 
     for d in src {
-        if d.is_ascii_digit() {
+        if !d.is_ascii_digit() {
             return Err(());
         }
 

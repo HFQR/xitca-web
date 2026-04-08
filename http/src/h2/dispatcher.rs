@@ -79,7 +79,11 @@ struct DecodeContext<'a, S> {
 type Frame = crate::body::Frame<Bytes>;
 
 trait BodySize {
-    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Self;
+    /// Parse content-length from headers.
+    /// Returns `Err(())` if the header is present but malformed (RFC 7540 §8.1.2.6).
+    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()>
+    where
+        Self: Sized;
 
     /// Subtract `len` bytes received in a DATA frame.
     /// Returns `Err(())` if this would underflow (overflow: more data than declared).
@@ -90,16 +94,18 @@ trait BodySize {
 }
 
 impl BodySize for SizeHint {
-    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Self {
+    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()> {
         if is_end_stream {
-            Self::None
+            Ok(Self::None)
         } else {
-            headers
-                .get(CONTENT_LENGTH)
-                .and_then(|v| v.to_str().ok())
-                // TODO: should the length parse return with error?
-                .and_then(|s| headers::parse_u64(s.as_bytes()).ok())
-                .map_or(Self::Unknown, Self::Exact)
+            match headers.get(CONTENT_LENGTH) {
+                Some(v) => {
+                    let s = v.to_str().map_err(|_| ())?;
+                    let len = headers::parse_u64(s.as_bytes())?;
+                    Ok(Self::Exact(len))
+                }
+                None => Ok(Self::Unknown),
+            }
         }
     }
 
@@ -983,13 +989,19 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let mut inner = self.ctx.borrow_mut();
         let flow = &mut inner.flow;
+
         // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
         // Do NOT update last_stream_id: REFUSED_STREAM means no application
         // processing occurred and the client should retry (RFC 7540 §8.1.4).
         if flow.open_streams >= self.max_concurrent_streams {
             return Err(Error::Reset(id, Reason::REFUSED_STREAM, None));
         }
-        flow.open_streams += 1;
+
+        // RFC 7540 §8.1.2.6: parse content-length before headers are moved into the request.
+        // Only meaningful when there will be DATA frames (not end_stream).
+        // Malformed content-length → RST_STREAM PROTOCOL_ERROR per §8.1.2.6.
+        let content_length = BodySize::from_header(&headers, is_end_stream)
+            .map_err(|_| Error::Reset(id, Reason::PROTOCOL_ERROR, None))?;
 
         // Initialize send_flow at stream creation so any WINDOW_UPDATE that
         // arrives before response_task starts its body loop is not lost.
@@ -1000,10 +1012,7 @@ impl<'a, S> DecodeContext<'a, S> {
         };
 
         self.last_stream_id = id;
-
-        // RFC 7540 §8.1.2.6: parse content-length before headers are moved into the request.
-        // Only meaningful when there will be DATA frames (not end_stream).
-        let content_length = BodySize::from_header(&headers, is_end_stream);
+        flow.open_streams += 1;
 
         let mut req = Request::new(RequestExt::from_parts((), Extension::new(self.addr)));
         *req.version_mut() = Version::HTTP_2;

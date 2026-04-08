@@ -219,7 +219,7 @@ jobs:
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
-        free-disk-space: 'true'
+        free-disk-space: 'false'
         protoc: 'true'
 
     - name: Install h2spec
