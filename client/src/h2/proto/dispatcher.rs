@@ -81,13 +81,9 @@ where
             // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
             end_stream = false;
         }
-        Method::POST => {
-            if req.headers().get(CONTENT_TYPE).is_some_and(|val| val == &GRPC) {
-                // grpc stream may start with zero body. in that case
-                if is_eof {
-                    end_stream = false;
-                }
-            }
+        Method::POST if req.headers().get(CONTENT_TYPE).is_some_and(|val| val == GRPC) && is_eof => {
+            // grpc stream may start with zero body. in that case
+            end_stream = false;
         }
         Method::HEAD => is_head_method = true,
         _ => {}

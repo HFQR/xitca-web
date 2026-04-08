@@ -105,7 +105,7 @@ where
                 #[allow(unused_mut)]
                 let mut version = _tls_stream.as_version();
                 #[allow(unused_mut)]
-                let mut read_buf = BytesMut::new();
+                let mut _read_buf = BytesMut::new();
 
                 #[cfg(feature = "http2")]
                 if self.config.peek_protocol {
@@ -116,7 +116,7 @@ where
                         .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
                         .map_err(super::h2::Error::Io)?;
                     version = ver;
-                    read_buf = buf;
+                    _read_buf = buf;
                 };
 
                 match version {
@@ -124,7 +124,7 @@ where
                     super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::Dispatcher::run(
                         _tls_stream,
                         _addr,
-                        read_buf,
+                        _read_buf,
                         timer.as_mut(),
                         self.config,
                         &self.service,
@@ -140,7 +140,7 @@ where
                         super::h2::dispatcher::run(
                             _tls_stream,
                             _addr,
-                            read_buf,
+                            _read_buf,
                             timer.as_mut(),
                             &self.service,
                             self.date.get(),
