@@ -10,6 +10,10 @@ inputs:
     description: Install protoc
     required: false
     default: 'false'
+  free-disk-space:
+    description: Free up disk space (Linux only)
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -18,14 +22,15 @@ runs:
       uses: Swatinem/rust-cache@v2
 
     - name: Free up disk space
+      if: inputs.free-disk-space == 'true' && runner.os == 'Linux'
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: false
         android: true
         dotnet: true
         haskell: true
-        large-packages: false
-        docker-images: false
+        large-packages: true
+        docker-images: true
         swap-storage: true
 
     - name: Install cargo-hack

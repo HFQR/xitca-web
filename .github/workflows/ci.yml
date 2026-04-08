@@ -30,6 +30,7 @@ jobs:
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
+        free-disk-space: 'true'
         cargo-hack: 'true'
 
     - name: check-non-linux
@@ -65,6 +66,7 @@ jobs:
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
+        free-disk-space: 'true'
         cargo-hack: 'true'
 
     - name: check-non-linux
@@ -100,6 +102,7 @@ jobs:
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
+        free-disk-space: 'true'
         cargo-hack: 'true'
 
     - name: check-non-linux
@@ -135,6 +138,7 @@ jobs:
       - name: Setup CI tools
         uses: ./.github/actions/setup-tools
         with:
+          free-disk-space: 'true'
           cargo-hack: 'true'
           protoc: 'true'
 
@@ -184,6 +188,7 @@ jobs:
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
+        free-disk-space: 'true'
         cargo-hack: 'true'
         protoc: 'true'
 
@@ -214,6 +219,7 @@ jobs:
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
       with:
+        free-disk-space: 'true'
         protoc: 'true'
 
     - name: Install h2spec
@@ -249,6 +255,7 @@ jobs:
       - name: Setup CI tools
         uses: ./.github/actions/setup-tools
         with:
+          free-disk-space: 'true'
           cargo-hack: 'true'
           protoc: 'true'
 
