@@ -16,7 +16,7 @@ fn main() -> std::io::Result<()> {
         .at("/", Redirect::see_other("/index.html"))
         .at(
             // catch all request path and pass it to ServeDir service where the path is matched against file.
-            "/*path",
+            "/{*path}",
             // use CompatBuild to wrap tower-http service which would transform it to a xitca service.
             CompatBuild::new(ServeDir::new("files"))
                 // middleware for erasing complex types created by tower_http.

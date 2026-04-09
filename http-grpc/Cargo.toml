@@ -1,5 +1,5 @@
 [package]
-name = "http-grpc"
+name = "http-grpc-rs"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
@@ -7,6 +7,7 @@ description = "grpc for http crate type"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "grpc"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
 rust-version.workspace = true
 
 [lints]
