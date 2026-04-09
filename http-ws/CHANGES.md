@@ -1,4 +1,6 @@
-# unreleased 0.4.0
+# unreleased
+
+# 0.4.0
 ## Add
 - add `client_request_extend` function for extending websocket headers/methods to an existing `Request` type.
 - add `ResponseSender::{continuation, ping}` methods

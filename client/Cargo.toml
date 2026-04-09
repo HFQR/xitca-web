@@ -29,7 +29,7 @@ json = ["serde", "serde_json"]
 # websocket support. must be used together with http/1 and/or http/2 feature(s)
 websocket = ["http-ws"]
 # grpc support
-grpc = ["compress", "dep:http-grpc", "dep:prost", "http-grpc/compress-gz", "http-grpc/compress-br", "http-grpc/compress-de", "http-grpc/compress-zs"]
+grpc = ["compress", "dep:http-grpc-rs", "dep:prost", "http-grpc-rs/compress-gz", "http-grpc-rs/compress-br", "http-grpc-rs/compress-de", "http-grpc-rs/compress-zs"]
 # feature for trusted local network:
 # - http/2 clear text over plain tcp connection
 # - http/3 connection to server with self signed certificates
@@ -79,7 +79,7 @@ serde = { version = "1.0.130", default-features = false, optional = true }
 serde_json = { version = "1", optional = true }
 
 # grpc
-http-grpc = { version = "0.1", optional = true }
+http-grpc-rs = { version = "0.1", optional = true }
 prost = { version = "0.14", optional =true }
 
 # websocket

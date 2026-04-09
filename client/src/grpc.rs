@@ -7,7 +7,7 @@ use core::{
 
 use futures_core::stream::Stream;
 use futures_sink::Sink;
-use http_grpc::Codec;
+use http_grpc_rs::Codec;
 use prost::Message;
 use xitca_http::http::{
     HeaderMap, HeaderValue,
@@ -234,7 +234,7 @@ where
                         Poll::Ready(None)
                     } else {
                         Poll::Ready(Some(Err(Error::Std(Box::new(
-                            http_grpc::ProtocolError::IncompleteFrame,
+                            http_grpc_rs::ProtocolError::IncompleteFrame,
                         )))))
                     };
                 }

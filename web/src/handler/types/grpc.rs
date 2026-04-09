@@ -19,10 +19,10 @@
 //! }
 //! ```
 
-use http_grpc::stream::RequestStream;
+use http_grpc_rs::stream::RequestStream;
 use prost::Message;
 
-pub use http_grpc::{
+pub use http_grpc_rs::{
     codec::{Codec, DEFAULT_LIMIT},
     error::{GrpcError, ProtocolError},
     status::GrpcStatus,
@@ -125,9 +125,9 @@ where
 }
 
 /// Send gRPC messages to a [`GrpcStreamResponse`].
-pub use http_grpc::stream::ResponseSender as GrpcStreamSender;
+pub use http_grpc_rs::stream::ResponseSender as GrpcStreamSender;
 
-impl<'r, C, B, T> Responder<WebContext<'r, C, B>> for http_grpc::stream::ResponseBody<T>
+impl<'r, C, B, T> Responder<WebContext<'r, C, B>> for http_grpc_rs::stream::ResponseBody<T>
 where
     T: Message + Unpin + 'static,
 {
