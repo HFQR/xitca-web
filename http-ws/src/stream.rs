@@ -212,7 +212,10 @@ impl ResponseSender {
     }
 
     /// encode [`Message::Close`] variant and add to [ResponseStream].
-    /// take ownership of Self as after close message no more message can be sent to client.
+    ///
+    /// This method can only be executed once.
+    /// Concurrent callers would race for executing and at most one would succeed.
+    /// Other callers failing the race would observe [`ProtocolError::SendClosed`]
     pub async fn close(&mut self, reason: Option<impl Into<CloseReason>>) -> Result<(), ProtocolError> {
         self.send(Message::Close(reason.map(Into::into))).await
     }
@@ -223,7 +226,9 @@ impl ResponseSender {
     }
 }
 
-/// [Weak] version of [ResponseSender].
+/// [Weak] version of [ResponseSender].]
+///
+/// Used for duplicating sender for concurrency
 #[derive(Debug)]
 pub struct ResponseWeakSender {
     inner: Weak<_ResponseSender>,
@@ -231,7 +236,7 @@ pub struct ResponseWeakSender {
 
 impl ResponseWeakSender {
     /// upgrade self to strong response sender.
-    /// return None when [ResponseSender] is already dropped or session is already closed
+    /// return None when [ResponseSender] is already dropped or session (Send side) is already closed
     pub fn upgrade(&self) -> Option<ResponseSender> {
         self.inner.upgrade().and_then(|inner| {
             let closed = inner.encoder.lock().unwrap().codec.send_closed();
@@ -256,7 +261,7 @@ impl _ResponseSender {
     // send message to response stream. it would produce Ok(bytes) when succeed where
     // the bytes is encoded binary websocket message ready to be sent to client.
     async fn send(&self, msg: Message) -> Result<(), ProtocolError> {
-        let permit = self.tx.reserve().await.map_err(|_| ProtocolError::SendClosed)?;
+        let permit = self.tx.reserve().await.map_err(|_| ProtocolError::UnexpectedEof)?;
         let buf = {
             let mut encoder = self.encoder.lock().unwrap();
             let Encoder { codec, buf } = &mut *encoder;

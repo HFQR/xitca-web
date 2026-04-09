@@ -54,7 +54,7 @@ pub struct Pseudo {
     pub scheme: Option<BytesStr>,
     pub authority: Option<BytesStr>,
     pub path: Option<BytesStr>,
-    // pub protocol: Option<Protocol>,
+    pub protocol: Option<BytesStr>,
 
     // Response
     pub status: Option<StatusCode>,
@@ -254,14 +254,14 @@ impl Headers<()> {
     }
 }
 
-impl<P> fmt::Debug for Headers<P> {
+impl fmt::Debug for Headers {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut builder = f.debug_struct("Headers");
         builder.field("stream_id", &self.stream_id).field("flags", &self.flags);
 
-        // if let Some(ref protocol) = self.header_block.pseudo.protocol {
-        //     builder.field("protocol", protocol);
-        // }
+        if let Some(ref protocol) = self.header_block.pseudo.protocol {
+            builder.field("protocol", protocol);
+        }
 
         // `fields` and `pseudo` purposefully not included
         builder.finish()
@@ -329,7 +329,7 @@ impl Pseudo {
             scheme: None,
             authority: None,
             path: Some(path).filter(|p| !p.is_empty()),
-            // protocol,
+            protocol: None,
             status: None,
         };
 
@@ -629,9 +629,9 @@ impl _Pseudo for Pseudo {
                     return Some(Path(path));
                 }
 
-                // if let Some(protocol) = self.protocol.take() {
-                //     return Some(Protocol(protocol));
-                // }
+                if let Some(protocol) = self.0.protocol.take() {
+                    return Some(Protocol(protocol));
+                }
 
                 if let Some(status) = self.0.status.take() {
                     return Some(Status(status));
@@ -681,9 +681,7 @@ impl _Pseudo for Pseudo {
             Method(v) => set_pseudo!(method, v),
             Scheme(v) => set_pseudo!(scheme, v),
             Path(v) => set_pseudo!(path, v),
-            Protocol(v) => {
-                // set_pseudo!(protocol, v)
-            }
+            Protocol(v) => set_pseudo!(protocol, v),
             Status(_) => {
                 // :status is a response-only pseudo-header; reject in requests.
                 tracing::trace!("load_hpack; :status pseudo-header in request");
@@ -730,6 +728,7 @@ impl _Pseudo for Pseudo {
             + pseudo_size!(status)
             + pseudo_size!(authority)
             + pseudo_size!(path)
+            + pseudo_size!(protocol)
     }
 }
 

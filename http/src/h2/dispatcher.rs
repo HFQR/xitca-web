@@ -33,7 +33,7 @@ use crate::{
     date::{DateTime, DateTimeHandle},
     error::BodyError,
     http::{
-        Extension, HeaderMap, Request, RequestExt, Response, Uri, Version,
+        Extension, HeaderMap, Protocol, Request, RequestExt, Response, Uri, Version,
         header::{CONTENT_LENGTH, DATE},
         uri,
     },
@@ -393,11 +393,6 @@ pub(super) struct FlowControl {
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
     pub(super) stream_map: HashMap<StreamId, StreamState, NoHashBuilder>,
-    /// The peer's latest SETTINGS frame, pending an ACK (CVE-2019-9515).
-    /// A well-behaved peer sends one SETTINGS and waits for the ACK before
-    /// sending another (RFC 7540 §6.5.3). A second SETTINGS arriving while
-    /// one is already pending kills the connection with ENHANCE_YOUR_CALM.
-    remote_settings: RemoteSettings,
     /// Net count of premature resets: incremented when RST_STREAM arrives for
     /// an active response task, decremented when a stream completes normally.
     /// Stays near zero for well-behaved clients; climbs toward
@@ -413,19 +408,17 @@ pub(super) struct FlowControl {
 /// can be applied atomically at ACK time.
 #[derive(Default)]
 struct RemoteSettings {
-    settings: Settings,
-    pending: bool,
+    header_table_size: Option<Option<u32>>,
 }
 
 impl RemoteSettings {
     /// Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
     /// previous SETTINGS has not yet been ACKed (CVE-2019-9515).
     fn try_update(&mut self, settings: Settings) -> Result<(), Error> {
-        if self.pending {
+        if self.header_table_size.is_some() {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
-        self.pending = true;
-        self.settings = settings;
+        self.header_table_size = Some(settings.header_table_size());
         Ok(())
     }
 
@@ -434,14 +427,12 @@ impl RemoteSettings {
     /// Called at the top of every `poll_encode` pass ahead of header encoding.
     /// No-ops when nothing is pending.
     fn encode(&mut self, encoder: &mut hpack::Encoder, buf: &mut BytesMut) {
-        if !self.pending {
-            return;
+        if let Some(header_table_size) = self.header_table_size.take() {
+            if let Some(size) = header_table_size {
+                encoder.update_max_size(size as usize);
+            }
+            Settings::ack().encode(buf);
         }
-        if let Some(size) = self.settings.header_table_size() {
-            encoder.update_max_size(size as usize);
-        }
-        Settings::ack().encode(buf);
-        self.pending = false;
     }
 }
 
@@ -551,6 +542,11 @@ pub(super) struct WriterQueue {
     /// because they are bounded by `max_concurrent_streams`.
     resets: VecDeque<(StreamId, Reason)>,
     closed: bool,
+    /// The peer's latest SETTINGS frame, pending an ACK (CVE-2019-9515).
+    /// A well-behaved peer sends one SETTINGS and waits for the ACK before
+    /// sending another (RFC 7540 §6.5.3). A second SETTINGS arriving while
+    /// one is already pending kills the connection with ENHANCE_YOUR_CALM.
+    pending_settings: RemoteSettings,
     /// Accumulated connection-level WINDOW_UPDATE increment. Mutated at push
     /// time by all callers; flushed to a single connection frame after
     /// `poll_encode` drains the queue.
@@ -583,6 +579,7 @@ impl WriterQueue {
             messages: VecDeque::new(),
             resets: VecDeque::new(),
             closed: false,
+            pending_settings: RemoteSettings::default(),
             pending_conn_window: 0,
             keepalive_ping: KeepalivePing::Idle,
             pending_client_ping: None,
@@ -603,6 +600,11 @@ impl WriterQueue {
         let mut data = data::Data::new(id, payload);
         data.set_end_stream(end_stream);
         self.push(Message::Data(data));
+    }
+
+    pub(super) fn push_trailers(&mut self, id: StreamId, trailers: HeaderMap) {
+        let trailer = headers::Headers::trailers(id, trailers);
+        self.push(Message::Trailer(trailer));
     }
 
     /// Push a RST_STREAM caused by a client protocol error. Returns `true` if
@@ -1017,7 +1019,7 @@ impl<'a, S> DecodeContext<'a, S> {
 
         // Record the pending ACK. A second SETTINGS before the first is ACKed
         // is a protocol violation and returns ENHANCE_YOUR_CALM (CVE-2019-9515).
-        flow.remote_settings.try_update(setting)
+        inner.queue.pending_settings.try_update(setting)
     }
 
     fn decode_header_block(
@@ -1120,7 +1122,10 @@ impl<'a, S> DecodeContext<'a, S> {
         self.last_stream_id = id;
         flow.open_streams += 1;
 
-        let mut req = Request::new(RequestExt::from_parts((), Extension::new(self.addr)));
+        let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
+        let ext = Extension::with_protocol(self.addr, protocol);
+
+        let mut req = Request::new(RequestExt::from_parts((), ext));
         *req.version_mut() = Version::HTTP_2;
         *req.headers_mut() = headers;
         *req.method_mut() = method;
@@ -1239,7 +1244,8 @@ impl<'a> EncodeContext<'a> {
     fn poll_encode(&mut self, write_buf: &mut BytesMut) -> Poll<bool> {
         let mut inner = self.ctx.borrow_mut();
 
-        inner.flow.remote_settings.encode(&mut self.encoder, write_buf);
+        // remote_setting can contain updated states for following encoding
+        inner.queue.pending_settings.encode(&mut self.encoder, write_buf);
 
         let writable = loop {
             match inner.queue.poll_recv() {
@@ -1440,8 +1446,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                     }
                 }
                 Some(Ok(Frame::Trailers(trailers))) => {
-                    let trailer = headers::Headers::trailers(stream_id, trailers);
-                    ctx.borrow_mut().queue.push(Message::Trailer(trailer));
+                    ctx.borrow_mut().queue.push_trailers(stream_id, trailers);
                     break;
                 }
             }
@@ -1566,7 +1571,6 @@ where
             max_frame_size: max_frame_size as usize,
             recv_connection_window: recv_initial_window_size as usize,
             stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
-            remote_settings: RemoteSettings::default(),
             premature_reset_count: 0,
         },
         queue: WriterQueue::new(),

@@ -11,7 +11,6 @@ use crate::{
     h2::{Connection, Error, body::ResponseBody as H2ResponseBody},
     http::{
         self,
-        const_header_name::PROTOCOL,
         const_header_value::GRPC,
         header::{CONNECTION, CONTENT_LENGTH, DATE, HOST, HeaderValue, TRANSFER_ENCODING, UPGRADE},
         method::Method,
@@ -69,12 +68,16 @@ where
 
     match *req.method() {
         Method::CONNECT => {
-            let protocol = req
-                .headers_mut()
-                .remove(PROTOCOL)
-                .and_then(|v| v.to_str().ok().map(::h2::ext::Protocol::from))
-                // if user did not provide any info about extended protocol assuming it wants tcp tunnel.
-                .unwrap_or_else(|| ::h2::ext::Protocol::from_static("connect-ip"));
+            #[allow(unused_mut)]
+            let mut protocol = ::h2::ext::Protocol::from_static("connect-ip");
+
+            #[cfg(feature = "websocket")]
+            {
+                // a runtime behavior depend on http-ws crate to properly insert extension type into
+                if let Some(p) = req.extensions_mut().remove::<http_ws::Http2WsProtocol>() {
+                    protocol = ::h2::ext::Protocol::from(p.as_ref());
+                }
+            }
 
             req.extensions_mut().insert(protocol);
 

@@ -125,7 +125,7 @@ impl Codec {
         self.flags.insert(Flags::SEND_CLOSED);
     }
 
-    fn recv_closed(&mut self) -> bool {
+    fn recv_closed(&self) -> bool {
         self.flags.contains(Flags::RECV_CLOSED)
     }
 

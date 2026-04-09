@@ -11,7 +11,7 @@ use std::{
 
 use xitca_http::{
     HttpServiceBuilder,
-    body::{Body, ResponseBody},
+    body::Body,
     config::HttpServiceConfig,
     h1, h2, h3,
     http::{Request, RequestExt, Response},
@@ -22,7 +22,7 @@ use xitca_service::{Service, ServiceExt, ready::ReadyService};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
-type HResponse<B> = Response<ResponseBody<B>>;
+type HResponse<B> = Response<B>;
 
 /// A general test server for any given service type that accept the connection from
 /// xitca-server
@@ -47,14 +47,14 @@ where
 }
 
 /// A specialized http/1 server on top of [test_server]
-pub fn test_h1_server<T, B, E>(service: T) -> Result<TestServerHandle, Error>
+pub fn test_h1_server<T, B>(service: T) -> Result<TestServerHandle, Error>
 where
     T: Service + Send + Sync + 'static,
     T::Response: ReadyService + Service<Request<RequestExt<h1::RequestBody>>, Response = HResponse<B>> + 'static,
     <T::Response as Service<Request<RequestExt<h1::RequestBody>>>>::Error: fmt::Debug,
     T::Error: error::Error + 'static,
-    B: Body<Data = Bytes, Error = E> + 'static,
-    E: fmt::Debug + 'static,
+    B: Body<Data = Bytes> + 'static,
+    B::Error: fmt::Debug + 'static,
 {
     let builder = HttpServiceBuilder::h1();
 
@@ -65,14 +65,14 @@ where
 }
 
 /// A specialized http/2 server on top of [test_server]
-pub fn test_h2_server<T, B, E>(service: T) -> Result<TestServerHandle, Error>
+pub fn test_h2_server<T, B>(service: T) -> Result<TestServerHandle, Error>
 where
     T: Service + Send + Sync + 'static,
     T::Response: ReadyService + Service<Request<RequestExt<h2::RequestBody>>, Response = HResponse<B>> + 'static,
     <T::Response as Service<Request<RequestExt<h2::RequestBody>>>>::Error: fmt::Debug,
     T::Error: error::Error + 'static,
-    B: Body<Data = Bytes, Error = E> + 'static,
-    E: fmt::Debug + 'static,
+    B: Body<Data = Bytes> + 'static,
+    B::Error: fmt::Debug + 'static,
 {
     let builder = HttpServiceBuilder::h2().config(
         HttpServiceConfig::new()
@@ -88,14 +88,14 @@ where
 }
 
 /// A specialized http/3 server
-pub fn test_h3_server<T, B, E>(service: T) -> Result<TestServerHandle, Error>
+pub fn test_h3_server<T, B>(service: T) -> Result<TestServerHandle, Error>
 where
     T: Service + Send + Sync + 'static,
     T::Response: ReadyService + Service<Request<RequestExt<h3::RequestBody>>, Response = HResponse<B>> + 'static,
     <T::Response as Service<Request<RequestExt<h3::RequestBody>>>>::Error: fmt::Debug,
     T::Error: error::Error + 'static,
-    B: Body<Data = Bytes, Error = E> + 'static,
-    E: fmt::Debug + 'static,
+    B: Body<Data = Bytes> + 'static,
+    B::Error: fmt::Debug + 'static,
 {
     let addr = std::net::UdpSocket::bind("127.0.0.1:0")?.local_addr()?;
 
