@@ -79,13 +79,16 @@ pub struct Connect<'a> {
 
 impl<'a> Connect<'a> {
     /// Create `Connect` instance by splitting the string by ':' and convert the second part to u16
-    pub fn new(uri: Uri<'a>) -> Self {
+    pub fn new(uri: Uri<'a>, address: Option<SocketAddr>) -> Self {
         let (_, port) = parse_host(uri.hostname());
 
         Self {
             uri,
             port: port.unwrap_or(0),
-            addr: Addrs::None,
+            addr: match address {
+                Some(address) => Addrs::One(address),
+                None => Addrs::None,
+            },
         }
     }
 
@@ -118,6 +121,15 @@ impl<'a> Connect<'a> {
             Addrs::None => AddrsIter::None,
             Addrs::One(addr) => AddrsIter::One(addr),
             Addrs::Multi(ref addrs) => AddrsIter::Multi(addrs.iter()),
+        }
+    }
+
+    /// Check if address is resolved.
+    pub fn is_resolved(&self) -> bool {
+        match self.addr {
+            Addrs::None => false,
+            Addrs::One(_) => true,
+            Addrs::Multi(ref addrs) => !addrs.is_empty(),
         }
     }
 }
