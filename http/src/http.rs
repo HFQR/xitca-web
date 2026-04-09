@@ -17,7 +17,7 @@ use pin_project_lite::pin_project;
 
 use crate::body::{Body, Frame, SizeHint};
 
-/// Extended protocol get injected at runtime to [`Extensions`] for context awareness
+/// Extended protocol get injected to [`RequestExt`] for context awareness
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Protocol {
     inner: _Protocol,
@@ -101,7 +101,6 @@ pub mod const_header_name {
         }
 
     const_name!(
-        (PROTOCOL, "protocol"),
         (GRPC_STATUS, "grpc-status"),
         (GRPC_MESSAGE, "grpc-message"),
         (GRPC_ENCODING, "grpc-encoding"),

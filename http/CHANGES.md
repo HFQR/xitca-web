@@ -1,6 +1,8 @@
 # unreleased 0.9.0
 ## Add
 - add trailers support for http/1.1, http/2, http/3
+- add `http::Protocol` type to `http::RequestExt`
+- add `http::RequestExt::protocol` method
 
 ## Change
 - use `http-body-alt` crate for generic http body type and streaming interface
