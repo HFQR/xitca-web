@@ -6,6 +6,7 @@ use xitca_service::Service;
 
 use crate::{
     body::RequestBody,
+    builder::marker,
     bytes::Bytes,
     error::{HttpServiceError, TimeoutError},
     http::{Request, RequestExt, Response},
@@ -13,20 +14,20 @@ use crate::{
     util::timer::Timeout,
 };
 
-pub type H1Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+pub type H1Service<St, Io, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpService<marker::Http1, Io, St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<St, S, B, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<(St, SocketAddr)> for H1Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, Io, S, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<(St, SocketAddr)> for H1Service<St, Io, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     A: Service<St>,
     A::Response: AsyncBufRead + AsyncBufWrite + 'static,
-    B: Body<Data = Bytes, Error = BE>,
-    HttpServiceError<S::Error, BE>: From<A::Error>,
+    B: Body<Data = Bytes>,
+    HttpServiceError<S::Error, B::Error>: From<A::Error>,
 {
     type Response = ();
-    type Error = HttpServiceError<S::Error, BE>;
+    type Error = HttpServiceError<S::Error, B::Error>;
 
     async fn call(&self, (io, addr): (St, SocketAddr)) -> Result<Self::Response, Self::Error> {
         // at this stage keep-alive timer is used to tracks tls accept timeout.

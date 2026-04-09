@@ -5,7 +5,8 @@ use xitca_service::Service;
 
 use crate::{
     body::Body,
-    bytes::Bytes,
+    builder::marker,
+    bytes::{Bytes, BytesMut},
     error::{HttpServiceError, TimeoutError},
     http::{Request, RequestExt, Response},
     service::HttpService,
@@ -14,22 +15,22 @@ use crate::{
 
 use super::{body::RequestBody, dispatcher};
 
-pub type H2Service<St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
-    HttpService<St, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+pub type H2Service<St, Io, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> =
+    HttpService<marker::Http2, Io, St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
-impl<St, S, ResB, BE, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<(St, SocketAddr)> for H2Service<St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<St, Io, S, B, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<(St, SocketAddr)> for H2Service<St, Io, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     S::Error: fmt::Debug,
     A: Service<St, Response = TlsSt>,
     TlsSt: AsyncBufRead + AsyncBufWrite + 'static,
-    HttpServiceError<S::Error, BE>: From<A::Error>,
-    ResB: Body<Data = Bytes, Error = BE>,
-    BE: fmt::Debug,
+    HttpServiceError<S::Error, B::Error>: From<A::Error>,
+    B: Body<Data = Bytes>,
+    B::Error: fmt::Debug,
 {
     type Response = ();
-    type Error = HttpServiceError<S::Error, BE>;
+    type Error = HttpServiceError<S::Error, B::Error>;
 
     async fn call(&self, (io, addr): (St, SocketAddr)) -> Result<Self::Response, Self::Error> {
         // tls accept timer.
@@ -49,7 +50,7 @@ where
         dispatcher::run(
             io,
             addr,
-            crate::bytes::BytesMut::new(),
+            BytesMut::new(),
             timer,
             &self.service,
             self.date.get(),

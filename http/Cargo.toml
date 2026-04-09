@@ -17,23 +17,26 @@ workspace = true
 # default include only http1.
 default = ["http1"]
 # http1 specific feature.
-http1 = ["httparse", "itoa", "runtime"]
+http1 = ["runtime", "dep:httparse", "dep:itoa"]
 # http2 specific feature.
-http2 = ["fnv", "futures-util/alloc", "runtime"]
+http2 = ["runtime", "dep:fnv", "futures-util/alloc"]
 # http3 specific feature.
-http3 = ["xitca-io/quic", "futures-util/alloc", "h3", "h3-quinn", "runtime"]
+http3 = ["runtime", "xitca-io/quic", "futures-util/alloc", "dep:h3", "dep:h3-quinn"]
 # openssl as server side tls.
-openssl = ["xitca-tls/openssl", "runtime"]
+openssl = ["__tls", "runtime", "xitca-tls/openssl"]
 # rustls as server side tls.
-rustls = ["xitca-tls/rustls", "runtime"]
+rustls = ["__tls", "runtime", "xitca-tls/rustls"]
 # rustls as server side tls.
-native-tls = ["xitca-tls/native-tls", "runtime"]
+native-tls = ["__tls", "runtime", "xitca-tls/native-tls"]
 # async runtime feature.
-runtime = ["xitca-io/runtime", "tokio"]
+runtime = ["dep:tokio", "xitca-io/runtime"]
 
 # unstable features that are subject to be changed at anytime.
 io-uring = ["xitca-io/runtime-uring"]
 router = ["xitca-router"]
+
+# shared for tls features
+__tls = []
 
 [dependencies]
 xitca-io = { workspace = true }

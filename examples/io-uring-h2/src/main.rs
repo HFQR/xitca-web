@@ -12,7 +12,6 @@ use xitca_http::{
     HttpServiceBuilder,
     body::Full,
     bytes::Bytes,
-    h2::RequestBody,
     http::{Request, RequestExt, Response, const_header_value::TEXT_UTF8, header::CONTENT_TYPE},
 };
 use xitca_service::{ServiceExt, fn_service};
@@ -30,7 +29,7 @@ fn main() -> io::Result<()> {
         .wait()
 }
 
-async fn handler(_: Request<RequestExt<RequestBody>>) -> Result<Response<Full<Bytes>>, Infallible> {
+async fn handler(_: Request<RequestExt<xitca_http::h2::RequestBody>>) -> Result<Response<Full<Bytes>>, Infallible> {
     Ok(Response::builder()
         .header(CONTENT_TYPE, TEXT_UTF8)
         .body(Full::new(Bytes::new()))

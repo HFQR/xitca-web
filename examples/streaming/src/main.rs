@@ -16,7 +16,6 @@ use std::{
 use xitca_web::{
     App, WebContext,
     body::{AsyncBody, Body, BoxBody, Frame, RequestBody, ResponseBody, StreamDataBody},
-    bytes::Bytes,
     handler::handler_service,
     http::{
         const_header_value::TEXT_UTF8,
@@ -47,8 +46,8 @@ async fn nightly() -> ((HeaderName, HeaderValue), ResponseBody) {
     (
         (CONTENT_TYPE, TEXT_UTF8),
         ResponseBody::boxed(AsyncBody::from(async gen {
-            yield Ok(Bytes::from_static(b"hello,"));
-            yield Ok::<_, Infallible>(Bytes::from_static(b"world!"));
+            yield Ok("hello,");
+            yield Ok::<_, Infallible>("world!");
         })),
     )
 }
@@ -59,8 +58,8 @@ async fn r#macro() -> ((HeaderName, HeaderValue), ResponseBody) {
     (
         (CONTENT_TYPE, TEXT_UTF8),
         ResponseBody::boxed(StreamDataBody::new(async_stream::stream! {
-            yield Ok(Bytes::from_static(b"hello,"));
-            yield Ok::<_, Infallible>(Bytes::from_static(b"world!"));
+            yield Ok("hello,");
+            yield Ok::<_, Infallible>("world!");
         })),
     )
 }
@@ -79,7 +78,7 @@ enum Hello {
 }
 
 impl Body for Hello {
-    type Data = Bytes;
+    type Data = &'static str;
     type Error = Infallible;
 
     fn poll_frame(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
@@ -87,11 +86,11 @@ impl Body for Hello {
         match *this {
             Self::Step1 => {
                 *this = Hello::Step2;
-                Poll::Ready(Some(Ok(Frame::Data(Bytes::from_static(b"world!")))))
+                Poll::Ready(Some(Ok(Frame::Data("hello,"))))
             }
             Self::Step2 => {
                 *this = Hello::Step3;
-                Poll::Ready(Some(Ok(Frame::Data(Bytes::from_static(b"world!")))))
+                Poll::Ready(Some(Ok(Frame::Data("world!"))))
             }
             Self::Step3 => Poll::Ready(None),
         }

@@ -21,8 +21,8 @@ http1 = ["__server", "xitca-http/http1"]
 http2 = ["__server", "xitca-http/http2"]
 http3 = ["__server", "xitca-http/http3", "xitca-server/quic", "xitca-io/quic"]
 
-# linux io-uring async file io
-io-uring = ["__server", "xitca-server/io-uring"]
+# linux io-uring runtime and http service
+io-uring = ["__server", "xitca-server/io-uring", "xitca-http/io-uring"]
 
 # tls transport layer
 openssl = ["__server", "xitca-http/openssl", "xitca-tls/openssl"]

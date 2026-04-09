@@ -23,6 +23,7 @@ pub struct HttpServer<
 > {
     service: Arc<S>,
     builder: Builder,
+    enable_io_uring: bool,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
 }
 
@@ -34,6 +35,7 @@ where
         Self {
             service: Arc::new(service),
             builder: Builder::new(),
+            enable_io_uring: false,
             config: HttpServiceConfig::default(),
         }
     }
@@ -178,6 +180,12 @@ where
         self
     }
 
+    #[cfg(feature = "io-uring")]
+    pub fn enable_io_uring(mut self) -> Self {
+        self.enable_io_uring = true;
+        self
+    }
+
     #[cfg(not(target_family = "wasm"))]
     pub fn bind<A, ResB>(mut self, addr: A) -> std::io::Result<Self>
     where
@@ -189,9 +197,22 @@ where
         ResB: Body<Data = Bytes> + 'static,
         ResB::Error: fmt::Debug + 'static,
     {
-        let config = self.config;
-        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
-        self.builder = self.builder.bind("xitca-web", addr, service)?;
+        let http = HttpServiceBuilder::with_config(self.config);
+        let service = self.service.clone();
+        let name = "xitca-web";
+
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind(name, addr, service.enclosed(http.io_uring()))?
+            }
+
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind(name, addr, service.enclosed(http))?
+        };
+
         Ok(self)
     }
 
@@ -205,9 +226,22 @@ where
         ResB::Error: fmt::Debug + 'static,
         L: IntoListener + 'static,
     {
-        let config = self.config;
-        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
-        self.builder = self.builder.listen("xitca-web", listener, service);
+        let http = HttpServiceBuilder::with_config(self.config);
+        let service = self.service.clone();
+        let name = "xitca-web";
+
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.listen(name, listener, service.enclosed(http.io_uring()))
+            }
+
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.listen(name, listener, service.enclosed(http))
+        };
+
         Ok(self)
     }
 
@@ -247,7 +281,7 @@ where
         });
 
         #[cfg(not(feature = "http2"))]
-        let protos = H11.iter().cloned().collect::<Vec<_>>();
+        let protos = H11.to_vec();
 
         #[cfg(feature = "http2")]
         let protos = H11.iter().chain(H2).cloned().collect::<Vec<_>>();
@@ -255,13 +289,21 @@ where
         builder.set_alpn_protos(&protos)?;
 
         let acceptor = builder.build();
+        let name = "xitca-web-openssl";
+        let http = HttpServiceBuilder::with_config(config).openssl(acceptor);
+        let service = self.service.clone();
 
-        let service = self
-            .service
-            .clone()
-            .enclosed(HttpServiceBuilder::with_config(config).openssl(acceptor));
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind(name, addr, service.enclosed(http.io_uring()))?
+            }
 
-        self.builder = self.builder.bind("xitca-web-openssl", addr, service)?;
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind(name, addr, service.enclosed(http))?
+        };
 
         Ok(self)
     }
@@ -290,13 +332,21 @@ where
         config.alpn_protocols.push("http/1.1".into());
 
         let config = std::sync::Arc::new(config);
+        let http = HttpServiceBuilder::with_config(service_config).rustls(config);
+        let service = self.service.clone();
+        let name = "xitca-web-rustls";
 
-        let service = self
-            .service
-            .clone()
-            .enclosed(HttpServiceBuilder::with_config(service_config).rustls(config));
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind(name, addr, service.enclosed(http.io_uring()))?
+            }
 
-        self.builder = self.builder.bind("xitca-web-rustls", addr, service)?;
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind(name, addr, service.enclosed(http))?
+        };
 
         Ok(self)
     }
@@ -311,9 +361,21 @@ where
         ResB: Body<Data = Bytes> + 'static,
         ResB::Error: fmt::Debug + 'static,
     {
-        let config = self.config;
-        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
-        self.builder = self.builder.bind_unix("xitca-web", path, service)?;
+        let http = HttpServiceBuilder::with_config(self.config);
+        let name = "xitca-web";
+        let service = self.service.clone();
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind_unix(name, path, service.enclosed(http.io_uring()))?
+            }
+
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind_unix(name, path, service.enclosed(http))?
+        };
+
         Ok(self)
     }
 
@@ -349,6 +411,7 @@ where
     ) -> HttpServer<S, HEADER_LIMIT2, READ_BUF_LIMIT2, WRITE_BUF_LIMIT2> {
         HttpServer {
             service: self.service,
+            enable_io_uring: self.enable_io_uring,
             builder: self.builder,
             config: self
                 .config

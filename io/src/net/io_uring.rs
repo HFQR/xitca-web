@@ -4,7 +4,7 @@ use std::io;
 
 pub use tokio_uring_xitca::net::{TcpStream, UnixStream};
 
-use super::Stream;
+use super::{Stream, unix::unspecified_socket_addr};
 
 impl TryFrom<Stream> for TcpStream {
     type Error = io::Error;
@@ -43,5 +43,14 @@ impl TryFrom<Stream> for (UnixStream, std::os::unix::net::SocketAddr) {
             #[allow(unreachable_patterns)]
             _ => unreachable!("Can not be casted to UnixStream"),
         }
+    }
+}
+
+impl TryFrom<Stream> for (UnixStream, SocketAddr) {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        <(UnixStream, std::os::unix::net::SocketAddr)>::try_from(stream)
+            .map(|(stream, _)| (stream, unspecified_socket_addr()))
     }
 }

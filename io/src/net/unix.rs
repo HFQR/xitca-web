@@ -1,8 +1,10 @@
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
 use std::{
     io,
     os::unix::{
         io::{AsFd, BorrowedFd},
-        net::{self, SocketAddr},
+        net,
     },
     path::Path,
 };
@@ -31,11 +33,11 @@ impl TryFrom<Stream> for UnixStream {
     type Error = io::Error;
 
     fn try_from(stream: Stream) -> Result<Self, Self::Error> {
-        <(UnixStream, SocketAddr)>::try_from(stream).map(|(unix, _)| unix)
+        <(UnixStream, net::SocketAddr)>::try_from(stream).map(|(unix, _)| unix)
     }
 }
 
-impl TryFrom<Stream> for (UnixStream, SocketAddr) {
+impl TryFrom<Stream> for (UnixStream, net::SocketAddr) {
     type Error = io::Error;
 
     fn try_from(stream: Stream) -> Result<Self, Self::Error> {
@@ -44,6 +46,18 @@ impl TryFrom<Stream> for (UnixStream, SocketAddr) {
             _ => unreachable!("Can not be casted to UnixStream"),
         }
     }
+}
+
+impl TryFrom<Stream> for (UnixStream, SocketAddr) {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        <(UnixStream, net::SocketAddr)>::try_from(stream).map(|(stream, _)| (stream, unspecified_socket_addr()))
+    }
+}
+
+pub(super) fn unspecified_socket_addr() -> SocketAddr {
+    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))
 }
 
 impl AsFd for UnixStream {

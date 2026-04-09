@@ -1,6 +1,8 @@
 # unreleased 0.9.0
 ## Add
-- add trailers support for http/1.1, http/2, http/3
+- add io_uring, tls, HTTP/2 and HTTP/2 cleartext support for unix socket
+- add io_uring support for unified `HttpServiceBuilder`
+- add trailers support for HTTP/1.1, HTTP/2, HTTP/3
 - add `http::Protocol` type to `http::RequestExt`
 - add `http::RequestExt::protocol` method
 

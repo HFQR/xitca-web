@@ -1,21 +1,21 @@
 use std::ops::Add;
 
 /// Size hint for type impl [`Body`] trait
-/// 
+///
 /// Size is for [`Frame::Data`] variant only. [`Frame::Trailers`] is not inclued in hint
-/// 
+///
 /// [`Body`]: crate::body::Body
 /// [`Frame::Data`]: crate::frame::Frame::Data
 /// [`Frame::Trailers`]: crate::frame::Frame::Trailers
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SizeHint {
     /// No sized. [`Body::poll_frame`] can be skipped entirely
-    /// 
+    ///
     /// [`Body::poll_frame`]: crate::body::Body::poll_frame
     None,
     /// Exact sized. [`Body::poll_frame`] can reliably expect all [`Frame::Data`] it can yield
     /// have a total byte length in exact number
-    /// 
+    ///
     /// [`Body::poll_frame`]: crate::body::Body::poll_frame
     /// [`Frame::Data`]: crate::frame::Frame::Data
     Exact(u64),

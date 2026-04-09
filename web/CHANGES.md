@@ -1,5 +1,7 @@
 # unreleased 0.8.0
 ## Add
+- add `HttpServer::enable_io_uring` to enable io_uring for network. Require `io-uring` crate feature
+- add `HttpServer::h2c_prior_knowledge` to enable HTTP/2 clear text. `http2` crate feature is requried
 - add `handler::grpc` module for typed grpc message request/response handling
 - Add `error::Error::call_dyn` enabling object oriented web response conversion in arbitrary error type's Service impl
 

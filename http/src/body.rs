@@ -124,11 +124,11 @@ impl Default for BoxBody {
 
 impl BoxBody {
     #[inline]
-    pub fn new<B, T, E>(body: B) -> Self
+    pub fn new<B>(body: B) -> Self
     where
-        B: Body<Data = T, Error = E> + 'static,
-        T: Into<Bytes> + Buf + 'static,
-        E: Into<BodyError> + 'static,
+        B: Body + 'static,
+        B::Data: Into<Bytes> + 'static,
+        B::Error: Into<BodyError> + 'static,
     {
         pin_project! {
             struct MapBody<B> {
@@ -140,7 +140,7 @@ impl BoxBody {
         impl<B, T, E> Body for MapBody<B>
         where
             B: Body<Data = T, Error = E>,
-            T: Into<Bytes> + Buf,
+            T: Into<Bytes>,
             E: Into<BodyError>,
         {
             type Data = Bytes;
@@ -229,7 +229,7 @@ impl ResponseBody {
     pub fn boxed<B, T, E>(body: B) -> Self
     where
         B: Body<Data = T, Error = E> + 'static,
-        T: Into<Bytes> + Buf + 'static,
+        T: Into<Bytes> + 'static,
         E: Into<BodyError> + 'static,
     {
         Self::body(BoxBody::new(body))

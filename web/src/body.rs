@@ -8,18 +8,15 @@ pub(crate) use xitca_http::body::Either;
 
 use core::any::Any;
 
-use crate::{
-    bytes::{Buf, Bytes},
-    error::BodyError,
-};
+use crate::{bytes::Bytes, error::BodyError};
 
 /// an extended trait for [Stream] that specify additional type info of the [Stream::Item] type.
-pub trait BodyStream: Body<Data: Buf + Into<Bytes> + AsRef<[u8]> + 'static, Error: Into<BodyError>> {}
+pub trait BodyStream: Body<Data: Into<Bytes> + AsRef<[u8]> + 'static, Error: Into<BodyError>> {}
 
 impl<B> BodyStream for B
 where
     B: Body,
-    B::Data: Buf + Into<Bytes> + AsRef<[u8]> + 'static,
+    B::Data: Into<Bytes> + AsRef<[u8]> + 'static,
     B::Error: Into<BodyError>,
 {
 }
