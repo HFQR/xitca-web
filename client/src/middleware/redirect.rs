@@ -1,5 +1,5 @@
 use crate::{
-    body::BoxBody,
+    body::RequestBody,
     error::{Error, InvalidUri},
     http::{
         Method, StatusCode, Uri,
@@ -69,7 +69,7 @@ where
                         method = Method::GET;
                     }
 
-                    *req.body_mut() = BoxBody::default();
+                    *req.body_mut() = RequestBody::empty();
 
                     for header in &[TRANSFER_ENCODING, CONTENT_ENCODING, CONTENT_TYPE, CONTENT_LENGTH] {
                         headers.remove(header);
@@ -137,7 +137,7 @@ mod test {
 
         let redirect = FollowRedirect::new(service).max::<1>();
 
-        let handler = |req: http::Request<BoxBody>| match req.uri().path() {
+        let handler = |req: http::Request<RequestBody>| match req.uri().path() {
             "/foo" => Ok(http::Response::builder()
                 .status(StatusCode::SEE_OTHER)
                 .header("location", "/bar")

@@ -15,7 +15,7 @@ use xitca_http::http::{
 };
 
 use super::{
-    body::{Body, BoxBody, Frame, Full},
+    body::{Body, Frame, RequestBody},
     bytes::{Buf, Bytes, BytesMut},
     error::{Error, ErrorResponse},
     h2::body::ResponseBody,
@@ -105,7 +105,7 @@ impl GrpcUnaryRequest<'_> {
         self.prepare_codec()
             .encode(&msg, &mut buf)
             .map_err(|e| Error::Std(Box::new(e)))?;
-        *self.req.body_mut() = BoxBody::new(Full::new(buf.freeze()));
+        *self.req.body_mut() = RequestBody::bytes(buf.freeze());
 
         self.builder._send().await
     }

@@ -1,7 +1,7 @@
 use core::{marker::PhantomData, time::Duration};
 
 use crate::{
-    body::{Body, BodyError, BodyExt, BoxBody, Data, Full, Trailers},
+    body::{Body, BodyError, BodyExt, BoxBody, Data, RequestBody, Trailers, downcast_body},
     bytes::Bytes,
     client::Client,
     error::Error,
@@ -15,7 +15,7 @@ use crate::{
 
 /// builder type for [http::Request] with extended functionalities.
 pub struct RequestBuilder<'a, M = marker::Http> {
-    pub(crate) req: http::Request<BoxBody>,
+    pub(crate) req: http::Request<RequestBody>,
     pub(crate) err: Vec<Error>,
     client: &'a Client,
     timeout: Duration,
@@ -72,22 +72,21 @@ impl RequestBuilder<'_, marker::Http> {
     /// Use pre allocated bytes as request body.
     ///
     /// Input type must implement [From] trait with [Bytes].
-    pub fn bytes<B>(mut self, body: B) -> Self
-    where
-        Bytes: From<B>,
-    {
-        let bytes = Bytes::from(body);
+    pub fn bytes(mut self, body: impl Into<Bytes>) -> Self {
+        let bytes = body.into();
         let val = HeaderValue::from(bytes.len());
         self.headers_mut().insert(CONTENT_LENGTH, val);
-        self.map_body(Full::new(bytes))
+        *self.req.body_mut() = RequestBody::bytes(bytes);
+        self
     }
 
     /// Use streaming type as request body.
     #[inline]
-    pub fn body<B, E>(self, body: B) -> Self
+    pub fn body<B>(self, body: B) -> Self
     where
-        B: Body<Data = Bytes, Error = E> + Send + 'static,
-        E: Into<BodyError>,
+        B: Body + Send + 'static,
+        B::Data: Into<Bytes>,
+        B::Error: Into<BodyError>,
     {
         self.map_body(body)
     }
@@ -110,7 +109,7 @@ impl RequestBuilder<'_, marker::Http> {
         // Wrap the current body with WithTrailers.
         self.req = self
             .req
-            .map(|body| BoxBody::new(Data::new(body).chain(Trailers::new(trailers))));
+            .map(|body| RequestBody::body(BoxBody::new(Data::new(body).chain(Trailers::new(trailers)))));
         self
     }
 
@@ -121,13 +120,14 @@ impl RequestBuilder<'_, marker::Http> {
 }
 
 impl<'a, M> RequestBuilder<'a, M> {
-    pub(crate) fn new<B, E>(req: http::Request<B>, client: &'a Client) -> Self
+    pub(crate) fn new<B>(req: http::Request<B>, client: &'a Client) -> Self
     where
-        B: Body<Data = Bytes, Error = E> + Send + 'static,
-        E: Into<BodyError>,
+        B: Body + Send + 'static,
+        B::Data: Into<Bytes>,
+        B::Error: Into<BodyError>,
     {
         Self {
-            req: req.map(BoxBody::new),
+            req: req.map(downcast_body),
             err: Vec::new(),
             client,
             timeout: client.timeout_config.request_timeout,
@@ -237,12 +237,13 @@ impl<'a, M> RequestBuilder<'a, M> {
         self
     }
 
-    fn map_body<B, E>(mut self, b: B) -> RequestBuilder<'a, M>
+    fn map_body<B>(mut self, b: B) -> RequestBuilder<'a, M>
     where
-        B: Body<Data = Bytes, Error = E> + Send + 'static,
-        E: Into<BodyError>,
+        B: Body + Send + 'static,
+        B::Data: Into<Bytes>,
+        B::Error: Into<BodyError>,
     {
-        self.req = self.req.map(|_| BoxBody::new(b));
+        self.req = self.req.map(|_| downcast_body(b));
         self
     }
 }

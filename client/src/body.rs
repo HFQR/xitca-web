@@ -1,9 +1,10 @@
 pub(crate) use xitca_http::{
-    body::{Body, BodyExt, Data, Empty, Frame, Full, SizeHint, Trailers},
+    body::{Body, BodyExt, Data, Empty, Frame, SizeHint, Trailers},
     error::BodyError,
 };
 
 use core::{
+    any::Any,
     fmt,
     pin::Pin,
     task::{Context, Poll},
@@ -13,6 +14,23 @@ use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 
 use crate::bytes::Bytes;
+
+/// body type for http request
+pub type RequestBody = xitca_http::body::ResponseBody<BoxBody>;
+
+// conditional boxing body to convert generic body type to conrete
+pub(crate) fn downcast_body<B>(body: B) -> RequestBody
+where
+    B: Body + Send + 'static,
+    B::Data: Into<Bytes>,
+    B::Error: Into<BodyError>,
+{
+    let body = &mut Some(body);
+    match (body as &mut dyn Any).downcast_mut::<Option<RequestBody>>() {
+        Some(body) => body.take().unwrap(),
+        None => RequestBody::body(BoxBody::new(body.take().unwrap())),
+    }
+}
 
 #[allow(clippy::large_enum_variant)]
 pub enum ResponseBody {
@@ -105,7 +123,8 @@ impl BoxBody {
     #[inline]
     pub fn new<B>(body: B) -> Self
     where
-        B: Body<Data = Bytes> + Send + 'static,
+        B: Body + Send + 'static,
+        B::Data: Into<Bytes>,
         B::Error: Into<BodyError>,
     {
         Self(Box::pin(BoxBodyMap { body }))

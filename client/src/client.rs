@@ -4,7 +4,7 @@ use tokio::time::{Instant, Sleep};
 use xitca_io::net::{TcpSocket, TcpStream};
 
 use crate::{
-    body::{Body, BodyError, BoxBody},
+    body::{Body, BodyError, RequestBody},
     builder::ClientBuilder,
     bytes::Bytes,
     connect::Connect,
@@ -95,7 +95,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        let mut req = http::Request::new(BoxBody::default());
+        let mut req = http::Request::new(RequestBody::empty());
         *req.method_mut() = method;
         *req.version_mut() = self.max_http_version;
 
