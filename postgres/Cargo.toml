@@ -39,7 +39,7 @@ xitca-io = { workspace = true, features = ["runtime"] }
 xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
 fallible-iterator = "0.2"
-futures-core = { version = "0.3", default-features = false }
+futures-core = { workspace = true }
 lru = { version = "0.16", default-features = false }
 percent-encoding = "2"
 postgres-protocol = "0.6.5"

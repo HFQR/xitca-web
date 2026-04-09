@@ -47,10 +47,10 @@ compress-zs = ["__compress", "http-encoding/zs"]
 cookie = ["dep:cookie"]
 
 # multipart type extractor
-multipart = ["http-multipart"]
+multipart = ["dep:http-multipart"]
 
 # grpc type extractor/responder
-grpc = ["http-grpc/stream", "prost", "tokio/time"]
+grpc = ["http-grpc/stream", "dep:prost", "tokio/time"]
 
 # websocket type extractor/responder
 websocket = ["dep:http-ws", "tokio/time"]
@@ -60,10 +60,10 @@ file = ["file-raw", "http-file/default"]
 # static file serving with io-uring 
 file-io-uring = ["io-uring", "file", "http-file/tokio-uring-xitca"]
 # static file serving without default file system
-file-raw = ["http-file"]
+file-raw = ["dep:http-file"]
 
 # rate-limit middleware
-rate-limit = ["http-rate"]
+rate-limit = ["dep:http-rate"]
 
 # tracing logging middleware
 logger = ["tracing", "tracing-subscriber"]
@@ -95,7 +95,7 @@ xitca-http = { workspace = true, features = ["router"] }
 xitca-service = { workspace = true, features = ["alloc"] }
 xitca-unsafe-collection = { workspace = true }
 
-futures-core = "0.3"
+futures-core = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync"] }
 
@@ -122,16 +122,16 @@ cookie = { version = "0.18", features = ["percent-encode", "secure"], optional =
 
 # grpc
 http-grpc = { workspace = true, optional = true }
-prost = { version = "0.14", optional = true }
+prost = { workspace = true, optional = true }
 
 # multipart
-http-multipart = { version = "0.1.2", optional = true }
+http-multipart = { workspace = true, optional = true }
 
 # websocket
 http-ws = { workspace = true, features = ["stream"], optional = true }
 
 # static file
-http-file = { version = "0.3.0", default-features = false, optional = true }
+http-file = { workspace = true, optional = true }
 
 # rate limit
 http-rate = { version = "0.1", optional = true }

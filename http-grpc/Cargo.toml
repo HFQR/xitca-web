@@ -27,8 +27,8 @@ __compress = ["__body_impl", "http-encoding"]
 [dependencies]
 bytes = { workspace = true }
 http = { workspace = true }
-percent-encoding = "2"
-prost = "0.14.3"
+percent-encoding = { workspace = true }
+prost = { workspace = true }
 
 # stream feature
 pin-project-lite = { workspace = true, optional = true }

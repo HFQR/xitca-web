@@ -42,7 +42,7 @@ xitca-http = { workspace = true, default-features = false, features = ["runtime"
 xitca-io = { workspace = true }
 xitca-unsafe-collection = { workspace = true }
 
-futures-core = { version = "0.3.17", default-features = false }
+futures-core = { workspace = true, default-features = false }
 futures-sink = { version = "0.3.17", default-features = false }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }

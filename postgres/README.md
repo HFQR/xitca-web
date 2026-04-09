@@ -12,7 +12,6 @@
 
 ## Features
 - SSL/TLS support:
-
     - powered by `rustls`
     - QUIC transport layer: offer transparent QUIC transport layer and proxy for lossy remote database connection
 
@@ -20,7 +19,6 @@
     - built in connection pool with pipelining support enabled
 
 - io_uring:
-
     - TCP network through `tokio-uring-xitca` for completion based async IO
     - require nightly rust compiler
 

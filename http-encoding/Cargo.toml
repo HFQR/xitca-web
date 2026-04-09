@@ -20,7 +20,7 @@ zs = ["zstd"]
 
 [dependencies]
 bytes = { workspace = true }
-futures-core = "0.3"
+futures-core = { workspace = true }
 http = { workspace = true }
 http-body-alt = { workspace = true }
 pin-project-lite = { workspace = true }
