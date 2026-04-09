@@ -73,8 +73,8 @@ use std::{
 /// use std::net::SocketAddr;
 /// fn main() -> std::io::Result<()> {
 ///     tokio_uring_xitca::start(async {
-///         let first_addr: SocketAddr = "127.0.0.1:2401".parse().unwrap();
-///         let second_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+///         let first_addr: SocketAddr = "127.0.0.1:12401".parse().unwrap();
+///         let second_addr: SocketAddr = "127.0.0.1:18080".parse().unwrap();
 ///
 ///         // bind sockets
 ///         let socket = UdpSocket::bind(first_addr.clone()).await?;
