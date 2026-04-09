@@ -1,4 +1,6 @@
-# unreleased 0.7.0
+# unreleased
+
+# 0.7.0
 ## Change
 - update `xitca-io` to `0.6.0`
 - update `tokio-uring-xitca` to `0.2.0`

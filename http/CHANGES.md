@@ -1,4 +1,6 @@
-# unreleased 0.9.0
+# unreleased
+
+# 0.9.0
 ## Add
 - add io_uring, tls, HTTP/2 and HTTP/2 cleartext support for unix socket
 - add io_uring support for unified `HttpServiceBuilder`

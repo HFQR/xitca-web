@@ -1,4 +1,6 @@
-# unreleased 0.6.0
+# unreleased
+
+# 0.6.0
 ## Add
 - add `io::{AsyncBufWrite, AsyncBufRead}` impl for `net::{TcpStream, UnixStream}`
 
