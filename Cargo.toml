@@ -41,7 +41,7 @@ xitca-tls = { path = "./tls" }
 xitca-unsafe-collection = { path = "./unsafe_collection" }
 xitca-web = { path = "./web" }
 http-body-alt = { path = "./http-body" }
-http-grpc = { path = "./http-grpc" }
+http-grpc-rs = { path = "./http-grpc" }
 http-encoding = { path = "./http-encoding" }
 http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }

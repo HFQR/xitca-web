@@ -1,6 +1,6 @@
 use core::convert::Infallible;
 
-pub use http_grpc::{error::GrpcError, status::GrpcStatus};
+pub use http_grpc_rs::{error::GrpcError, status::GrpcStatus};
 
 use crate::{
     body::ResponseBody,
