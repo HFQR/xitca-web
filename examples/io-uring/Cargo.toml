@@ -5,10 +5,4 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2024"
 
 [dependencies]
-xitca-http = { workspace = true, features = ["io-uring", "router", "rustls"] }
-xitca-server = { workspace = true, features = ["io-uring"] }
-xitca-service = { workspace = true }
-
-rcgen = "0.14"
-rustls = "0.23"
-rustls-pki-types = "1"
+xitca-web = { workspace = true, features = ["io-uring"] }
