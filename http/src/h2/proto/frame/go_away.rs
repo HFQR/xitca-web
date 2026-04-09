@@ -5,7 +5,7 @@ use tracing::trace;
 use crate::bytes::{BufMut, Bytes};
 
 use super::{
-    error::Error,
+    super::error::Error,
     head::{Head, Kind},
     reason::Reason,
     stream_id::StreamId,

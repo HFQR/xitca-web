@@ -1,4 +1,4 @@
-use super::{error::Error, head::Head, stream_id::StreamId};
+use super::{super::error::Error, head::Head, stream_id::StreamId};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {

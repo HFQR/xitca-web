@@ -46,18 +46,20 @@ use crate::{
 use super::{
     body::RequestBody,
     proto::{
-        PREFACE, data,
         error::Error,
-        go_away::GoAway,
-        head,
-        headers::{self, ResponsePseudo},
+        frame::{
+            PREFACE, data,
+            go_away::GoAway,
+            head,
+            headers::{self, ResponsePseudo},
+            ping::Ping,
+            reason::Reason,
+            reset::Reset,
+            settings::{self, Settings},
+            stream_id::StreamId,
+            window_update::WindowUpdate,
+        },
         hpack,
-        ping::Ping,
-        reason::Reason,
-        reset::Reset,
-        settings::{self, Settings},
-        stream_id::StreamId,
-        window_update::WindowUpdate,
     },
 };
 
@@ -77,6 +79,110 @@ struct DecodeContext<'a, S> {
 }
 
 type Frame = crate::body::Frame<Bytes>;
+
+/// Shared slab-backed storage for frames across all streams, avoiding
+/// per-stream heap allocation. Mirrors `h2::proto::streams::buffer::Buffer`.
+pub(super) struct FrameBuffer {
+    entries: Vec<Slot>,
+    /// Head of the free list (indices of vacant slots), or `usize::MAX` if none.
+    next_free: usize,
+    len: usize,
+}
+
+struct Slot {
+    /// The frame value. Meaningless when the slot is vacant (on the free list).
+    value: Frame,
+    /// Next index in the linked list (occupied) or the free list (vacant).
+    /// `usize::MAX` means end-of-list.
+    next: usize,
+}
+
+/// A per-stream linked-list deque backed by a shared [`FrameBuffer`].
+/// Stores only head/tail indices — zero per-stream allocation.
+pub(super) struct Deque {
+    head: usize,
+    tail: usize,
+}
+
+const NONE: usize = usize::MAX;
+
+impl FrameBuffer {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            next_free: NONE,
+            len: 0,
+        }
+    }
+
+    // fn is_empty(&self) -> bool {
+    //     self.len == 0
+    // }
+
+    /// Insert a value into the slab, returning its index.
+    fn insert(&mut self, value: Frame) -> usize {
+        self.len += 1;
+        if self.next_free != NONE {
+            let idx = self.next_free;
+            let slot = &mut self.entries[idx];
+            self.next_free = slot.next;
+            slot.value = value;
+            slot.next = NONE;
+            idx
+        } else {
+            let idx = self.entries.len();
+            self.entries.push(Slot { value, next: NONE });
+            idx
+        }
+    }
+
+    /// Remove a value by index, returning it and placing the slot on the free list.
+    fn remove(&mut self, idx: usize) -> Frame {
+        self.len -= 1;
+        let slot = &mut self.entries[idx];
+        slot.next = self.next_free;
+        self.next_free = idx;
+        mem::replace(&mut slot.value, Frame::Data(Bytes::new()))
+    }
+}
+
+impl Deque {
+    pub(super) fn new() -> Self {
+        Self { head: NONE, tail: NONE }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.head == NONE
+    }
+
+    pub(super) fn push_back(&mut self, buf: &mut FrameBuffer, value: Frame) {
+        let key = buf.insert(value);
+        if self.tail != NONE {
+            buf.entries[self.tail].next = key;
+            self.tail = key;
+        } else {
+            self.head = key;
+            self.tail = key;
+        }
+    }
+
+    pub(super) fn pop_front(&mut self, buf: &mut FrameBuffer) -> Option<Frame> {
+        if self.head == NONE {
+            return None;
+        }
+        let idx = self.head;
+        let next = buf.entries[idx].next;
+        if next == NONE {
+            self.tail = NONE;
+        }
+        self.head = next;
+        Some(buf.remove(idx))
+    }
+
+    pub(super) fn clear(&mut self, buf: &mut FrameBuffer) {
+        while self.pop_front(buf).is_some() {}
+    }
+}
 
 trait BodySize {
     /// Parse content-length from headers.
@@ -194,9 +300,9 @@ impl StreamState {
     /// Push a frame to the recv queue, waking the body reader. No-op if the
     /// service already dropped `RequestBody` (RECV_CANCELED) or recv is closed.
     /// Returns `true` if the frame was actually enqueued.
-    fn try_push_frame(&mut self, frame: Frame) -> bool {
+    fn try_push_frame(&mut self, buf: &mut FrameBuffer, frame: Frame) -> bool {
         if !self.recv_closed() && !self.recv_canceled() {
-            self.recv_state.queue.push_back(frame);
+            self.recv_state.queue.push_back(buf, frame);
             self.recv_state.wake();
             true
         } else {
@@ -215,8 +321,9 @@ impl StreamState {
 
 pub(super) struct RecvState {
     /// Buffered DATA / Trailers frames for the request body, pushed by the
-    /// decode path and drained by `RequestBody::poll_next`.
-    pub(super) queue: VecDeque<Frame>,
+    /// decode path and drained by `RequestBody::poll_next`. Indices into
+    /// the shared `ConnectionInner::frame_buf` slab.
+    pub(super) queue: Deque,
     /// Waker stored by `RequestBody::poll_next` when the queue is empty;
     /// woken by the decode path after pushing new data.
     pub(super) waker: Option<Waker>,
@@ -463,6 +570,9 @@ pub(super) struct WriterQueue {
 pub(super) struct ConnectionInner {
     pub(super) flow: FlowControl,
     pub(super) queue: WriterQueue,
+    /// Shared slab backing all per-stream recv frame deques, avoiding
+    /// per-stream `VecDeque` allocations.
+    pub(super) frame_buf: FrameBuffer,
 }
 
 pub(super) type Shared = Rc<RefCell<ConnectionInner>>;
@@ -580,19 +690,19 @@ impl<'a, S> DecodeContext<'a, S> {
     fn on_data_payload(&self, id: StreamId, payload: Bytes) -> Result<(), Error> {
         let payload_len = payload.len();
         let mut inner = self.ctx.borrow_mut();
-        let flow = &mut inner.flow;
+        let ci = &mut *inner; // deref once to enable split borrows on ConnectionInner fields
 
-        if payload_len > flow.recv_connection_window {
+        if payload_len > ci.flow.recv_connection_window {
             return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
         }
-        flow.recv_connection_window -= payload_len;
+        ci.flow.recv_connection_window -= payload_len;
 
         // Three cases (RFC 7540 §5.1 / §6.1):
         //   body_tx open  → active stream; forward payload, restore window on success.
         //   body_tx closed → half-closed (remote); DATA after END_STREAM → STREAM_CLOSED.
         //   Ok(None)       → fully closed stream → STREAM_CLOSED.
         // For the error cases the window is restored via the Reset handler in try_decode.
-        let reason = match flow.get_stream_mut(id, self.last_stream_id)? {
+        let reason = match ci.flow.get_stream_mut(id, self.last_stream_id)? {
             Some(state) if !state.recv_closed() => {
                 // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
                 let reason = if let Err(err) = state.recv_state.content_length.dec(payload_len) {
@@ -605,15 +715,15 @@ impl<'a, S> DecodeContext<'a, S> {
                     state.recv_state.window -= payload_len;
                     // Service may have dropped RequestBody early (RECV_CANCELED).
                     // Still track content-length above, but discard the payload.
-                    if !state.try_push_frame(Frame::Data(payload)) {
+                    if !state.try_push_frame(&mut ci.frame_buf, Frame::Data(payload)) {
                         // Data discarded (RECV_CANCELED): replenish connection
                         // window so other streams don't stall.
-                        inner.queue.push_window_update(payload_len);
+                        ci.queue.push_window_update(payload_len);
                     }
                     return Ok(());
                 };
 
-                flow.remove_stream(id);
+                ci.flow.remove_stream(id);
 
                 reason
             }
@@ -659,10 +769,6 @@ impl<'a, S> DecodeContext<'a, S> {
                 Err(Error::GoAway(reason)) => break reason,
                 Err(Error::Hpack(_)) => break Reason::COMPRESSION_ERROR,
                 Err(Error::MalformedMessage) => break Reason::PROTOCOL_ERROR,
-                Err(Error::PeerAccused) => {
-                    self.ctx.borrow_mut().queue.close();
-                    return Err(ShutDown::Forced);
-                }
             }
         };
 
@@ -955,11 +1061,11 @@ impl<'a, S> DecodeContext<'a, S> {
 
         {
             let mut inner = self.ctx.borrow_mut();
-            let flow = &mut inner.flow;
-            if let Some(state) = flow.stream_map.get_mut(&id) {
+            let ci = &mut *inner;
+            if let Some(state) = ci.flow.stream_map.get_mut(&id) {
                 // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
                 if !is_end_stream {
-                    flow.remove_recv(id);
+                    ci.flow.remove_recv(id);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
                 if state.recv_closed() {
@@ -968,11 +1074,11 @@ impl<'a, S> DecodeContext<'a, S> {
                 // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
                 if let Err(err) = state.recv_state.content_length.ensure_zero() {
                     state.try_set_err(err);
-                    flow.remove_stream(id);
+                    ci.flow.remove_stream(id);
                     return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
                 }
-                state.try_push_frame(Frame::Trailers(headers));
-                flow.remove_recv(id);
+                state.try_push_frame(&mut ci.frame_buf, Frame::Trailers(headers));
+                ci.flow.remove_recv(id);
                 return Ok(None);
             }
         }
@@ -1060,7 +1166,7 @@ impl<'a, S> DecodeContext<'a, S> {
             id,
             StreamState {
                 recv_state: RecvState {
-                    queue: VecDeque::new(),
+                    queue: Deque::new(),
                     waker: None,
                     window: if is_end_stream {
                         0
@@ -1299,6 +1405,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                             let Some(state) = f.stream_map.get_mut(&stream_id) else {
                                 return Poll::Ready(None);
                             };
+
                             if state.send_closed() {
                                 return Poll::Ready(None);
                             }
@@ -1399,32 +1506,11 @@ const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64
 /// chosen dispatcher.
 pub(crate) async fn peek_version(
     io: &(impl AsyncBufRead + AsyncBufWrite),
-    mut buf: BytesMut,
-) -> io::Result<(crate::http::Version, BytesMut)> {
-    use crate::http::Version;
-
-    // We only need to see the first few bytes to distinguish h2 from h1.
-    // The h2 client preface starts with "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" (24 bytes).
-    // Reading up to PREFACE.len() is enough for an unambiguous decision.
-    while buf.len() < PREFACE.len() {
-        let len = buf.len();
-        buf.reserve(PREFACE.len() - len);
-        let (res, b) = io.read(buf.slice(len..)).await;
-        buf = b.into_inner();
-        match res {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(e) => return Err(e),
-        }
-    }
-
-    let version = if buf.starts_with(PREFACE) {
-        Version::HTTP_2
-    } else {
-        Version::HTTP_11
-    };
-
-    Ok((version, buf))
+    buf: BytesMut,
+) -> io::Result<(Version, BytesMut)> {
+    let (read_buf, res) = prefix_check(buf, io).await;
+    let version = if res.is_ok() { Version::HTTP_2 } else { Version::HTTP_11 };
+    Ok((version, read_buf.buf))
 }
 
 pub(crate) async fn run<
@@ -1484,6 +1570,7 @@ where
             premature_reset_count: 0,
         },
         queue: WriterQueue::new(),
+        frame_buf: FrameBuffer::new(),
     }));
 
     let mut ctx = DecodeContext::new(&shared, service, max_concurrent_streams, addr, date);
@@ -1570,7 +1657,6 @@ where
                 }
                 ShutDown::Graceful => {}
                 ShutDown::DrainWrite => queue.clear(),
-                ShutDown::Forced => return Ok(()),
             }
 
             loop {
@@ -1599,7 +1685,6 @@ enum ShutDown {
     WriteClosed(io::Result<()>),
     Timeout(io::Error),
     DrainWrite,
-    Forced,
 }
 
 /// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).
@@ -1635,30 +1720,45 @@ fn handshake<'a>(
     Box::pin(async {
         async {
             // No cap during preface: the buffer is tiny and always fully drained.
-            let mut rbuf = ReadBuf { buf, cap: usize::MAX };
-            while rbuf.buf.len() < PREFACE.len() {
-                let (res, b) = read_io(rbuf, io).await;
-                rbuf = b;
-                res?;
-            }
-            if !rbuf.buf.starts_with(PREFACE) {
-                // No GOAWAY is sent because our own preface has not been exchanged yet.
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid HTTP/2 client preface",
-                ));
-            }
-            rbuf.buf.advance(PREFACE.len());
+            let (mut read_buf, res) = prefix_check(buf, io).await;
+            res?;
+            read_buf.buf.advance(PREFACE.len());
 
             let mut write_buf = BytesMut::new();
             settings.encode(&mut write_buf);
             let (res, write_buf) = write_io(write_buf, io).await;
             res?;
 
-            Ok((rbuf.buf, write_buf))
+            Ok((read_buf.buf, write_buf))
         }
         .timeout(timer)
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
     })
+}
+
+// only check the prefix but not consume it
+async fn prefix_check(buf: BytesMut, io: &(impl AsyncBufRead + AsyncBufWrite)) -> (ReadBuf, io::Result<()>) {
+    let mut read_buf = ReadBuf { buf, cap: usize::MAX };
+
+    while read_buf.buf.len() < PREFACE.len() {
+        let (res, b) = read_io(read_buf, io).await;
+        read_buf = b;
+
+        if res.is_err() {
+            return (read_buf, res.map(|_| ()));
+        };
+    }
+
+    let res = if !read_buf.buf.starts_with(PREFACE) {
+        // No GOAWAY is sent because our own preface has not been exchanged yet.
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid HTTP/2 client preface",
+        ))
+    } else {
+        Ok(())
+    };
+
+    (read_buf, res)
 }

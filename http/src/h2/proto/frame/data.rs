@@ -3,7 +3,7 @@ use core::fmt;
 use crate::bytes::{Buf, BufMut, Bytes};
 
 use super::{
-    error::Error,
+    super::error::Error,
     head::{Head, Kind},
     stream_id::StreamId,
 };

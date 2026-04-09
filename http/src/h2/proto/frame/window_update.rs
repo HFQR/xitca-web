@@ -3,7 +3,7 @@ use tracing::trace;
 use crate::bytes::BufMut;
 
 use super::{
-    error::Error,
+    super::error::Error,
     head::{Head, Kind},
     stream_id::StreamId,
     unpack_octets_4,

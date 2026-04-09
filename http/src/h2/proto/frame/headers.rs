@@ -16,9 +16,9 @@ use crate::{
 };
 
 use super::{
-    error::Error,
+    super::error::Error,
+    super::hpack,
     head::{Head, Kind},
-    hpack,
     stream_id::StreamId,
 };
 
@@ -499,7 +499,7 @@ where
         // the hpack state is connection level. In order to maintain correct
         // state for other streams, the hpack decoding process must complete.
         let res = decoder.decode(&mut cursor, |header| {
-            use super::hpack::Header::*;
+            use hpack::Header::*;
 
             match header {
                 Field { name, value } => {
@@ -560,7 +560,7 @@ where
         let headers = self.pseudo.into_iter().chain(
             self.fields
                 .into_iter()
-                .map(|(name, value)| super::hpack::Header::Field { name, value }),
+                .map(|(name, value)| hpack::Header::Field { name, value }),
         );
         encoder.encode(headers, &mut hpack);
 
@@ -585,11 +585,11 @@ where
 }
 
 pub trait _Pseudo {
-    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> + Send;
+    fn into_iter(self) -> impl Iterator<Item = hpack::Header<Option<HeaderName>>> + Send;
 
     fn parse(
         &mut self,
-        header: super::hpack::Header,
+        header: hpack::Header,
         max_header_list_size: usize,
         is_over_size: &mut bool,
         reg: bool,
@@ -604,14 +604,14 @@ pub trait _Pseudo {
 }
 
 impl _Pseudo for Pseudo {
-    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> {
+    fn into_iter(self) -> impl Iterator<Item = hpack::Header<Option<HeaderName>>> {
         struct Iter(Pseudo);
 
         impl Iterator for Iter {
             type Item = hpack::Header<Option<HeaderName>>;
 
             fn next(&mut self) -> Option<Self::Item> {
-                use super::hpack::Header::*;
+                use super::super::hpack::Header::*;
 
                 if let Some(method) = self.0.method.take() {
                     return Some(Method(method));
@@ -646,14 +646,14 @@ impl _Pseudo for Pseudo {
 
     fn parse(
         &mut self,
-        header: super::hpack::Header,
+        header: hpack::Header,
         max_header_list_size: usize,
         is_over_size: &mut bool,
         reg: bool,
         malformed: &mut bool,
         headers_size: &mut usize,
     ) {
-        use super::hpack::Header::*;
+        use hpack::Header::*;
 
         macro_rules! set_pseudo {
             ($field:ident, $val:expr) => {{
@@ -734,20 +734,20 @@ impl _Pseudo for Pseudo {
 }
 
 impl _Pseudo for ResponsePseudo {
-    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> {
-        core::iter::once_with(move || super::hpack::Header::Status(self.status))
+    fn into_iter(self) -> impl Iterator<Item = hpack::Header<Option<HeaderName>>> {
+        core::iter::once_with(move || hpack::Header::Status(self.status))
     }
 
     fn parse(
         &mut self,
-        header: super::hpack::Header,
+        header: hpack::Header,
         max_header_list_size: usize,
         is_over_size: &mut bool,
         reg: bool,
         malformed: &mut bool,
         headers_size: &mut usize,
     ) {
-        use super::hpack::Header;
+        use hpack::Header;
         match header {
             Header::Status(status) => {
                 if reg {
@@ -773,11 +773,11 @@ impl _Pseudo for ResponsePseudo {
 }
 
 impl _Pseudo for () {
-    fn into_iter(self) -> impl Iterator<Item = super::hpack::Header<Option<HeaderName>>> {
+    fn into_iter(self) -> impl Iterator<Item = hpack::Header<Option<HeaderName>>> {
         core::iter::empty()
     }
 
-    fn parse(&mut self, _: super::hpack::Header, _: usize, _: &mut bool, _: bool, _: &mut bool, _: &mut usize) {}
+    fn parse(&mut self, _: hpack::Header, _: usize, _: &mut bool, _: bool, _: &mut bool, _: &mut usize) {}
 
     fn as_header_size(&self) -> usize {
         0

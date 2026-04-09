@@ -4,7 +4,7 @@ use tracing::trace;
 use xitca_io::bytes::{BufMut, BytesMut};
 
 use super::{
-    error::Error,
+    super::error::Error,
     head::{Head, Kind},
     reason,
     stream_id::StreamId,

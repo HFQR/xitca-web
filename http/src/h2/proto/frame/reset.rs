@@ -1,7 +1,7 @@
 use crate::bytes::BufMut;
 
 use super::{
-    error::Error,
+    super::error::Error,
     head::{Head, Kind},
     reason::Reason,
     stream_id::StreamId,

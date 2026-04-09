@@ -1,10 +1,10 @@
 use core::{fmt, net::SocketAddr, pin::pin};
 
-use crate::body::Body;
 use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 use xitca_service::Service;
 
 use crate::{
+    body::Body,
     bytes::Bytes,
     error::{HttpServiceError, TimeoutError},
     http::{Request, RequestExt, Response},

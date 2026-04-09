@@ -1,11 +1,9 @@
 #![allow(dead_code)]
 
 pub mod data;
-pub mod error;
 pub mod go_away;
 pub mod head;
 pub mod headers;
-pub mod hpack;
 pub mod ping;
 pub mod priority;
 pub mod reason;

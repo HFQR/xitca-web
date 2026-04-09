@@ -1,4 +1,4 @@
-use super::{error::Error, head::Head, reason::Reason};
+use super::{super::error::Error, head::Head, reason::Reason};
 
 /// A decoded PING frame.
 ///
