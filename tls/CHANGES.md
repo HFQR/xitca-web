@@ -1,4 +1,6 @@
-# unreleased 0.6.0
+# unreleased
+
+# 0.6.0
 ## Remove
 - removed `rustls-uring` feature
 - removed `Clone` impl from all TlsStream types

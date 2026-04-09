@@ -1,4 +1,6 @@
-# unreleased 0.3.0
+# unreleased
+
+# 0.3.0
 ## Add
 - add `zs` feature for zstd format
 - add `ContentEncoding::{try_encode, encode_body}` for encoding response and body type
