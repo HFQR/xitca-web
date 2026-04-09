@@ -5,6 +5,6 @@ authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2024"
 
 [dependencies]
-xitca-web = { version = "0.7", features = ["nightly"] }
+xitca-web = { workspace = true, features = ["nightly"] }
 futures = "0.3"
 async-stream = "0.3"

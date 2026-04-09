@@ -14,6 +14,8 @@ use tokio::{
     time::{Instant, interval},
 };
 
+use crate::http::header::HeaderValue;
+
 // The length of byte representation of HttpDate
 const DATE_VALUE_LENGTH: usize = 29;
 
@@ -28,6 +30,10 @@ pub trait DateTime {
     fn with_date<F, O>(&self, f: F) -> O
     where
         F: FnOnce(&[u8]) -> O;
+
+    fn with_date_header<F, O>(&self, f: F) -> O
+    where
+        F: FnOnce(&HeaderValue) -> O;
 
     fn now(&self) -> Instant;
 }
@@ -78,9 +84,10 @@ impl DateTimeService {
 pub(crate) type DateTimeHandle = RefCell<DateTimeState>;
 
 /// struct contains byte representation of [HttpDate] and [Instant].
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct DateTimeState {
     pub date: [u8; DATE_VALUE_LENGTH],
+    pub date_header: HeaderValue,
     pub now: Instant,
 }
 
@@ -88,9 +95,11 @@ impl Default for DateTimeState {
     fn default() -> Self {
         let mut date = Self {
             date: [0; DATE_VALUE_LENGTH],
+            date_header: HeaderValue::from_static(""),
             now: Instant::now(),
         };
         let _ = write!(date, "{}", HttpDate::from(SystemTime::now()));
+        date.date_header = HeaderValue::from_bytes(&date.date).unwrap();
         date
     }
 }
@@ -104,7 +113,6 @@ impl Write for DateTimeState {
 
 impl DateTime for DateTimeHandle {
     // TODO: remove this allow
-    #[allow(dead_code)]
     #[inline]
     fn with_date<F, O>(&self, f: F) -> O
     where
@@ -112,6 +120,15 @@ impl DateTime for DateTimeHandle {
     {
         let date = self.borrow();
         f(&date.date[..])
+    }
+
+    #[inline]
+    fn with_date_header<F, O>(&self, f: F) -> O
+    where
+        F: FnOnce(&HeaderValue) -> O,
+    {
+        let date = self.borrow();
+        f(&date.date_header)
     }
 
     #[inline(always)]
@@ -132,6 +149,17 @@ impl DateTime for SystemTimeDateTimeHandler {
     {
         let date = HttpDate::from(SystemTime::now()).to_string();
         f(date.as_bytes())
+    }
+
+    #[allow(dead_code)]
+    fn with_date_header<F, O>(&self, f: F) -> O
+    where
+        F: FnOnce(&HeaderValue) -> O,
+    {
+        self.with_date(|date| {
+            let val = HeaderValue::from_bytes(date).unwrap();
+            f(&val)
+        })
     }
 
     fn now(&self) -> Instant {

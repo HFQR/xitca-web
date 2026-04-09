@@ -12,10 +12,27 @@ use crate::{
     service::Service,
 };
 
-use super::{Error, blank_error_service, error_from_service};
+use super::{Error, error_from_service};
 
 error_from_service!(MatchError);
-blank_error_service!(MatchError, StatusCode::NOT_FOUND);
+
+impl<'r, C, B> Service<WebContext<'r, C, B>> for MatchError {
+    type Response = WebResponse;
+    type Error = Infallible;
+
+    async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        #[cfg(feature = "grpc")]
+        if is_grpc_request(&ctx) {
+            return super::grpc::GrpcError::new(super::grpc::GrpcStatus::Unimplemented, "method not found")
+                .call(ctx)
+                .await;
+        }
+
+        let mut res = ctx.into_response(ResponseBody::empty());
+        *res.status_mut() = StatusCode::NOT_FOUND;
+        Ok(res)
+    }
+}
 
 error_from_service!(MethodNotAllowed);
 
@@ -24,6 +41,13 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
     type Error = Infallible;
 
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
+        #[cfg(feature = "grpc")]
+        if is_grpc_request(&ctx) {
+            return super::grpc::GrpcError::new(super::grpc::GrpcStatus::Unimplemented, "method not allowed")
+                .call(ctx)
+                .await;
+        }
+
         let mut res = ctx.into_response(ResponseBody::empty());
 
         let allowed = self.allowed_methods();
@@ -43,6 +67,15 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for MethodNotAllowed {
 
         Ok(res)
     }
+}
+
+#[cfg(feature = "grpc")]
+fn is_grpc_request<C, B>(ctx: &WebContext<'_, C, B>) -> bool {
+    use crate::http::{const_header_value::GRPC, header::CONTENT_TYPE};
+    ctx.req()
+        .headers()
+        .get(CONTENT_TYPE)
+        .is_some_and(|v| v.as_bytes().starts_with(GRPC.as_bytes()))
 }
 
 impl<E> From<RouterError<E>> for Error

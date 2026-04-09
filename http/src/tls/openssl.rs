@@ -2,7 +2,7 @@ pub(crate) use xitca_tls::openssl::ssl::SslAcceptor as TlsAcceptor;
 
 use core::convert::Infallible;
 
-use xitca_io::io::AsyncIo;
+use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 use xitca_service::Service;
 use xitca_tls::openssl::ssl;
 
@@ -14,7 +14,7 @@ pub type TlsStream<Io> = xitca_tls::openssl::TlsStream<Io>;
 
 impl<Io> AsVersion for TlsStream<Io>
 where
-    Io: AsyncIo,
+    Io: AsyncBufRead + AsyncBufWrite,
 {
     fn as_version(&self) -> Version {
         self.session()
@@ -54,14 +54,20 @@ pub struct TlsAcceptorService {
 
 impl TlsAcceptorService {
     #[inline(never)]
-    async fn accept<Io: AsyncIo>(&self, io: Io) -> Result<TlsStream<Io>, OpensslError> {
+    async fn accept<Io>(&self, io: Io) -> Result<TlsStream<Io>, OpensslError>
+    where
+        Io: AsyncBufRead + AsyncBufWrite,
+    {
         let ctx = self.acceptor.context();
         let ssl = ssl::Ssl::new(ctx)?;
         TlsStream::accept(ssl, io).await
     }
 }
 
-impl<Io: AsyncIo> Service<Io> for TlsAcceptorService {
+impl<Io> Service<Io> for TlsAcceptorService
+where
+    Io: AsyncBufRead + AsyncBufWrite,
+{
     type Response = TlsStream<Io>;
     type Error = OpensslError;
 

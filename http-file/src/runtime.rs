@@ -124,11 +124,7 @@ mod tokio_impl {
         fn next(mut self, mut buf: BytesMut) -> Self::Future {
             Box::pin(async {
                 let n = self.file.read_buf(&mut buf).await?;
-                if n == 0 {
-                    Ok(None)
-                } else {
-                    Ok(Some((self, buf, n)))
-                }
+                if n == 0 { Ok(None) } else { Ok(Some((self, buf, n))) }
             })
         }
     }
@@ -140,7 +136,7 @@ pub(crate) use tokio_uring_impl::TokioUringFs;
 #[cfg(feature = "tokio-uring-xitca")]
 mod tokio_uring_impl {
     use core::{
-        future::{ready, Ready},
+        future::{Ready, ready},
         pin::Pin,
         time::Duration,
     };

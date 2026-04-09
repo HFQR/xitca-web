@@ -3,7 +3,8 @@ pub(crate) mod http;
 
 use core::{future::Future, pin::Pin, time::Duration};
 
-use crate::{body::BoxBody, client::Client, http::Request};
+use crate::{body::RequestBody, client::Client, http::Request};
+
 pub use http::HttpService;
 
 type BoxFuture<'f, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'f>>;
@@ -66,7 +67,7 @@ where
 ///
 /// [RequestBuilder]: crate::request::RequestBuilder
 pub struct ServiceRequest<'r, 'c> {
-    pub req: &'r mut Request<BoxBody>,
+    pub req: &'r mut Request<RequestBody>,
     pub client: &'c Client,
     pub timeout: Duration,
 }
@@ -81,7 +82,7 @@ mod test {
     use std::sync::Arc;
 
     use crate::{
-        body::{BoxBody, ResponseBody},
+        body::{RequestBody, ResponseBody},
         client::Client,
         error::Error,
         http::{self, Request},
@@ -101,14 +102,14 @@ mod test {
 
     pub(crate) struct HttpServiceMockHandle(Client);
 
-    type HandlerFn = Arc<dyn Fn(Request<BoxBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync>;
+    type HandlerFn = Arc<dyn Fn(Request<RequestBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync>;
 
     impl HttpServiceMockHandle {
         /// compose a service request with given http request and it's mocked server side handler function
         pub(crate) fn mock<'r, 'c>(
             &'c self,
-            req: &'r mut Request<BoxBody>,
-            handler: impl Fn(Request<BoxBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync + 'static,
+            req: &'r mut Request<RequestBody>,
+            handler: impl Fn(Request<RequestBody>) -> Result<http::Response<ResponseBody>, Error> + Send + Sync + 'static,
         ) -> ServiceRequest<'r, 'c> {
             req.extensions_mut().insert(Arc::new(handler) as HandlerFn);
             ServiceRequest {

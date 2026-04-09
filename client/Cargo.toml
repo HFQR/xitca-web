@@ -17,17 +17,19 @@ http2 = ["h2", "itoa", "xitca-http/http2"]
 # http/3 client(tls always enabled with rustls)
 http3 = ["h3", "h3-quinn", "quinn", "itoa", "async-stream", "rustls-ring-crypto"]
 # openssl as http/1 and http/2 tls handler
-openssl = ["xitca-tls/openssl"]
+openssl = ["xitca-tls/openssl-poll"]
 # rustls as http/1 and http/2 tls handler
-rustls = ["xitca-tls/rustls", "webpki-roots"]
+rustls = ["xitca-tls/rustls-poll-aws-crypto", "webpki-roots"]
 # rustls as tls handler with ring as crypto provider
-rustls-ring-crypto =  ["xitca-tls/rustls-ring-crypto", "webpki-roots"]
+rustls-ring-crypto =  ["xitca-tls/rustls-poll-ring-crypto", "webpki-roots"]
 # compression and decompression middleware support
-compress = ["http-encoding"]
+compress = ["dep:http-encoding"]
 # json response body parsing support
 json = ["serde", "serde_json"]
 # websocket support. must be used together with http/1 and/or http/2 feature(s)
 websocket = ["http-ws"]
+# grpc support
+grpc = ["compress", "dep:http-grpc", "dep:prost", "http-grpc/compress-gz", "http-grpc/compress-br", "http-grpc/compress-de", "http-grpc/compress-zs"]
 # feature for trusted local network:
 # - http/2 clear text over plain tcp connection
 # - http/3 connection to server with self signed certificates
@@ -36,18 +38,18 @@ multipart = ["dep:http-multipart"]
 dangerous = []
 
 [dependencies]
-xitca-http = { version = "0.8.0", default-features = false, features = ["runtime"] }
-xitca-io = "0.5.1"
-xitca-unsafe-collection = "0.2.0"
+xitca-http = { workspace = true, default-features = false, features = ["runtime"] }
+xitca-io = { workspace = true }
+xitca-unsafe-collection = { workspace = true }
 
-futures-core = { version = "0.3.17", default-features = false }
+futures-core = { workspace = true, default-features = false }
 futures-sink = { version = "0.3.17", default-features = false }
-pin-project-lite = "0.2.9"
-tokio = { version = "1.48", features = ["sync", "time"] }
+pin-project-lite = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { version = "0.1.40", default-features = false }
 
 # http/1
-httparse = { version = "1.8.0", optional = true }
+httparse = { workspace = true, optional = true }
 
 # http/2
 h2 = { version = "0.4", optional = true }
@@ -62,13 +64,13 @@ async-stream = { version = "0.3", optional = true }
 itoa = { version = "1", optional = true }
 
 # tls shared
-xitca-tls = { version = "0.5.0", optional = true }
+xitca-tls = { workspace = true, optional = true }
 
 # rustls, http3 and dangerous features shared
 webpki-roots = { version = "1", optional = true }
 
 # compression
-http-encoding = { version = "0.2", features = ["br", "gz", "de"], optional = true }
+http-encoding = { workspace = true, features = ["all"], optional = true }
 
 # serde
 serde = { version = "1.0.130", default-features = false, optional = true }
@@ -76,12 +78,16 @@ serde = { version = "1.0.130", default-features = false, optional = true }
 # json
 serde_json = { version = "1", optional = true }
 
+# grpc
+http-grpc = { version = "0.1", optional = true }
+prost = { version = "0.14", optional =true }
+
 # websocket
-http-ws = { version = "0.4", features = ["stream"], optional = true }
+http-ws = { workspace = true, features = ["stream"], optional = true }
 
 # multipart
 http-multipart = { version = "0.1.2", optional = true }
 
 [dev-dependencies]
 futures = "0.3"
-tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -1,15 +1,10 @@
 use core::net::SocketAddr;
 
-use std::{io, net::Shutdown};
+use std::io;
 
-pub use tokio_uring_xitca::net::TcpStream;
+pub use tokio_uring_xitca::net::{TcpStream, UnixStream};
 
-#[cfg(unix)]
-pub use tokio_uring_xitca::net::UnixStream;
-
-use crate::io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, BoundedBufMut};
-
-use super::Stream;
+use super::{Stream, unix::unspecified_socket_addr};
 
 impl TryFrom<Stream> for TcpStream {
     type Error = io::Error;
@@ -31,81 +26,31 @@ impl TryFrom<Stream> for (TcpStream, SocketAddr) {
     }
 }
 
-impl AsyncBufRead for TcpStream {
-    #[inline(always)]
-    async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
-    where
-        B: BoundedBufMut,
-    {
-        TcpStream::read(self, buf).await
+impl TryFrom<Stream> for UnixStream {
+    type Error = io::Error;
+
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        <(UnixStream, std::os::unix::net::SocketAddr)>::try_from(stream).map(|(tcp, _)| tcp)
     }
 }
 
-impl AsyncBufWrite for TcpStream {
-    #[inline(always)]
-    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
-    where
-        B: BoundedBuf,
-    {
-        TcpStream::write(self, buf).submit().await
-    }
+impl TryFrom<Stream> for (UnixStream, std::os::unix::net::SocketAddr) {
+    type Error = io::Error;
 
-    #[inline(always)]
-    fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
-        TcpStream::shutdown(self, direction)
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        match stream {
+            Stream::Unix(unix, addr) => Ok((UnixStream::from_std(unix), addr)),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("Can not be casted to UnixStream"),
+        }
     }
 }
 
-#[cfg(unix)]
-mod unix {
-    use std::os::unix::net::SocketAddr;
+impl TryFrom<Stream> for (UnixStream, SocketAddr) {
+    type Error = io::Error;
 
-    use tokio_uring_xitca::buf::BoundedBuf;
-
-    use super::*;
-
-    impl TryFrom<Stream> for UnixStream {
-        type Error = io::Error;
-
-        fn try_from(stream: Stream) -> Result<Self, Self::Error> {
-            <(UnixStream, SocketAddr)>::try_from(stream).map(|(tcp, _)| tcp)
-        }
-    }
-
-    impl TryFrom<Stream> for (UnixStream, SocketAddr) {
-        type Error = io::Error;
-
-        fn try_from(stream: Stream) -> Result<Self, Self::Error> {
-            match stream {
-                Stream::Unix(unix, addr) => Ok((UnixStream::from_std(unix), addr)),
-                #[allow(unreachable_patterns)]
-                _ => unreachable!("Can not be casted to UnixStream"),
-            }
-        }
-    }
-
-    impl AsyncBufRead for UnixStream {
-        #[inline(always)]
-        async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
-        where
-            B: BoundedBufMut,
-        {
-            UnixStream::read(self, buf).await
-        }
-    }
-
-    impl AsyncBufWrite for UnixStream {
-        #[inline(always)]
-        async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
-        where
-            B: BoundedBuf,
-        {
-            UnixStream::write(self, buf).submit().await
-        }
-
-        #[inline(always)]
-        fn shutdown(&self, direction: Shutdown) -> io::Result<()> {
-            UnixStream::shutdown(self, direction)
-        }
+    fn try_from(stream: Stream) -> Result<Self, Self::Error> {
+        <(UnixStream, std::os::unix::net::SocketAddr)>::try_from(stream)
+            .map(|(stream, _)| (stream, unspecified_socket_addr()))
     }
 }

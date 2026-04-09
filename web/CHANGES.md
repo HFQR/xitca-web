@@ -1,15 +1,19 @@
 # unreleased 0.8.0
 ## Add
+- add `HttpServer::enable_io_uring` to enable io_uring for network. Require `io-uring` crate feature
+- add `HttpServer::h2c_prior_knowledge` to enable HTTP/2 clear text. `http2` crate feature is requried
+- add `handler::grpc` module for typed grpc message request/response handling
 - Add `error::Error::call_dyn` enabling object oriented web response conversion in arbitrary error type's Service impl
 
 ## Change
 - Router rework. Named param is capatured with `{x}` instead of `:x`. Catch all is captured with `{*x}` intead of `*x`. For detail please reference `App::at` doc
-- update `xitca-http` to `0.8.2`
-- update `xitca-server` to `0.6.1`
-- update `xitca-tls` to `0.5.1`
-= update `xitca-io` to `0.5.1`
-- update `http-encoding` to `0.2.1`
+- update `xitca-http` to `0.9.0`
+- update `xitca-server` to `0.7.0`
+- update `xitca-tls` to `0.6.0`
+= update `xitca-io` to `0.6.0`
+- update `http-encoding` to `0.3.0`
 - update `http-file` to `0.3.0`
+- update `http-ws` to `0.4.0`
 
 # 0.7.0
 ## Add

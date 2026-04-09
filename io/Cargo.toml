@@ -1,6 +1,6 @@
 [package]
 name = "xitca-io"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "async network io types and traits"
@@ -12,16 +12,20 @@ readme= "README.md"
 [features]
 default = []
 # tokio runtime support
-runtime = ["tokio"]
+runtime = ["tokio", "tokio-uring-xitca/runtime"]
 # tokio-uring runtime support
-runtime-uring = ["dep:tokio-uring-xitca"]
+runtime-uring = ["runtime", "tokio-uring-xitca/runtime-uring"]
 # quic support
 quic = ["dep:quinn", "runtime"]
 
 [dependencies]
-xitca-unsafe-collection = { version = "0.2.0", features = ["bytes"] }
+xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
-bytes = "1.4"
+bytes = { workspace = true }
+# Always required for its buffer traits (BoundedBuf, BoundedBufMut, etc.)
+# and completion-based IO trait definitions. The io-uring runtime itself is
+# NOT enabled unless the `runtime-uring` feature is activated.
+tokio-uring-xitca = { workspace = true, features = ["bytes"] }
+
 quinn = { version = "0.11", features = ["ring"], optional = true }
-tokio = { version = "1.48", features = ["net"], optional = true }
-tokio-uring-xitca = { version = "0.1.1", features = ["bytes"], optional = true }
+tokio = { workspace = true, features = ["net"], optional = true }

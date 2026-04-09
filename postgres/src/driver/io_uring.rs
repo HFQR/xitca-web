@@ -4,7 +4,7 @@ use std::{io, net::Shutdown};
 
 use xitca_io::{
     bytes::BytesMut,
-    io_uring::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
+    io::{AsyncBufRead, AsyncBufWrite, BoundedBuf},
     net::io_uring::TcpStream,
 };
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -49,93 +49,86 @@ where
         let mut read_buf = mem::take(&mut self.read_buf);
 
         async gen move {
-            let write = || async {
-                loop {
-                    match self.rx.wait().await {
-                        WriteState::WantWrite => {
-                            let buf = self.rx.guarded.lock().unwrap().buf.split();
-                            let (res, _) = write_all(&self.io, buf).await;
-                            res?;
+            let res = {
+                let write = || async {
+                    loop {
+                        match self.rx.wait().await {
+                            WriteState::WantWrite => {
+                                let buf = self.rx.guarded.lock().unwrap().buf.split();
+                                let (res, _) = self.io.write_all(buf).await;
+                                res?;
+                            }
+                            _ => return Ok(()),
                         }
-                        _ => return Ok::<_, io::Error>(()),
-                    }
-                }
-            };
-
-            let read = || async gen {
-                loop {
-                    match self.rx.try_decode(&mut read_buf) {
-                        Ok(Some(msg)) => {
-                            yield Ok(msg);
-                            continue;
-                        }
-                        Err(e) => {
-                            yield Err(SelectOutput::A(e));
-                            return;
-                        }
-                        Ok(None) => {}
-                    }
-
-                    let len = read_buf.len();
-
-                    read_buf.reserve(4096);
-
-                    let (res, b) = self.io.read(read_buf.slice(len..)).await;
-
-                    read_buf = b.into_inner();
-
-                    match res {
-                        Ok(0) => return,
-                        Ok(_) => {}
-                        Err(e) => {
-                            yield Err(SelectOutput::B(e));
-                            return;
-                        }
-                    }
-                }
-            };
-
-            let mut read = pin!(read());
-            let mut write = pin!(write());
-
-            loop {
-                let res = match (&mut self.write_state, &mut self.read_state) {
-                    (State::Running, State::Running) => {
-                        write.as_mut().select(poll_fn(|cx| read.as_mut().poll_next(cx))).await
-                    }
-                    (State::Running, _) => SelectOutput::A(write.as_mut().await),
-                    (_, State::Running) => SelectOutput::B(poll_fn(|cx| read.as_mut().poll_next(cx)).await),
-                    (State::Closed(None), State::Closed(None)) => {
-                        if let Err(e) = self.io.shutdown(Shutdown::Both) {
-                            yield Err(e.into());
-                        }
-                        return;
-                    }
-                    (State::Closed(err_w), State::Closed(err_r)) => {
-                        yield Err(Error::driver_io(err_r.take(), err_w.take()));
-                        return;
                     }
                 };
 
-                match res {
-                    SelectOutput::A(Ok(_)) => self.write_state = State::Closed(None),
-                    SelectOutput::A(Err(e)) => self.write_state = State::Closed(Some(e)),
-                    SelectOutput::B(Some(Ok(msg))) => {
-                        yield Ok(msg);
+                let read = || async gen {
+                    loop {
+                        match self.rx.try_decode(&mut read_buf) {
+                            Ok(Some(msg)) => {
+                                yield Ok(msg);
+                                continue;
+                            }
+                            Err(e) => {
+                                yield Err(SelectOutput::A(e));
+                                return;
+                            }
+                            Ok(None) => {}
+                        }
+
+                        let len = read_buf.len();
+
+                        read_buf.reserve(4096);
+
+                        let (res, b) = self.io.read(read_buf.slice(len..)).await;
+
+                        read_buf = b.into_inner();
+
+                        match res {
+                            Ok(0) => return,
+                            Ok(_) => {}
+                            Err(e) => {
+                                yield Err(SelectOutput::B(e));
+                                return;
+                            }
+                        }
                     }
-                    SelectOutput::B(Some(Err(e))) => match e {
-                        SelectOutput::A(e) => {
-                            yield Err(e);
-                            return;
+                };
+
+                let mut read = pin!(read());
+                let mut write = pin!(write());
+
+                loop {
+                    let res = match (&mut self.write_state, &mut self.read_state) {
+                        (State::Running, State::Running) => {
+                            write.as_mut().select(poll_fn(|cx| read.as_mut().poll_next(cx))).await
                         }
-                        SelectOutput::B(e) => {
-                            self.read_state = State::Closed(Some(e));
+                        (State::Running, _) => SelectOutput::A(write.as_mut().await),
+                        (_, State::Running) => SelectOutput::B(poll_fn(|cx| read.as_mut().poll_next(cx)).await),
+                        (State::Closed(None), State::Closed(None)) => break Ok(()),
+                        (State::Closed(err_w), State::Closed(err_r)) => {
+                            break Err(Error::driver_io(err_r.take(), err_w.take()));
                         }
-                    },
-                    SelectOutput::B(None) => {
-                        self.read_state = State::Closed(None);
+                    };
+
+                    match res {
+                        SelectOutput::A(Ok(_)) => self.write_state = State::Closed(None),
+                        SelectOutput::A(Err(e)) => self.write_state = State::Closed(Some(e)),
+                        SelectOutput::B(Some(Ok(msg))) => yield Ok(msg),
+                        SelectOutput::B(Some(Err(e))) => match e {
+                            SelectOutput::A(e) => break Err(e),
+                            SelectOutput::B(e) => self.read_state = State::Closed(Some(e)),
+                        },
+                        SelectOutput::B(None) => self.read_state = State::Closed(None),
                     }
                 }
+            };
+
+            let _ = self.io.shutdown(Shutdown::Both).await;
+
+            if let Err(err) = res {
+                yield Err(err);
             }
         }
     }

@@ -1,7 +1,7 @@
 //! Stream decoders.
 
-use futures_core::Stream;
-use http::header::{HeaderMap, CONTENT_ENCODING};
+use http::header::{CONTENT_ENCODING, HeaderMap};
+use http_body_alt::Body;
 
 use super::{
     coder::{Coder, FeaturedCode},
@@ -11,10 +11,10 @@ use super::{
 
 /// Construct from headers and stream body. Use for decoding.
 #[inline]
-pub fn try_decoder<S, T, E>(headers: &HeaderMap, body: S) -> Result<Coder<S, FeaturedCode>, EncodingError>
+pub fn try_decoder<S>(headers: &HeaderMap, body: S) -> Result<Coder<S, FeaturedCode>, EncodingError>
 where
-    S: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + 'static,
+    S: Body,
+    S::Data: AsRef<[u8]> + 'static,
 {
     from_headers(headers).map(|decoder| Coder::new(body, decoder))
 }
@@ -32,12 +32,10 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
     {
         match ContentEncoding::try_parse(enc) {
             Ok(encoding) => match encoding {
-                ContentEncoding::NoOp => break,
+                ContentEncoding::Identity => break,
                 ContentEncoding::Br => {
                     #[cfg(feature = "br")]
-                    return Ok(FeaturedCode::DecodeBr(super::brotli::Decoder::new(
-                        super::writer::BytesMutWriter::new(),
-                    )));
+                    return Ok(FeaturedCode::DecodeBr(super::brotli::Decoder::new()));
                 }
                 ContentEncoding::Gzip => {
                     #[cfg(feature = "gz")]
@@ -50,6 +48,10 @@ fn from_headers(headers: &HeaderMap) -> Result<FeaturedCode, EncodingError> {
                     return Ok(FeaturedCode::DecodeDe(super::deflate::Decoder::new(
                         super::writer::BytesMutWriter::new(),
                     )));
+                }
+                ContentEncoding::Zstd => {
+                    #[cfg(feature = "zs")]
+                    return Ok(FeaturedCode::DecodeZs(super::zstandard::Decoder::new()));
                 }
             },
             Err(e) => err = Some(e),

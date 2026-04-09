@@ -6,8 +6,6 @@ use core::{
     time::Duration,
 };
 
-use std::io;
-
 use futures_core::stream::Stream;
 use http_ws::{
     HandshakeError, Item, Message as WsMessage, ProtocolError, WsOutput,
@@ -20,13 +18,13 @@ use xitca_unsafe_collection::{
 };
 
 use crate::{
-    body::{BodyStream, RequestBody, ResponseBody},
+    body::{BodyStream, RequestBody, ResponseBody, StreamDataBody},
     bytes::Bytes,
     context::WebContext,
-    error::{Error, HeaderNotFound},
+    error::{Error, ErrorStatus, HeaderNotFound},
     handler::{FromRequest, Responder},
     http::{
-        StatusCode, WebResponse,
+        Protocol, StatusCode, WebResponse,
         header::{CONNECTION, SEC_WEBSOCKET_VERSION, UPGRADE},
     },
     service::Service,
@@ -49,13 +47,13 @@ type OnMsgCB = Box<dyn for<'a> FnMut(&'a mut ResponseSender, Message) -> BoxFutu
 
 type OnErrCB<E> = Box<dyn FnMut(WsError<E>) -> BoxFuture<'static>>;
 
-type OnCloseCB<B> = Box<dyn for<'a> FnOnce(Pin<&'a mut RequestStream<B>>) -> BoxFuture<'a>>;
+type OnCloseCB<B> = Box<dyn for<'a> FnOnce(Pin<&'a mut RequestStream<StreamDataBody<B>>>) -> BoxFuture<'a>>;
 
 pub struct WebSocket<B = RequestBody>
 where
     B: BodyStream,
 {
-    ws: WsOutput<B>,
+    ws: WsOutput<StreamDataBody<B>>,
     ping_interval: Duration,
     max_unanswered_ping: u8,
     on_msg: OnMsgCB,
@@ -67,7 +65,7 @@ impl<B> WebSocket<B>
 where
     B: BodyStream,
 {
-    fn new(ws: WsOutput<B>) -> Self {
+    fn new(ws: WsOutput<StreamDataBody<B>>) -> Self {
         #[cold]
         #[inline(never)]
         fn boxed_future() -> BoxFuture<'static> {
@@ -129,7 +127,7 @@ where
     /// Async function that would be called when closing the websocket connection.
     pub fn on_close<F, Fut>(&mut self, func: F) -> &mut Self
     where
-        F: FnOnce(Pin<&mut RequestStream<B>>) -> Fut + 'static,
+        F: FnOnce(Pin<&mut RequestStream<StreamDataBody<B>>>) -> Fut + 'static,
         Fut: Future<Output = ()> + 'static,
     {
         self.on_close = Box::new(|stream| Box::pin(func(stream)));
@@ -165,7 +163,13 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        let ws = http_ws::ws(ctx.req(), body).map_err(Error::from_service)?;
+        if let Some(protocol) = ctx.req().body().protocol() {
+            if protocol != Protocol::WEB_SOCKET {
+                // TODO: strong typed error display protocol mismatch information
+                return Err(ErrorStatus::bad_request().into());
+            }
+        }
+        let ws = http_ws::ws(ctx.req(), StreamDataBody::new(body)).map_err(Error::from_service)?;
         Ok(WebSocket::new(ws))
     }
 }
@@ -199,14 +203,14 @@ where
             on_close,
         ));
 
-        Ok(res.map(ResponseBody::box_stream))
+        Ok(res.map(|body| ResponseBody::boxed(StreamDataBody::new(body))))
     }
 }
 
 async fn spawn_task<B>(
     ping_interval: Duration,
     max_unanswered_ping: u8,
-    decode: RequestStream<B>,
+    decode: RequestStream<StreamDataBody<B>>,
     mut tx: ResponseSender,
     mut on_msg: OnMsgCB,
     mut on_err: OnErrCB<B::Error>,
@@ -239,57 +243,46 @@ async fn spawn_task<B>(
                             continue;
                         }
                         WsMessage::Ping(ping) => {
-                            tx.send(WsMessage::Pong(ping)).await?;
+                            tx.pong(ping).await?;
                             continue;
                         }
                         WsMessage::Close(reason) => {
-                            match tx.send(WsMessage::Close(reason)).await {
-                                // ProtocolError::Closed error means someone already sent close message
-                                // so just ignore it and treat as success.
-                                Ok(_) | Err(ProtocolError::Closed) => return Ok(()),
-                                Err(e) => return Err(e.into()),
-                            }
+                            return match tx.close(reason).await {
+                                // close echoed back to remote successfully
+                                Ok(_) => Ok(()),
+                                // close is locally intialized and echo of it has already been received
+                                Err(ProtocolError::SendClosed) => Ok(()),
+                                Err(err) => Err(err.into()),
+                            };
                         }
                     };
 
                     on_msg(&mut tx, msg).await
                 }
-                SelectOutput::A(Some(Err(e))) => on_err(e).await,
-                SelectOutput::A(None) => return Ok(()),
+                SelectOutput::A(Some(Err(e))) => return Err(e),
+                // RequestSream never yields None. It's either Close message received or connection broken that mark the end of it
+                SelectOutput::A(None) => unreachable!("RequestStream never yields None"),
                 SelectOutput::B(_) => match un_answered_ping.cmp(&max_unanswered_ping) {
                     Ordering::Less => {
-                        if let Err(e) = tx.send(WsMessage::Ping(Bytes::new())).await {
+                        if let Err(e) = tx.ping(Bytes::new()).await {
                             // continue ping timer when websocket is closed.
                             // client may be lagging behind and not respond to close message immediately.
-                            if !matches!(e, ProtocolError::Closed) {
+                            if !matches!(e, ProtocolError::SendClosed) {
                                 return Err(e.into());
                             }
                         }
                         un_answered_ping += 1;
                         sleep.as_mut().reset(Instant::now() + ping_interval);
                     }
-                    // on last interval try to send close message to client to inform it connection
-                    // is going away.
-                    Ordering::Equal => match tx.send(WsMessage::Close(None)).await {
-                        Ok(_) => un_answered_ping += 1,
-                        // ProtocolError::Closed error means someone already sent close message
-                        // so just ignore it and end connection right away.
-                        Err(ProtocolError::Closed) => return Ok(()),
-                        Err(e) => return Err(e.into()),
-                    },
-                    // this will only happen when client fail to respond to the close message on last
-                    // interval in time and at this point just closed the connection with an io error.
-                    Ordering::Greater => {
-                        let _ = tx.send_error(io::ErrorKind::UnexpectedEof.into()).await;
-                        return Ok(());
-                    }
+                    // ping time out
+                    _ => return Ok(()),
                 },
             }
         }
     };
 
-    if let Err(e) = spawn_inner.await {
-        on_err(e).await;
+    if let Err(err) = spawn_inner.await {
+        on_err(err).await;
     }
 
     on_close(decode).await;

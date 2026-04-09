@@ -14,10 +14,12 @@ members = [
     "tls",
     "unsafe_collection",
     "web",
+    "http-body",
     "http-encoding",
     "http-file",
     "http-multipart",
     "http-rate",
+    "http-grpc",
     "http-ws",
     "tokio-uring"
 ]
@@ -38,6 +40,8 @@ xitca-service = { path = "./service" }
 xitca-tls = { path = "./tls" }
 xitca-unsafe-collection = { path = "./unsafe_collection" }
 xitca-web = { path = "./web" }
+http-body-alt = { path = "./http-body" }
+http-grpc = { path = "./http-grpc" }
 http-encoding = { path = "./http-encoding" }
 http-file = { path = "http-file" }
 http-multipart = { path = "./http-multipart" }
@@ -54,9 +58,37 @@ codegen-units = 1
 # disable useless and/or broken lints
 [workspace.lints.rust]
 unreachable_patterns = "allow"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
 [workspace.lints.clippy]
 await_holding_lock = "allow"
 needless_return = "allow"
 new_without_default = "allow"
+
+[workspace.dependencies]
+bytes = "1.11.1"
+futures-core = { version = "0.3.32", default-features = false }
+http = "1.4.0"
+httparse = "1.10.1"
+http-body-alt = "0.1.0"
+http-encoding = "0.3.0"
+http-file = { version = "0.3.0", default-features = false }
+http-grpc = "0.1.0"
+http-multipart = "0.1.2"
+http-ws = "0.4"
+percent-encoding = "2.3.2"
+pin-project-lite = "0.2.17"
+prost = { version = "0.14.3", default-features = false }
+serde_core = "1"
+serde = "1"
+socket2 = "0.6.3"
+tokio = "1.51.0"
+tokio-uring-xitca = "0.2.0"
+
+xitca-io = "0.6.0"
+xitca-http = { version = "0.9.0", default-features = false }
+xitca-router = "0.4.2"
+xitca-server = "0.7.0"
+xitca-service = "0.3.0"
+xitca-tls = "0.6.0"
+xitca-unsafe-collection = "0.2.0"
+xitca-web = "0.8.0"

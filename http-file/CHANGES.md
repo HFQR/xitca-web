@@ -2,6 +2,10 @@
 ## Add
 - add `tokio-uring-xitca` feature
 
+## Change
+- update to Rust edition 2024
+- bump MSRV to `1.85`
+
 ## Remove
 - remove `tokio-uring` feature. tokio crate is adding direct support for io_uring and `tokio` feature would eventually cover all it's use case
 

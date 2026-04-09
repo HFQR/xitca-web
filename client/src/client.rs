@@ -1,11 +1,10 @@
 use core::{net::SocketAddr, pin::Pin};
 
-use futures_core::stream::Stream;
 use tokio::time::{Instant, Sleep};
 use xitca_io::net::{TcpSocket, TcpStream};
 
 use crate::{
-    body::{BodyError, BoxBody},
+    body::{Body, BodyError, RequestBody},
     builder::ClientBuilder,
     bytes::Bytes,
     connect::Connect,
@@ -20,7 +19,6 @@ use crate::{
     service::HttpService,
     timeout::{Timeout, TimeoutConfig},
     tls::connector::Connector,
-    upgrade::UpgradeRequest,
     uri::Uri,
 };
 
@@ -78,7 +76,7 @@ impl Client {
     #[inline]
     pub fn request<B, E>(&self, req: http::Request<B>) -> RequestBuilder<'_>
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        B: Body<Data = Bytes, Error = E> + Send + 'static,
         BodyError: From<E>,
     {
         RequestBuilder::new(req, self)
@@ -97,7 +95,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        let mut req = http::Request::new(BoxBody::default());
+        let mut req = http::Request::new(RequestBody::empty());
         *req.method_mut() = method;
         *req.version_mut() = self.max_http_version;
 
@@ -233,7 +231,7 @@ impl Client {
     /// Ok(())
     /// # }
     /// ```
-    pub fn upgrade<U>(&self, url: U, method: Method) -> UpgradeRequest<'_>
+    pub fn upgrade<U>(&self, url: U, method: Method) -> crate::upgrade::UpgradeRequest<'_>
     where
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
@@ -299,6 +297,26 @@ impl Client {
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
         self.get(url).version(Version::HTTP_2).mutate_marker()
+    }
+
+    #[cfg(all(feature = "grpc", feature = "http2"))]
+    pub fn grpc<U>(&self, url: U) -> crate::grpc::GrpcUnaryRequest<'_>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        let req = self.post(url).version(Version::HTTP_2);
+        crate::grpc::GrpcUnaryRequest::new(req)
+    }
+
+    #[cfg(all(feature = "grpc", feature = "http2"))]
+    pub fn grpc_stream<U>(&self, url: U) -> crate::grpc::GrpcStreamRequest<'_>
+    where
+        uri::Uri: TryFrom<U>,
+        Error: From<<uri::Uri as TryFrom<U>>::Error>,
+    {
+        let req = self.post(url).version(Version::HTTP_2);
+        crate::grpc::GrpcStreamRequest::new(req)
     }
 }
 

@@ -10,7 +10,7 @@ keywords = ["http", "rate-limit"]
 readme= "README.md"
 
 [dependencies]
-http = "1"
+http = { workspace = true }
 
 [dev-dependencies]
 crossbeam = "0.8.0"

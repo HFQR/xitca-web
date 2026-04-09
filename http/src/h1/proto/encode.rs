@@ -1,18 +1,18 @@
-use futures_core::stream::Stream;
-use tracing::{debug, error, warn};
+use crate::body::Body;
+use tracing::{error, warn};
 
 use crate::{
-    body::BodySize,
+    body::SizeHint,
     bytes::{Bytes, BytesMut},
     date::DateTime,
     http::{
-        StatusCode, Version,
+        StatusCode,
         header::{CONNECTION, CONTENT_LENGTH, DATE, HeaderMap, SET_COOKIE, TE, TRANSFER_ENCODING, UPGRADE},
         response::Parts,
     },
 };
 
-use super::{buf_write::H1BufWrite, codec::TransferCoding, context::Context, error::ProtoError, header};
+use super::{buf_write::H1BufWrite, context::Context, error::ProtoError, header, trasnder_coding::TransferCoding};
 
 pub const CONTINUE: &[u8; 25] = b"HTTP/1.1 100 Continue\r\n\r\n";
 
@@ -25,7 +25,7 @@ where
 {
     pub fn encode_head<B, W>(&mut self, parts: Parts, body: &B, buf: &mut W) -> Result<TransferCoding, ProtoError>
     where
-        B: Stream,
+        B: Body,
         W: H1BufWrite,
     {
         buf.write_buf_head(|buf| self.encode_head_inner(parts, body, buf))
@@ -33,12 +33,12 @@ where
 
     fn encode_head_inner<B>(&mut self, parts: Parts, body: &B, buf: &mut BytesMut) -> Result<TransferCoding, ProtoError>
     where
-        B: Stream,
+        B: Body,
     {
         let Parts {
             mut headers,
             mut extensions,
-            version,
+            version: _,
             status,
             ..
         } = parts;
@@ -56,10 +56,9 @@ where
             _ => false,
         };
 
-        // encode version, status code and reason
-        encode_version_status_reason(buf, version, status);
+        self.encode_version_status_reason(buf, status);
 
-        let size = BodySize::from_stream(body);
+        let size = body.size_hint();
 
         self.encode_headers(&mut headers, size, buf, skip_ct_te).inspect(|_| {
             // put header map back to cache.
@@ -70,36 +69,27 @@ where
             self.replace_extensions(extensions);
         })
     }
-}
 
-#[inline]
-fn encode_version_status_reason(buf: &mut BytesMut, version: Version, status: StatusCode) {
-    // encode version, status code and reason
-    match (version, status) {
-        // happy path shortcut.
-        (Version::HTTP_11, StatusCode::OK) => {
-            buf.extend_from_slice(b"HTTP/1.1 200 OK");
-            return;
-        }
-        (Version::HTTP_11, _) => {
-            buf.extend_from_slice(b"HTTP/1.1 ");
-        }
-        (Version::HTTP_10, _) => {
-            buf.extend_from_slice(b"HTTP/1.0 ");
-        }
-        _ => {
-            debug!(target: "h1_encode", "response with unexpected response version");
-            buf.extend_from_slice(b"HTTP/1.1 ");
-        }
+    #[inline]
+    fn encode_version_status_reason(&self, buf: &mut BytesMut, status: StatusCode) {
+        // encode version, status code and reason
+        match (status, self.is_http10()) {
+            (StatusCode::OK, false) => {
+                buf.extend_from_slice(b"HTTP/1.1 200 OK");
+                return;
+            }
+            (_, false) => buf.extend_from_slice(b"HTTP/1.1 "),
+            (_, true) => buf.extend_from_slice(b"HTTP/1.0 "),
+        };
+
+        // a reason MUST be written, as many parsers will expect it.
+        let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
+        let status = status.as_str().as_bytes();
+        buf.reserve(status.len() + reason.len() + 1);
+        buf.extend_from_slice(status);
+        buf.extend_from_slice(b" ");
+        buf.extend_from_slice(reason);
     }
-
-    // a reason MUST be written, as many parsers will expect it.
-    let reason = status.canonical_reason().unwrap_or("<none>").as_bytes();
-    let status = status.as_str().as_bytes();
-    buf.reserve(status.len() + reason.len() + 1);
-    buf.extend_from_slice(status);
-    buf.extend_from_slice(b" ");
-    buf.extend_from_slice(reason);
 }
 
 impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS>
@@ -109,7 +99,7 @@ where
     pub fn encode_headers(
         &mut self,
         headers: &mut HeaderMap,
-        size: BodySize,
+        size: SizeHint,
         buf: &mut BytesMut,
         mut skip_ct_te: bool,
     ) -> Result<TransferCoding, ProtoError> {
@@ -182,19 +172,17 @@ where
             try_remove_body(buf, skip_ct_te, size, &mut encoding);
         // encode transfer-encoding or content-length if header map didn't provide them.
         } else if !skip_ct_te {
-            match size {
-                BodySize::None => {
-                    encoding = TransferCoding::eof();
-                }
-                BodySize::Stream => {
+            encoding = match size {
+                SizeHint::None => TransferCoding::eof(),
+                SizeHint::Unknown => {
                     buf.extend_from_slice(CHUNKED_HEADER);
-                    encoding = TransferCoding::encode_chunked();
+                    TransferCoding::encode_chunked()
                 }
-                BodySize::Sized(size) => {
+                SizeHint::Exact(size) => {
                     write_length_header(buf, size);
-                    encoding = TransferCoding::length(size as u64);
+                    TransferCoding::length(size)
                 }
-            }
+            };
         }
 
         if self.is_connection_closed() {
@@ -219,15 +207,15 @@ const CLOSE_HEADER: &[u8; 19] = b"\r\nconnection: close";
 
 #[cold]
 #[inline(never)]
-fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: BodySize, encoding: &mut TransferCoding) {
+fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: SizeHint, encoding: &mut TransferCoding) {
     *encoding = TransferCoding::eof();
 
     match size {
-        BodySize::None => return,
-        BodySize::Stream if !skip_ct_te => {
+        SizeHint::None => return,
+        SizeHint::Unknown if !skip_ct_te => {
             buf.extend_from_slice(CHUNKED_HEADER);
         }
-        BodySize::Sized(size) if !skip_ct_te => {
+        SizeHint::Exact(size) if !skip_ct_te => {
             write_length_header(buf, size);
         }
         _ => {}
@@ -236,7 +224,7 @@ fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: BodySize, encodin
     warn!("response to HEAD request should not bearing body. It will been dropped without polling.");
 }
 
-pub(crate) fn write_length_header(buf: &mut BytesMut, size: usize) {
+pub(crate) fn write_length_header(buf: &mut BytesMut, size: u64) {
     let mut buffer = itoa::Buffer::new();
     let buffer = buffer.format(size).as_bytes();
 
@@ -248,7 +236,7 @@ pub(crate) fn write_length_header(buf: &mut BytesMut, size: usize) {
 #[cfg(test)]
 mod test {
     use crate::{
-        body::{BoxBody, Once},
+        body::{BoxBody, Full},
         date::SystemTimeDateTimeHandler,
         http::{HeaderValue, Response},
     };
@@ -259,7 +247,7 @@ mod test {
     fn append_header() {
         let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler);
 
-        let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
+        let mut res = Response::new(BoxBody::new(Full::new(Bytes::new())));
 
         res.headers_mut()
             .insert(CONNECTION, HeaderValue::from_static("keep-alive"));
@@ -289,7 +277,7 @@ mod test {
     fn multi_set_cookie() {
         let mut ctx = Context::<_, 64>::new(&SystemTimeDateTimeHandler);
 
-        let mut res = Response::new(BoxBody::new(Once::new(Bytes::new())));
+        let mut res = Response::new(BoxBody::new(Full::new(Bytes::new())));
 
         res.headers_mut()
             .insert(SET_COOKIE, HeaderValue::from_static("foo=foo"));

@@ -1,0 +1,39 @@
+[package]
+name = "http-grpc"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "grpc for http crate type"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["http", "grpc"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+stream = ["__body_impl", "pin-project-lite", "tokio/sync"]
+compress-br = ["__compress", "http-encoding/br"]
+compress-gz = ["__compress", "http-encoding/gz"]
+compress-de = ["__compress", "http-encoding/de"]
+compress-zs = ["__compress", "http-encoding/zs"]
+
+# private features
+__body_impl = ["dep:http-body-alt"]
+__compress = ["__body_impl", "http-encoding"]
+
+[dependencies]
+bytes = { workspace = true }
+http = { workspace = true }
+percent-encoding = { workspace = true }
+prost = { workspace = true }
+
+# stream feature
+pin-project-lite = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+# compress feature
+http-body-alt = { workspace = true, optional = true }
+http-encoding = { workspace = true, optional = true }

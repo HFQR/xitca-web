@@ -1,0 +1,46 @@
+name: Setup CI Tools
+description: Cache dependencies and install common CI tools (cargo-hack, protoc)
+
+inputs:
+  cargo-hack:
+    description: Install cargo-hack
+    required: false
+    default: 'false'
+  protoc:
+    description: Install protoc
+    required: false
+    default: 'false'
+  free-disk-space:
+    description: Free up disk space (Linux only)
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Free up disk space
+      if: inputs.free-disk-space == 'true' && runner.os == 'Linux'
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
+    - name: Install cargo-hack
+      if: inputs.cargo-hack == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-hack
+
+    - name: Install protoc
+      if: inputs.protoc == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: protoc@3.23.4

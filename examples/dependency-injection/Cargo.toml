@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-xitca-web = "0.7"
+xitca-web = { workspace = true }

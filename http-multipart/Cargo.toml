@@ -10,12 +10,12 @@ authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
 
 [dependencies]
-bytes = "1.4"
-futures-core = "0.3.21"
-http = "1"
-httparse = "1.8"
+bytes = { workspace = true }
+futures-core = { workspace = true }
+http = { workspace = true }
+httparse = { workspace = true }
 memchr = "2.5.0"
-pin-project-lite = "0.2.9"
+pin-project-lite = { workspace = true }
 
 [dev-dependencies]
 futures-util = { version = "0.3.21", default-features = false }

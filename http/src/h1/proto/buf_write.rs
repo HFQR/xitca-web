@@ -2,13 +2,15 @@ use core::convert::Infallible;
 
 use std::io::Write;
 
+use tracing::warn;
+
 use crate::{
-    bytes::{Buf, BufMut, BufMutWriter, Bytes, BytesMut, EitherBuf, buf::Chain},
-    util::buffered::{BufWrite, ListWriteBuf, WriteBuf},
+    bytes::{BufMut, BufMutWriter, Bytes, BytesMut},
+    http::header::{self, HeaderMap, HeaderName},
 };
 
 /// trait for add http/1 data to buffer that implement [BufWrite] trait.
-pub trait H1BufWrite: BufWrite {
+pub trait H1BufWrite {
     /// write http response head(status code and reason line, header lines) to buffer with fallible
     /// closure. on error path the buffer is reverted back to state before method was called.
     #[inline]
@@ -45,86 +47,56 @@ pub trait H1BufWrite: BufWrite {
             Ok::<_, Infallible>(())
         });
     }
+
+    fn write_buf_trailers(&mut self, trailers: HeaderMap) {
+        let _ = self.write_buf(|buf| {
+            buf.put_slice(b"0\r\n");
+            for (name, value) in trailers.iter() {
+                if is_forbidden_trailer_field(name) {
+                    warn!(target: "h1_encode", "filtered forbidden trailer field: {}", name);
+                    continue;
+                }
+                buf.reserve(name.as_str().len() + 2 + value.len() + 2);
+                buf.put_slice(name.as_str().as_bytes());
+                buf.put_slice(b": ");
+                buf.put_slice(value.as_bytes());
+                buf.put_slice(b"\r\n");
+            }
+            buf.put_slice(b"\r\n");
+            Ok::<_, Infallible>(())
+        });
+    }
+
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut BytesMut) -> Result<T, E>;
 }
 
-impl H1BufWrite for BytesMut {}
-
-impl<const BUF_LIMIT: usize> H1BufWrite for WriteBuf<BUF_LIMIT> {}
-
-// as special type for eof chunk when using transfer-encoding: chunked
-type Eof = Chain<Chain<Bytes, Bytes>, &'static [u8]>;
-
-type EncodedBuf<B, B2> = EitherBuf<B, EitherBuf<B2, &'static [u8]>>;
-
-impl<const BUF_LIMIT: usize> H1BufWrite for ListWriteBuf<EncodedBuf<Bytes, Eof>, BUF_LIMIT> {
-    fn write_buf_head<F, T, E>(&mut self, func: F) -> Result<T, E>
+impl H1BufWrite for BytesMut {
+    fn write_buf<F, T, E>(&mut self, func: F) -> Result<T, E>
     where
         F: FnOnce(&mut BytesMut) -> Result<T, E>,
     {
-        // list buffer use BufWrite::write_buf for temporary response head storage.
-        // after the head is successfully written we must move the bytes to list.
-        self.write_buf(func).inspect(|_| {
-            let bytes = self.split_buf().freeze();
-            self.buffer(EitherBuf::Left(bytes));
-        })
-    }
-
-    #[inline]
-    fn write_buf_static(&mut self, bytes: &'static [u8]) {
-        self.buffer(EitherBuf::Right(EitherBuf::Right(bytes)));
-    }
-
-    #[inline]
-    fn write_buf_bytes(&mut self, bytes: Bytes) {
-        self.buffer(EitherBuf::Left(bytes));
-    }
-
-    #[inline]
-    fn write_buf_bytes_chunked(&mut self, bytes: Bytes) {
-        let chunk = Bytes::from(format!("{:X}\r\n", bytes.len()))
-            .chain(bytes)
-            .chain(b"\r\n" as &'static [u8]);
-        self.buffer(EitherBuf::Right(EitherBuf::Left(chunk)));
+        let len = self.len();
+        func(self).inspect_err(|_| self.truncate(len))
     }
 }
 
-impl<L, R> H1BufWrite for EitherBuf<L, R>
-where
-    L: H1BufWrite,
-    R: H1BufWrite,
-{
-    #[inline]
-    fn write_buf_head<F, T, E>(&mut self, func: F) -> Result<T, E>
-    where
-        F: FnOnce(&mut BytesMut) -> Result<T, E>,
-    {
-        match *self {
-            Self::Left(ref mut l) => l.write_buf_head(func),
-            Self::Right(ref mut r) => r.write_buf_head(func),
-        }
-    }
-
-    #[inline]
-    fn write_buf_static(&mut self, bytes: &'static [u8]) {
-        match *self {
-            Self::Left(ref mut l) => l.write_buf_static(bytes),
-            Self::Right(ref mut r) => r.write_buf_static(bytes),
-        }
-    }
-
-    #[inline]
-    fn write_buf_bytes(&mut self, bytes: Bytes) {
-        match *self {
-            Self::Left(ref mut l) => l.write_buf_bytes(bytes),
-            Self::Right(ref mut r) => r.write_buf_bytes(bytes),
-        }
-    }
-
-    #[inline]
-    fn write_buf_bytes_chunked(&mut self, bytes: Bytes) {
-        match *self {
-            Self::Left(ref mut l) => l.write_buf_bytes_chunked(bytes),
-            Self::Right(ref mut r) => r.write_buf_bytes_chunked(bytes),
-        }
-    }
+// Returns true if the header name is forbidden in trailers per RFC 9110 §6.5.1.
+fn is_forbidden_trailer_field(name: &HeaderName) -> bool {
+    matches!(
+        *name,
+        header::AUTHORIZATION
+            | header::CACHE_CONTROL
+            | header::CONTENT_ENCODING
+            | header::CONTENT_LENGTH
+            | header::CONTENT_RANGE
+            | header::CONTENT_TYPE
+            | header::HOST
+            | header::MAX_FORWARDS
+            | header::SET_COOKIE
+            | header::TRAILER
+            | header::TRANSFER_ENCODING
+            | header::TE
+    )
 }

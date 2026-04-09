@@ -4,7 +4,6 @@ use xitca_io::net;
 use xitca_service::Service;
 
 use super::{
-    body::RequestBody,
     config::{DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT, HttpServiceConfig},
     service::HttpService,
     tls,
@@ -14,21 +13,24 @@ use super::{
 // method.
 #[doc(hidden)]
 pub(crate) mod marker {
+    // protocol version markers
     pub struct Http;
     #[cfg(feature = "http1")]
     pub struct Http1;
-    #[cfg(all(feature = "io-uring", feature = "http1"))]
-    pub struct Http1Uring;
-    #[cfg(all(feature = "io-uring", feature = "http2"))]
-    pub struct Http2Uring;
     #[cfg(feature = "http2")]
     pub struct Http2;
+
+    // I/O mode markers
+    pub struct Poll;
+    #[cfg(feature = "io-uring")]
+    pub struct Uring;
 }
 
 /// HttpService middleware.
-/// bridge TCP/UDP traffic and HTTP protocols for [Service] type.
+/// bridge TCP/UDP traffic and HTTP protocols for [`Service`] type.
 pub struct HttpServiceBuilder<
     V,
+    Io,
     St,
     FA,
     const HEADER_LIMIT: usize,
@@ -37,12 +39,13 @@ pub struct HttpServiceBuilder<
 > {
     pub(crate) tls_factory: FA,
     pub(crate) config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    pub(crate) _body: PhantomData<fn(V, St)>,
+    pub(crate) _body: PhantomData<fn(V, Io, St)>,
 }
 
 impl
     HttpServiceBuilder<
         marker::Http,
+        marker::Poll,
         net::Stream,
         tls::NoOpTlsAcceptorBuilder,
         DEFAULT_HEADER_LIMIT,
@@ -60,6 +63,7 @@ impl
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
     ) -> HttpServiceBuilder<
         marker::Http,
+        marker::Poll,
         net::Stream,
         tls::NoOpTlsAcceptorBuilder,
         HEADER_LIMIT,
@@ -77,6 +81,7 @@ impl
     /// construct a new service middleware for Http/1 protocol only.
     pub fn h1() -> HttpServiceBuilder<
         marker::Http1,
+        marker::Poll,
         net::TcpStream,
         tls::NoOpTlsAcceptorBuilder,
         DEFAULT_HEADER_LIMIT,
@@ -94,6 +99,7 @@ impl
     /// construct a new service middleware for Http/2 protocol only.
     pub fn h2() -> HttpServiceBuilder<
         marker::Http2,
+        marker::Poll,
         net::TcpStream,
         tls::NoOpTlsAcceptorBuilder,
         DEFAULT_HEADER_LIMIT,
@@ -114,14 +120,30 @@ impl
     }
 }
 
-impl<V, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpServiceBuilder<V, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+#[cfg(feature = "io-uring")]
+impl<St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServiceBuilder<marker::Http, marker::Poll, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+{
+    /// switch to io-uring I/O mode. The stream type is preserved (conversion happens at dispatch).
+    pub fn io_uring(
+        self,
+    ) -> HttpServiceBuilder<marker::Http, marker::Uring, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+        HttpServiceBuilder {
+            tls_factory: self.tls_factory,
+            config: self.config,
+            _body: PhantomData,
+        }
+    }
+}
+
+impl<V, Io, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpServiceBuilder<V, Io, St, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     /// replace service middleware's configuration.
     pub fn config<const HEADER_LIMIT_2: usize, const READ_BUF_LIMIT_2: usize, const WRITE_BUF_LIMIT_2: usize>(
         self,
         config: HttpServiceConfig<HEADER_LIMIT_2, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT_2>,
-    ) -> HttpServiceBuilder<V, St, FA, HEADER_LIMIT_2, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT_2> {
+    ) -> HttpServiceBuilder<V, Io, St, FA, HEADER_LIMIT_2, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT_2> {
         HttpServiceBuilder {
             tls_factory: self.tls_factory,
             config,
@@ -133,20 +155,19 @@ impl<V, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WR
     pub fn with_tls<TlsF>(
         self,
         tls_factory: TlsF,
-    ) -> HttpServiceBuilder<V, St, TlsF, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
+    ) -> HttpServiceBuilder<V, Io, St, TlsF, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         HttpServiceBuilder {
             tls_factory,
             config: self.config,
             _body: PhantomData,
         }
     }
-
     #[cfg(feature = "openssl")]
     /// use openssl as tls service. tls service is used for Http/1 and Http/2 protocols.
     pub fn openssl(
         self,
         acceptor: tls::openssl::TlsAcceptor,
-    ) -> HttpServiceBuilder<V, St, tls::openssl::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, Io, St, tls::openssl::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
         self.with_tls(tls::openssl::TlsAcceptorBuilder::new(acceptor))
     }
@@ -156,18 +177,9 @@ impl<V, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WR
     pub fn rustls(
         self,
         config: tls::rustls::RustlsConfig,
-    ) -> HttpServiceBuilder<V, St, tls::rustls::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
-        self.with_tls(tls::rustls::TlsAcceptorBuilder::new(config))
-    }
-
-    #[cfg(feature = "rustls-uring")]
-    /// use rustls on io-uring as tls service. io-uring (either with or without) is used for Http/1 protocol only.
-    pub fn rustls_uring(
-        self,
-        config: tls::rustls::RustlsConfig,
-    ) -> HttpServiceBuilder<V, St, tls::rustls_uring::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, Io, St, tls::rustls::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
-        self.with_tls(tls::rustls_uring::TlsAcceptorBuilder::new(config))
+        self.with_tls(tls::rustls::TlsAcceptorBuilder::new(config))
     }
 
     #[cfg(feature = "native-tls")]
@@ -175,7 +187,7 @@ impl<V, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WR
     pub fn native_tls(
         self,
         acceptor: tls::native_tls::TlsAcceptor,
-    ) -> HttpServiceBuilder<V, St, tls::native_tls::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    ) -> HttpServiceBuilder<V, Io, St, tls::native_tls::TlsAcceptorBuilder, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
     {
         self.with_tls(tls::native_tls::TlsAcceptorBuilder::new(acceptor))
     }
@@ -183,16 +195,16 @@ impl<V, St, FA, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WR
 
 type Error = Box<dyn fmt::Debug>;
 
-impl<FA, S, E, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+impl<FA, Io, S, E, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
     Service<Result<S, E>>
-    for HttpServiceBuilder<marker::Http, net::Stream, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    for HttpServiceBuilder<marker::Http, Io, net::Stream, FA, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     FA: Service,
     FA::Error: fmt::Debug + 'static,
     E: fmt::Debug + 'static,
 {
     type Response =
-        HttpService<net::Stream, S, RequestBody, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
+        HttpService<marker::Http, Io, net::Stream, S, FA::Response, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
     type Error = Error;
 
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {

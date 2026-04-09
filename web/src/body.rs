@@ -1,27 +1,33 @@
 //! http body types and traits.
 
-use futures_core::stream::Stream;
-
-pub use xitca_http::body::{BoxBody, NONE_BODY_HINT, RequestBody, ResponseBody, none_body_hint};
+pub use xitca_http::body::{
+    Body, BodyExt, BoxBody, Empty, Frame, Full, RequestBody, ResponseBody, SizeHint, StreamDataBody, Trailers,
+};
 
 pub(crate) use xitca_http::body::Either;
 
-use crate::error::BodyError;
+use core::any::Any;
+
+use crate::{bytes::Bytes, error::BodyError};
 
 /// an extended trait for [Stream] that specify additional type info of the [Stream::Item] type.
-pub trait BodyStream: Stream<Item = Result<Self::Chunk, Self::Error>> {
-    type Chunk: AsRef<[u8]> + 'static;
-    type Error: Into<BodyError>;
+pub trait BodyStream: Body<Data: Into<Bytes> + AsRef<[u8]> + 'static, Error: Into<BodyError>> {}
+
+impl<B> BodyStream for B
+where
+    B: Body,
+    B::Data: Into<Bytes> + AsRef<[u8]> + 'static,
+    B::Error: Into<BodyError>,
+{
 }
 
-impl<S, T, E> BodyStream for S
-where
-    S: Stream<Item = Result<T, E>>,
-    T: AsRef<[u8]> + 'static,
-    E: Into<BodyError>,
-{
-    type Chunk = T;
-    type Error = E;
+// conditional boxing body to convert generic body type to conrete
+pub(crate) fn downcast_body<B: BodyStream + 'static>(body: B) -> RequestBody {
+    let body = &mut Some(body);
+    match (body as &mut dyn Any).downcast_mut::<Option<RequestBody>>() {
+        Some(body) => body.take().unwrap(),
+        None => RequestBody::Boxed(BoxBody::new(body.take().unwrap())),
+    }
 }
 
 #[cfg(feature = "nightly")]
@@ -37,7 +43,7 @@ mod nightly {
 
     use pin_project_lite::pin_project;
 
-    use crate::bytes::Bytes;
+    use crate::{body::Frame, bytes::Bytes};
 
     use super::*;
 
@@ -60,16 +66,20 @@ mod nightly {
         }
     }
 
-    impl<B, T, E> Stream for AsyncBody<B>
+    impl<B, T, E> Body for AsyncBody<B>
     where
         B: AsyncIterator<Item = Result<T, E>>,
         Bytes: From<T>,
     {
-        type Item = Result<Bytes, E>;
+        type Data = Bytes;
+        type Error = E;
 
         #[inline]
-        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            AsyncIterator::poll_next(self.project().inner, cx).map_ok(Bytes::from)
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+            AsyncIterator::poll_next(self.project().inner, cx).map_ok(|data| Frame::Data(data.into()))
         }
     }
 }

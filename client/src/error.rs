@@ -209,7 +209,6 @@ mod _openssl {
     }
 }
 
-use crate::Response;
 #[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
 pub(crate) use _rustls::*;
 
@@ -265,7 +264,7 @@ impl From<crate::h3::Error> for Error {
 #[derive(Debug)]
 pub struct ErrorResponse {
     pub expect_status: StatusCode,
-    pub res: Response,
+    pub res: crate::http::Response<()>,
     pub description: &'static str,
 }
 

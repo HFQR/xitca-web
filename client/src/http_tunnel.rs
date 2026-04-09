@@ -36,7 +36,7 @@ impl HttpTunnelRequest<'_> {
         if res.status() != expect_status {
             return Err(Error::from(ErrorResponse {
                 expect_status,
-                res,
+                res: res.res.map(|_| ()),
                 description: "connect tunnel can't be established",
             }));
         }
@@ -253,10 +253,14 @@ impl TunnelIo {
         if interest.is_readable() {
             if self.adaptor.read_buf.is_some() {
                 ready |= Ready::READABLE;
-            } else if let Poll::Ready(res) = Pin::new(&mut *body).poll_next(cx) {
+            } else if let Poll::Ready(res) = crate::body::Body::poll_frame(Pin::new(&mut *body), cx) {
                 ready |= Ready::READABLE;
                 match res {
-                    Some(Ok(bytes)) => self.adaptor.read_buf = Some(bytes),
+                    Some(Ok(frame)) => {
+                        if let crate::body::Frame::Data(bytes) = frame {
+                            self.adaptor.read_buf = Some(bytes);
+                        }
+                    }
                     Some(Err(e)) => self.adaptor.read_err = Some(io::Error::other(e)),
                     None => self.adaptor.read_closed = true,
                 }

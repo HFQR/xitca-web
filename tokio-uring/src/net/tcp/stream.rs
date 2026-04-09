@@ -1,6 +1,8 @@
+use core::net::SocketAddr;
+
 use std::{
     io,
-    net::SocketAddr,
+    net::Shutdown,
     os::unix::prelude::{AsRawFd, FromRawFd, RawFd},
 };
 
@@ -8,7 +10,7 @@ use crate::{
     UnsubmittedWrite,
     buf::fixed::FixedBuf,
     buf::{BoundedBuf, BoundedBufMut},
-    io::{SharedFd, Socket},
+    io::{AsyncBufRead, AsyncBufWrite, SharedFd, Socket},
 };
 
 /// A TCP stream between a local and a remote socket.
@@ -260,6 +262,31 @@ impl TcpStream {
     /// Return Some when the pair belong to the same stream
     pub fn unsplit(read: TcpStreamRead, write: TcpStreamWrite) -> Option<Self> {
         (read.0.as_raw_fd() == write.0.as_raw_fd()).then_some(read.0)
+    }
+}
+
+impl AsyncBufRead for TcpStream {
+    #[inline(always)]
+    async fn read<B>(&self, buf: B) -> (io::Result<usize>, B)
+    where
+        B: BoundedBufMut,
+    {
+        TcpStream::read(self, buf).await
+    }
+}
+
+impl AsyncBufWrite for TcpStream {
+    #[inline(always)]
+    async fn write<B>(&self, buf: B) -> (io::Result<usize>, B)
+    where
+        B: BoundedBuf,
+    {
+        TcpStream::write(self, buf).submit().await
+    }
+
+    #[inline(always)]
+    async fn shutdown(self, direction: Shutdown) -> io::Result<()> {
+        TcpStream::shutdown(&self, direction)
     }
 }
 

@@ -12,7 +12,7 @@ mod queue {
             Self(FuturesUnordered::new())
         }
 
-        #[cfg(any(all(feature = "http2", feature = "io-uring"), feature = "http3"))]
+        #[cfg(any(feature = "http2", feature = "http3"))]
         pub(crate) async fn next(&mut self) -> F::Output {
             if self.is_empty() {
                 core::future::pending().await
@@ -36,11 +36,12 @@ mod queue {
             self.0.push(future);
         }
 
+        #[cfg(feature = "http3")]
         pub(crate) async fn drain(&mut self) {
             while self.0.next().await.is_some() {}
         }
 
-        #[cfg(all(feature = "http2", feature = "io-uring"))]
+        #[cfg(feature = "http2")]
         pub(crate) fn clear(&mut self) {
             self.0.clear();
         }

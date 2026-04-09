@@ -5,10 +5,10 @@
 
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 use xitca_web::{
+    App,
     handler::redirect::Redirect,
     middleware::{eraser::TypeEraser, tower_http_compat::TowerHttpCompat as CompatMiddleware},
-    service::{tower_http_compat::TowerHttpCompat as CompatBuild, ServiceExt},
-    App,
+    service::{ServiceExt, tower_http_compat::TowerHttpCompat as CompatBuild},
 };
 
 fn main() -> std::io::Result<()> {

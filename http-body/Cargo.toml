@@ -1,0 +1,20 @@
+[package]
+name = "http-body-alt"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "http-body alternative"
+repository = "https://github.com/HFQR/xitca-web"
+keywords = ["http", "http-body"]
+authors = ["fakeshadow <everestshadow@gmail.com>"]
+readme= "README.md"
+rust-version.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+futures-core = { workspace = true }
+http = { workspace = true }
+pin-project-lite = { workspace = true }
+
+[lints]
+workspace = true

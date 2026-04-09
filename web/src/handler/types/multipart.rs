@@ -1,11 +1,11 @@
 use crate::{
-    body::{BodyStream, RequestBody},
+    body::{BodyStream, RequestBody, StreamDataBody},
     context::WebContext,
     error::{Error, forward_blank_bad_request},
     handler::FromRequest,
 };
 
-pub type Multipart<B = RequestBody> = http_multipart::Multipart<B>;
+pub type Multipart<B = RequestBody> = http_multipart::Multipart<StreamDataBody<B>>;
 
 impl<'a, 'r, C, B> FromRequest<'a, WebContext<'r, C, B>> for Multipart<B>
 where
@@ -16,7 +16,7 @@ where
 
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        http_multipart::multipart(ctx.req(), body).map_err(Error::from_service)
+        http_multipart::multipart(ctx.req(), StreamDataBody::new(body)).map_err(Error::from_service)
     }
 }
 

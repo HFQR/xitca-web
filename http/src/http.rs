@@ -4,14 +4,64 @@ pub use ::http::*;
 
 use core::{
     borrow::{Borrow, BorrowMut},
+    convert::Infallible,
     mem,
     net::SocketAddr,
     pin::Pin,
+    result::Result as StdResult,
+    str::FromStr,
     task::{Context, Poll},
 };
 
-use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
+
+use crate::body::{Body, Frame, SizeHint};
+
+/// Extended protocol get injected to [`RequestExt`] for context awareness
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Protocol {
+    inner: _Protocol,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum _Protocol {
+    WebSocket,
+    WebTransport,
+    ConnectIp,
+    ConnectUdp,
+    Unknown,
+}
+
+impl Protocol {
+    pub const WEB_SOCKET: Self = Self::new(_Protocol::WebSocket);
+    pub const WEB_TRANSPORT: Self = Self::new(_Protocol::WebTransport);
+    pub const CONNECT_IP: Self = Self::new(_Protocol::ConnectIp);
+    pub const CONNECT_UDP: Self = Self::new(_Protocol::ConnectUdp);
+
+    pub(crate) fn from_str(str: &str) -> Self {
+        let inner = match str {
+            "websocket" => _Protocol::WebSocket,
+            "webtransport" => _Protocol::WebTransport,
+            "connect-ip" => _Protocol::ConnectIp,
+            "connect-udp" => _Protocol::ConnectUdp,
+            _ => _Protocol::Unknown,
+        };
+
+        Self { inner }
+    }
+
+    const fn new(inner: _Protocol) -> Self {
+        Self { inner }
+    }
+}
+
+impl FromStr for Protocol {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> StdResult<Self, Self::Err> {
+        Ok(Self::from_str(s))
+    }
+}
 
 /// Some often used header value.
 #[allow(clippy::declare_interior_mutable_const)]
@@ -50,7 +100,13 @@ pub mod const_header_name {
             }
         }
 
-    const_name!((PROTOCOL, "protocol"));
+    const_name!(
+        (GRPC_STATUS, "grpc-status"),
+        (GRPC_MESSAGE, "grpc-message"),
+        (GRPC_ENCODING, "grpc-encoding"),
+        (GRPC_ACCEPT_ENCODING, "grpc-accept-encoding"),
+        (GRPC_TIMEOUT, "grpc-timeout")
+    );
 }
 
 /// helper trait for converting a [Request] to [Response].
@@ -149,8 +205,13 @@ pub(crate) struct Extension(Box<_Extension>);
 
 impl Extension {
     pub(crate) fn new(addr: SocketAddr) -> Self {
+        Self::with_protocol(addr, None)
+    }
+
+    pub(crate) fn with_protocol(addr: SocketAddr, protocol: Option<Protocol>) -> Self {
         Self(Box::new(_Extension {
             addr,
+            protocol,
             #[cfg(feature = "router")]
             params: Default::default(),
         }))
@@ -160,6 +221,7 @@ impl Extension {
 #[derive(Clone, Debug)]
 struct _Extension {
     addr: SocketAddr,
+    protocol: Option<Protocol>,
     #[cfg(feature = "router")]
     params: Params,
 }
@@ -182,6 +244,10 @@ impl<B> RequestExt<B> {
     #[inline]
     pub fn socket_addr_mut(&mut self) -> &mut SocketAddr {
         &mut self.ext.0.addr
+    }
+
+    pub fn protocol(&self) -> Option<Protocol> {
+        self.ext.0.protocol
     }
 
     /// map body type of self to another type with given function closure.
@@ -215,19 +281,28 @@ where
     }
 }
 
-impl<B> Stream for RequestExt<B>
+impl<B> Body for RequestExt<B>
 where
-    B: Stream,
+    B: Body,
 {
-    type Item = B::Item;
+    type Data = B::Data;
+    type Error = B::Error;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().body.poll_next(cx)
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<StdResult<Frame<Self::Data>, Self::Error>>> {
+        self.project().body.poll_frame(cx)
     }
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
         self.body.size_hint()
     }
 }

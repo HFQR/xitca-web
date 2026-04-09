@@ -1,52 +1,46 @@
 use core::{cmp, future::poll_fn, pin::pin};
 
-use ::h2::{Reason, client};
-use futures_core::stream::Stream;
-use xitca_http::{
-    date::DateTime,
+use ::h2::client;
+use xitca_http::{date::DateTime, http::header::CONTENT_TYPE};
+use xitca_io::io::{AsyncIo, PollIoAdapter};
+
+use crate::{
+    body::{Body, BodyError, Frame, ResponseBody, SizeHint},
+    bytes::Bytes,
+    date::DateTimeHandle,
+    h2::{Connection, Error, body::ResponseBody as H2ResponseBody},
     http::{
         self,
-        const_header_name::PROTOCOL,
+        const_header_value::GRPC,
         header::{CONNECTION, CONTENT_LENGTH, DATE, HOST, HeaderValue, TRANSFER_ENCODING, UPGRADE},
         method::Method,
     },
 };
-use xitca_io::io::{AsyncIo, PollIoAdapter};
 
-use crate::{
-    body::{BodyError, BodySize, ResponseBody},
-    bytes::Bytes,
-    date::DateTimeHandle,
-    h2::{Connection, Error, body::ResponseBody as H2ResponseBody},
-};
-
-pub(crate) async fn send<B, E>(
+pub(crate) async fn send<B>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
     req: http::Request<B>,
 ) -> Result<http::Response<ResponseBody>, Error>
 where
-    B: Stream<Item = Result<Bytes, E>>,
-    BodyError: From<E>,
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: Send + Sync + 'static,
+    BodyError: From<B::Error>,
 {
     let (parts, body) = req.into_parts();
     let mut req = http::Request::from_parts(parts, ());
 
     // Content length and is body is in eof state.
-    let is_eof = match BodySize::from_stream(&body) {
-        BodySize::None => {
+    let is_eof = match body.size_hint() {
+        SizeHint::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
             true
         }
-        BodySize::Stream => {
+        SizeHint::Unknown => {
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
-        BodySize::Sized(0) => {
-            req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
-            true
-        }
-        BodySize::Sized(len) => {
+        SizeHint::Exact(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
@@ -65,56 +59,79 @@ where
     req.headers_mut().remove(HOST);
 
     if !req.headers().contains_key(DATE) {
-        let date = date.with_date(HeaderValue::from_bytes).unwrap();
+        let date = date.with_date_header(Clone::clone);
         req.headers_mut().append(DATE, date);
     }
 
-    let mut end_of_stream = is_eof;
+    let mut end_stream = is_eof;
+    let mut is_head_method = false;
 
-    if req.method() == Method::CONNECT {
-        if !end_of_stream {
-            return Err(::h2::Error::from(Reason::PROTOCOL_ERROR).into());
+    match *req.method() {
+        Method::CONNECT => {
+            #[allow(unused_mut)]
+            let mut protocol = ::h2::ext::Protocol::from_static("connect-ip");
+
+            #[cfg(feature = "websocket")]
+            {
+                // a runtime behavior depend on http-ws crate to properly insert extension type into
+                if let Some(p) = req.extensions_mut().remove::<http_ws::Http2WsProtocol>() {
+                    protocol = ::h2::ext::Protocol::from(p.as_ref());
+                }
+            }
+
+            req.extensions_mut().insert(protocol);
+
+            // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
+            end_stream = false;
         }
-
-        let protocol = req
-            .headers_mut()
-            .remove(PROTOCOL)
-            .and_then(|v| v.to_str().ok().map(::h2::ext::Protocol::from))
-            // if user did not provide any info about extended protocol assuming it wants tcp tunnel.
-            .unwrap_or_else(|| ::h2::ext::Protocol::from_static("connect-ip"));
-
-        req.extensions_mut().insert(protocol);
-
-        end_of_stream = false;
+        Method::POST if req.headers().get(CONTENT_TYPE).is_some_and(|val| val == GRPC) && is_eof => {
+            // grpc stream may start with zero body. in that case
+            end_stream = false;
+        }
+        Method::HEAD => is_head_method = true,
+        _ => {}
     }
 
-    let is_head_method = *req.method() == Method::HEAD;
-
-    let (fut, mut stream) = stream.send_request(req, end_of_stream)?;
+    let (fut, mut stream) = stream.send_request(req, end_stream)?;
 
     if !is_eof {
         let mut body = pin!(body);
 
-        while let Some(res) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let mut chunk = res.map_err(BodyError::from)?;
+        'out: loop {
+            match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+                Some(Ok(Frame::Data(mut chunk))) => {
+                    while !chunk.is_empty() {
+                        let len = chunk.len();
 
-            while !chunk.is_empty() {
-                let len = chunk.len();
+                        stream.reserve_capacity(len);
 
-                stream.reserve_capacity(len);
+                        let cap = poll_fn(|cx| stream.poll_capacity(cx))
+                            .await
+                            .expect("No capacity left. http2 request is dropped")?;
 
-                let cap = poll_fn(|cx| stream.poll_capacity(cx))
-                    .await
-                    .expect("No capacity left. http2 request is dropped")?;
+                        // Split chuck to writeable size and send to client.
+                        let bytes = chunk.split_to(cmp::min(cap, len));
 
-                // Split chuck to writeable size and send to client.
-                let bytes = chunk.split_to(cmp::min(cap, len));
+                        let end_stream = chunk.is_empty() && body.is_end_stream();
 
-                stream.send_data(bytes, false)?;
+                        stream.send_data(bytes, end_stream)?;
+
+                        if end_stream {
+                            break 'out;
+                        }
+                    }
+                }
+                Some(Ok(Frame::Trailers(trailers))) => {
+                    stream.send_trailers(trailers)?;
+                    break;
+                }
+                None => {
+                    stream.send_data(Bytes::new(), true)?;
+                    break;
+                }
+                Some(Err(e)) => return Err(BodyError::from(e).into()),
             }
         }
-
-        stream.send_data(Bytes::new(), true)?;
     }
 
     let res = fut.await?;
@@ -122,7 +139,7 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
-        res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body.into())))
+        res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body)))
     };
 
     Ok(res)

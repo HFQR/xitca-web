@@ -13,7 +13,7 @@ impl BytesMutWriter {
         self.0.split().freeze()
     }
 
-    #[cfg(feature = "br")]
+    #[cfg(any(feature = "br", feature = "zs"))]
     pub(super) fn take_owned(self) -> Bytes {
         self.0.freeze()
     }

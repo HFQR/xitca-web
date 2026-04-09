@@ -72,7 +72,7 @@ mod compat_layer {
     use crate::{
         WebContext,
         http::{Request, RequestExt, Response, WebResponse},
-        service::tower_http_compat::{CompatReqBody, CompatResBody},
+        service::tower_http_compat::{CompatBody, CompatReqBody},
     };
 
     use super::*;
@@ -91,7 +91,7 @@ mod compat_layer {
         C: 'static,
         ReqB: 'static,
     {
-        type Response = Response<CompatResBody<ResB>>;
+        type Response = Response<CompatBody<ResB>>;
         type Error = Err;
         type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -111,7 +111,7 @@ mod compat_layer {
                 let mut body = RefCell::new(body);
                 let req = WebContext::new(&mut req, &mut body, &ctx);
 
-                service.call(req).await.map(|res| res.map(CompatResBody::new))
+                service.call(req).await.map(|res| res.map(CompatBody::new))
             })
         }
     }

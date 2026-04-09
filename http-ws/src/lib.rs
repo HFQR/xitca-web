@@ -35,10 +35,12 @@
 
 extern crate alloc;
 
+use core::ops::Deref;
+
 use http::{
     header::{
-        HeaderMap, HeaderName, HeaderValue, ALLOW, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY,
-        SEC_WEBSOCKET_VERSION, UPGRADE,
+        HeaderMap, HeaderValue, ALLOW, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_VERSION,
+        UPGRADE,
     },
     request::Request,
     response::{Builder, Response},
@@ -60,9 +62,7 @@ pub use self::{
 
 #[allow(clippy::declare_interior_mutable_const)]
 mod const_header {
-    use super::{HeaderName, HeaderValue};
-
-    pub(super) const PROTOCOL: HeaderName = HeaderName::from_static("protocol");
+    use super::HeaderValue;
 
     pub(super) const WEBSOCKET: HeaderValue = HeaderValue::from_static("websocket");
     pub(super) const UPGRADE_VALUE: HeaderValue = HeaderValue::from_static("upgrade");
@@ -99,6 +99,13 @@ pub fn client_request_from_uri(uri: Uri, version: Version) -> Request<()> {
 
 /// Extend a [Request] with websocket associated headers and methods.
 /// After extension the request would be ready to be sent to server.
+///
+/// # HTTP/2 specific behavior
+///
+/// For HTTP/2 websocket a [`Http2WsProtocol`] type is injected into [`Extensions`]
+/// It can be used for extending protocol pseudo header for :protocol
+///
+/// [`Extensions`]: http::Extensions
 pub fn client_request_extend<B>(req: &mut Request<B>) {
     match req.version() {
         Version::HTTP_11 => {
@@ -120,13 +127,36 @@ pub fn client_request_extend<B>(req: &mut Request<B>) {
         }
         Version::HTTP_2 => {
             *req.method_mut() = Method::CONNECT;
-            req.headers_mut().insert(PROTOCOL, WEBSOCKET);
+            req.extensions_mut().insert(Http2WsProtocol::new());
         }
         _ => {}
     }
 
     req.headers_mut()
         .insert(SEC_WEBSOCKET_VERSION, SEC_WEBSOCKET_VERSION_VALUE);
+}
+
+#[derive(Clone)]
+pub struct Http2WsProtocol(&'static str);
+
+impl AsRef<str> for Http2WsProtocol {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+impl Deref for Http2WsProtocol {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl Http2WsProtocol {
+    const fn new() -> Self {
+        Self("websocket")
+    }
 }
 
 /// Verify HTTP/1.1 WebSocket handshake request and create handshake response.
@@ -137,6 +167,14 @@ pub fn handshake(method: &Method, headers: &HeaderMap) -> Result<Builder, Handsh
 }
 
 /// Verify HTTP/2 WebSocket handshake request and create handshake response.
+///
+/// # Protocol validation
+/// This function does **not** verify the `:protocol` pseudo-header. Per [RFC 8441], the caller
+/// must ensure the request's `:protocol` is `"websocket"` before calling this function.
+/// Typically the HTTP/2 transport layer exposes the parsed pseudo-header; the caller should
+/// check it and only proceed to this handshake when the value matches.
+///
+/// [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 pub fn handshake_h2(method: &Method, headers: &HeaderMap) -> Result<Builder, HandshakeError> {
     // Check for method
     if method != Method::CONNECT {
@@ -230,6 +268,10 @@ pub type WsOutput<B> = (RequestStream<B>, Response<ResponseStream>, ResponseSend
 /// `<Body>` must be a type impl [futures_core::Stream] trait with `Result<T: AsRef<[u8]>, E>`
 /// as `Stream::Item` associated type.
 ///
+/// # HTTP/2
+/// For HTTP/2 requests, the caller must verify the `:protocol` pseudo-header is `"websocket"`
+/// before calling this function. See [`handshake_h2`] for details.
+///
 /// # Examples:
 /// ```rust
 /// # use std::pin::Pin;
@@ -266,8 +308,9 @@ pub type WsOutput<B> = (RequestStream<B>, Response<ResponseStream>, ResponseSend
 /// // req_stream must be polled with Stream interface to receive websocket message
 /// use futures_util::stream::StreamExt;
 /// if let Some(Ok(msg)) = req_stream.next().await {
-///     // res_stream can be used to send websocket message to client.
-///     res_stream.send(msg).await.unwrap();
+///     if let Message::Text(text) = msg {
+///         res_stream.text(text).await.unwrap();
+///     }
 /// }
 ///
 /// # }

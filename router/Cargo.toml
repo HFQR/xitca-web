@@ -1,6 +1,6 @@
 [package]
 name = "xitca-router"
-version = "0.5.0"
+version = "0.4.2"
 edition = "2024"
 license = "MIT"
 description = "router for xitca"
@@ -16,7 +16,7 @@ workspace = true
 [features]
 
 [dependencies]
-xitca-unsafe-collection = "0.2.0"
+xitca-unsafe-collection = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.8"

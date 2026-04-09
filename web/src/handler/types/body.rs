@@ -1,17 +1,15 @@
 //! type extractor for request body stream.
 
-use core::{cmp, convert::Infallible, future::poll_fn, pin::pin};
+use core::{cmp, convert::Infallible, pin::pin};
 
 use crate::{
-    body::{BodyStream, BoxBody, ResponseBody},
+    body::{BodyExt, BodyStream, BoxBody, ResponseBody, SizeHint},
     bytes::{Bytes, BytesMut},
     context::WebContext,
     error::{BodyOverFlow, Error},
     handler::{FromRequest, Responder},
     http::{IntoResponse, WebResponse},
 };
-
-use super::header::{self, HeaderRef};
 
 pub struct Body<B>(pub B);
 
@@ -43,24 +41,21 @@ macro_rules! from_bytes_impl {
             type Error = Error;
 
             async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
-                let limit = HeaderRef::<'a, { header::CONTENT_LENGTH }>::from_request(ctx)
-                    .await
-                    .ok()
-                    .and_then(|header| header.to_str().ok().and_then(|s| s.parse().ok()))
-                    // when content length is 0 the http library should be producing an immediate
-                    // yielding streaming body which result in an empty body collection type.
-                    .map(|len| cmp::min(len, LIMIT))
-                    .unwrap_or_else(|| LIMIT);
-
                 let body = ctx.take_body_ref();
+
+                let limit = match body.size_hint() {
+                    SizeHint::Exact(size) if LIMIT > 0 => cmp::min(size as usize, LIMIT),
+                    SizeHint::Exact(size) => size as usize,
+                    _ => LIMIT,
+                };
 
                 let mut body = pin!(body);
 
-                let mut buf = <$type>::with_capacity(LIMIT);
+                let mut buf = <$type>::with_capacity(limit);
 
-                while let Some(chunk) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-                    let chunk = chunk.map_err(Into::into)?;
-                    buf.extend_from_slice(chunk.as_ref());
+                while let Some(data) = body.as_mut().data().await {
+                    let data = data.map_err(Into::into)?;
+                    buf.extend_from_slice(data.as_ref());
                     if limit > 0 && buf.len() > limit {
                         return Err(Error::from(BodyOverFlow { limit }));
                     }
@@ -154,11 +149,11 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for BoxBody {
 
     #[inline]
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        ResponseBody::stream(self).respond(ctx).await
+        ResponseBody::body(self).respond(ctx).await
     }
 
     #[inline]
     fn map(self, res: Self::Response) -> Result<Self::Response, Self::Error> {
-        Responder::<WebContext<'r, C, B>>::map(ResponseBody::stream(self), res)
+        Responder::<WebContext<'r, C, B>>::map(ResponseBody::body(self), res)
     }
 }

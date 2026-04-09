@@ -3,7 +3,7 @@ use std::{
     mem::MaybeUninit,
 };
 
-use bytes_crate::buf::BufMut;
+use bytes::buf::BufMut;
 
 /// read from Io and populate buffer. return byte count on successful read.
 pub fn read_buf<Io, B>(io: &mut Io, buf: &mut B) -> io::Result<usize>
@@ -31,7 +31,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use bytes_crate::BytesMut;
+    use bytes::BytesMut;
 
     use super::*;
 

@@ -1,12 +1,12 @@
 //! A Http/1 server echos back websocket text message.
 
 use xitca_web::{
+    App,
     handler::{
         handler_service,
         websocket::{Message, WebSocket},
     },
     route::get,
-    App,
 };
 
 fn main() -> std::io::Result<()> {

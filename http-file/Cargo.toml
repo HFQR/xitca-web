@@ -1,14 +1,14 @@
 [package]
 name = "http-file"
 version = "0.3.0"
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 description = "file serving for http crate type"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "file"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
-rust-version = "1.79"
+rust-version.workspace = true
 
 [lints]
 workspace = true
@@ -21,19 +21,18 @@ tokio = ["tokio/fs", "tokio/io-util"]
 tokio-uring-xitca = ["dep:tokio", "dep:tokio-uring-xitca"]
 
 [dependencies]
-bytes = "1.4"
-http = "1"
+bytes = { workspace = true }
+http = { workspace = true }
 httpdate = "1.0.2"
 http-range-header = "0.4"
-futures-core = { version = "0.3.25", default-features = false }
+futures-core = { workspace = true }
 mime_guess = "2.0.4"
-percent-encoding = "2.2.0"
-pin-project-lite = "0.2.9"
-
-tokio = { version = "1.30", features = ["rt"], optional = true }
-tokio-uring-xitca = { version = "0.1.1", features = ["bytes"], optional = true }
+percent-encoding = { workspace = true }
+pin-project-lite = { workspace = true }
+tokio = { workspace = true, features = ["rt"], optional = true }
+tokio-uring-xitca = { workspace = true, features = ["bytes", "runtime-uring"], optional = true }
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }
 tempfile = "3.2.0"
-tokio = { version = "1.30", features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

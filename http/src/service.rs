@@ -1,15 +1,16 @@
 use core::{fmt, marker::PhantomData, pin::pin};
 
-use futures_core::Stream;
+use crate::body::Body;
 use xitca_io::{
-    io::AsyncIo,
-    net::{Stream as ServerStream, TcpStream},
+    io::{AsyncBufRead, AsyncBufWrite},
+    net::{Stream, TcpStream},
 };
 use xitca_service::{Service, ready::ReadyService};
 
 use super::{
     body::RequestBody,
-    bytes::Bytes,
+    builder::marker,
+    bytes::{Bytes, BytesMut},
     config::HttpServiceConfig,
     date::{DateTime, DateTimeService},
     error::{HttpServiceError, TimeoutError},
@@ -18,10 +19,98 @@ use super::{
     version::AsVersion,
 };
 
+// Layered sub-traits for conditional TLS acceptor bounds.
+// Each sub-trait is independently cfg'd, avoiding combinatorial #[cfg] explosion
+// on where clauses (which Rust doesn't support).
+pub(crate) trait TlsAcceptTcp<E>:
+    Service<TcpStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>
+{
+}
+impl<T, E> TlsAcceptTcp<E> for T where
+    T: Service<TcpStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>
+{
+}
+
+#[cfg(unix)]
+pub(crate) trait TlsAcceptUnix<E>:
+    Service<xitca_io::net::UnixStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>
+{
+}
+#[cfg(unix)]
+impl<T, E> TlsAcceptUnix<E> for T where
+    T: Service<xitca_io::net::UnixStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>
+{
+}
+
+#[cfg(not(unix))]
+pub(crate) trait TlsAcceptUnix<E> {}
+
+#[cfg(not(unix))]
+impl<T, E> TlsAcceptUnix<E> for T {}
+
+#[cfg(feature = "io-uring")]
+pub(crate) trait TlsAcceptUring<E>:
+    Service<
+        xitca_io::net::io_uring::TcpStream,
+        Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
+        Error: Into<E>,
+    >
+{
+}
+
+#[cfg(feature = "io-uring")]
+impl<T, E> TlsAcceptUring<E> for T where
+    T: Service<
+            xitca_io::net::io_uring::TcpStream,
+            Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
+            Error: Into<E>,
+        >
+{
+}
+
+#[cfg(not(feature = "io-uring"))]
+pub(crate) trait TlsAcceptUring<E> {}
+
+#[cfg(not(feature = "io-uring"))]
+impl<T, E> TlsAcceptUring<E> for T {}
+
+#[cfg(feature = "io-uring")]
+pub(crate) trait TlsAcceptUnixUring<E>:
+    Service<
+        xitca_io::net::io_uring::UnixStream,
+        Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
+        Error: Into<E>,
+    >
+{
+}
+
+#[cfg(feature = "io-uring")]
+impl<T, E> TlsAcceptUnixUring<E> for T where
+    T: Service<
+            xitca_io::net::io_uring::UnixStream,
+            Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
+            Error: Into<E>,
+        >
+{
+}
+
+#[cfg(not(feature = "io-uring"))]
+pub(crate) trait TlsAcceptUnixUring<E> {}
+
+#[cfg(not(feature = "io-uring"))]
+impl<T, E> TlsAcceptUnixUring<E> for T {}
+
+pub(crate) trait TlsAccept<E>:
+    TlsAcceptTcp<E> + TlsAcceptUnix<E> + TlsAcceptUring<E> + TlsAcceptUnixUring<E>
+{
+}
+impl<T, E> TlsAccept<E> for T where T: TlsAcceptTcp<E> + TlsAcceptUnix<E> + TlsAcceptUring<E> + TlsAcceptUnixUring<E> {}
+
 pub struct HttpService<
+    V,
+    Io,
     St,
     S,
-    ReqB,
     A,
     const HEADER_LIMIT: usize,
     const READ_BUF_LIMIT: usize,
@@ -31,11 +120,11 @@ pub struct HttpService<
     pub(crate) date: DateTimeService,
     pub(crate) service: S,
     pub(crate) tls_acceptor: A,
-    _body: PhantomData<(St, ReqB)>,
+    _marker: PhantomData<(V, Io, St)>,
 }
 
-impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    HttpService<St, S, ReqB, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<V, Io, St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpService<V, Io, St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 {
     pub(crate) fn new(
         config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
@@ -47,7 +136,7 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
             date: DateTimeService::new(),
             service,
             tls_acceptor,
-            _body: PhantomData,
+            _marker: PhantomData,
         }
     }
 
@@ -68,117 +157,183 @@ impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, con
     }
 }
 
-impl<S, ResB, BE, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<ServerStream>
-    for HttpService<ServerStream, S, RequestBody, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, Io, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    HttpService<marker::Http, Io, Stream, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
-    S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
-    A: Service<TcpStream>,
-    A::Response: AsyncIo + AsVersion,
-    HttpServiceError<S::Error, BE>: From<A::Error>,
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     S::Error: fmt::Debug,
-    ResB: Stream<Item = Result<Bytes, BE>>,
-    BE: fmt::Debug,
+    B: Body<Data = Bytes>,
+    B::Error: fmt::Debug,
+{
+    async fn dispatch(
+        &self,
+        _tls_stream: impl AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
+        _addr: core::net::SocketAddr,
+        mut timer: core::pin::Pin<&mut KeepAlive>,
+    ) -> Result<(), HttpServiceError<S::Error, B::Error>> {
+        #[allow(unused_mut)]
+        let mut version = _tls_stream.as_version();
+        #[allow(unused_mut)]
+        let mut _read_buf = BytesMut::new();
+
+        #[cfg(feature = "http2")]
+        if self.config.peek_protocol {
+            let (ver, buf) = super::h2::dispatcher::peek_version(&_tls_stream, BytesMut::new())
+                .timeout(timer.as_mut())
+                .await
+                // TODO: more precise error handling
+                .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
+                .map_err(super::h2::Error::Io)?;
+            version = ver;
+            _read_buf = buf;
+        };
+
+        match version {
+            #[cfg(feature = "http1")]
+            super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::Dispatcher::run(
+                _tls_stream,
+                _addr,
+                _read_buf,
+                timer.as_mut(),
+                self.config,
+                &self.service,
+                self.date.get(),
+            )
+            .await
+            .map_err(From::from),
+            #[cfg(feature = "http2")]
+            super::http::Version::HTTP_2 => {
+                // update timer to first request timeout.
+                self.update_first_request_deadline(timer.as_mut());
+
+                super::h2::dispatcher::run(
+                    _tls_stream,
+                    _addr,
+                    _read_buf,
+                    timer.as_mut(),
+                    &self.service,
+                    self.date.get(),
+                    &self.config,
+                )
+                .await
+                .unwrap();
+
+                Ok(())
+            }
+            version => Err(HttpServiceError::UnSupportedVersion(version)),
+        }
+    }
+}
+
+#[cfg(feature = "io-uring")]
+impl<S, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<Stream>
+    for HttpService<marker::Http, marker::Uring, Stream, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+where
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
+    S::Error: fmt::Debug,
+    A: TlsAccept<HttpServiceError<S::Error, B::Error>>,
+    B: Body<Data = Bytes>,
+    B::Error: fmt::Debug,
 {
     type Response = ();
-    type Error = HttpServiceError<S::Error, BE>;
+    type Error = HttpServiceError<S::Error, B::Error>;
 
-    async fn call(&self, io: ServerStream) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, io: Stream) -> Result<Self::Response, Self::Error> {
         // tls accept timer.
         let timer = self.keep_alive();
         let mut timer = pin!(timer);
 
         match io {
             #[cfg(feature = "http3")]
-            ServerStream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service)
+            Stream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service)
                 .run()
                 .await
                 .map_err(From::from),
-            ServerStream::Tcp(io, _addr) => {
-                let io = TcpStream::from_std(io).expect("TODO: handle io error");
-                let mut _tls_stream = self
+            Stream::Tcp(io, _addr) => {
+                let io = xitca_io::net::io_uring::TcpStream::from_std(io);
+                let _tls_stream = self
                     .tls_acceptor
                     .call(io)
                     .timeout(timer.as_mut())
                     .await
-                    .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))??;
+                    .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
+                    .map_err(Into::into)?;
 
-                let version = if self.config.peek_protocol {
-                    // peek version from connection to figure out the real protocol used
-                    // regardless of AsVersion's outcome.
-                    todo!("peek version is not implemented yet!")
-                } else {
-                    _tls_stream.as_version()
-                };
-
-                match version {
-                    #[cfg(feature = "http1")]
-                    super::http::Version::HTTP_11 | super::http::Version::HTTP_10 => super::h1::dispatcher::run(
-                        &mut _tls_stream,
-                        _addr,
-                        timer.as_mut(),
-                        self.config,
-                        &self.service,
-                        self.date.get(),
-                    )
-                    .await
-                    .map_err(From::from),
-                    #[cfg(feature = "http2")]
-                    super::http::Version::HTTP_2 => {
-                        // update timer to first request timeout.
-                        self.update_first_request_deadline(timer.as_mut());
-
-                        let mut conn = ::h2::server::Builder::new()
-                            .enable_connect_protocol()
-                            .handshake(xitca_io::io::PollIoAdapter(_tls_stream))
-                            .timeout(timer.as_mut())
-                            .await
-                            .map_err(|_| HttpServiceError::Timeout(TimeoutError::H2Handshake))??;
-
-                        super::h2::Dispatcher::new(
-                            &mut conn,
-                            _addr,
-                            timer.as_mut(),
-                            self.config.keep_alive_timeout,
-                            &self.service,
-                            self.date.get(),
-                        )
-                        .run()
-                        .await
-                        .map_err(Into::into)
-                    }
-                    version => Err(HttpServiceError::UnSupportedVersion(version)),
-                }
+                self.dispatch(_tls_stream, _addr, timer.as_mut()).await
             }
             #[cfg(unix)]
-            ServerStream::Unix(_io, _) => {
-                #[cfg(not(feature = "http1"))]
-                {
-                    Err(HttpServiceError::UnSupportedVersion(super::http::Version::HTTP_11))
-                }
-
-                #[cfg(feature = "http1")]
-                {
-                    let mut io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
-
-                    super::h1::dispatcher::run(
-                        &mut io,
-                        crate::unspecified_socket_addr(),
-                        timer.as_mut(),
-                        self.config,
-                        &self.service,
-                        self.date.get(),
-                    )
+            Stream::Unix(_io, _) => {
+                let io = xitca_io::net::io_uring::UnixStream::from_std(_io);
+                let _tls_stream = self
+                    .tls_acceptor
+                    .call(io)
+                    .timeout(timer.as_mut())
                     .await
-                    .map_err(From::from)
-                }
+                    .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
+                    .map_err(Into::into)?;
+
+                self.dispatch(_tls_stream, crate::unspecified_socket_addr(), timer.as_mut())
+                    .await
             }
         }
     }
 }
 
-impl<St, S, ReqB, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ReadyService
-    for HttpService<St, S, ReqB, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+impl<S, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<Stream>
+    for HttpService<marker::Http, marker::Poll, Stream, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+where
+    S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
+    S::Error: fmt::Debug,
+    A: TlsAccept<HttpServiceError<S::Error, B::Error>>,
+    B: Body<Data = Bytes>,
+    B::Error: fmt::Debug,
+{
+    type Response = ();
+    type Error = HttpServiceError<S::Error, B::Error>;
+
+    async fn call(&self, io: Stream) -> Result<Self::Response, Self::Error> {
+        // tls accept timer.
+        let timer = self.keep_alive();
+        let mut timer = pin!(timer);
+
+        match io {
+            #[cfg(feature = "http3")]
+            Stream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service)
+                .run()
+                .await
+                .map_err(From::from),
+            Stream::Tcp(io, _addr) => {
+                let io = TcpStream::from_std(io).expect("TODO: handle io error");
+                let _tls_stream = self
+                    .tls_acceptor
+                    .call(io)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
+                    .map_err(Into::into)?;
+
+                self.dispatch(_tls_stream, _addr, timer.as_mut()).await
+            }
+            #[cfg(unix)]
+            Stream::Unix(_io, _) => {
+                let io = xitca_io::net::UnixStream::from_std(_io).expect("TODO: handle io error");
+                let _tls_stream = self
+                    .tls_acceptor
+                    .call(io)
+                    .timeout(timer.as_mut())
+                    .await
+                    .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
+                    .map_err(Into::into)?;
+
+                self.dispatch(_tls_stream, crate::unspecified_socket_addr(), timer.as_mut())
+                    .await
+            }
+        }
+    }
+}
+
+impl<V, Io, St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> ReadyService
+    for HttpService<V, Io, St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: ReadyService,
 {

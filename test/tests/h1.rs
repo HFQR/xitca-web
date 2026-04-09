@@ -1,4 +1,3 @@
-use futures_util::StreamExt;
 use std::{
     io::{Read, Write},
     net::TcpStream,
@@ -7,7 +6,7 @@ use std::{
 
 use xitca_client::Client;
 use xitca_http::{
-    body::{BoxBody, ResponseBody},
+    body::{BodyExt, Frame, ResponseBody},
     bytes::{Bytes, BytesMut},
     h1,
     http::{
@@ -278,7 +277,7 @@ async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<Re
             let ty = req.headers().get(header::CONTENT_TYPE).unwrap().clone();
 
             let body = req.into_body();
-            let mut res = Response::new(ResponseBody::stream(BoxBody::new(body)));
+            let mut res = Response::new(ResponseBody::boxed(body));
 
             res.headers_mut().insert(header::CONTENT_LENGTH, length);
             res.headers_mut().insert(header::CONTENT_TYPE, ty);
@@ -298,7 +297,9 @@ async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<Re
                 .to_str()?
                 .parse::<usize>()?;
 
-            let bytes = body.next().await.unwrap()?;
+            let Frame::Data(bytes) = body.frame().await.unwrap()? else {
+                panic!("not expecting trailers")
+            };
 
             assert!(bytes.len() < length);
 

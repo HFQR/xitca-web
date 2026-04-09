@@ -1,12 +1,11 @@
 use core::mem::MaybeUninit;
 
+use httparse::Header;
 use xitca_unsafe_collection::uninit::PartialInit;
 
-use httparse::Header;
+use crate::http::header::HeaderValue;
 
 use super::error::ProtoError;
-
-use crate::http::header::HeaderValue;
 
 #[derive(Clone, Copy)]
 pub struct HeaderIndex {

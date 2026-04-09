@@ -1,12 +1,10 @@
 pub(crate) use xitca_http::{
-    body::{NoneBody, Once},
+    body::{Body, BodyExt, Data, Empty, Frame, SizeHint, Trailers},
     error::BodyError,
 };
 
-#[cfg(any(feature = "http1", feature = "http2", feature = "http3"))]
-pub(crate) use xitca_http::body::BodySize;
-
 use core::{
+    any::Any,
     fmt,
     pin::Pin,
     task::{Context, Poll},
@@ -17,6 +15,23 @@ use pin_project_lite::pin_project;
 
 use crate::bytes::Bytes;
 
+/// body type for http request
+pub type RequestBody = xitca_http::body::ResponseBody<BoxBody>;
+
+// conditional boxing body to convert generic body type to conrete
+pub(crate) fn downcast_body<B>(body: B) -> RequestBody
+where
+    B: Body + Send + 'static,
+    B::Data: Into<Bytes>,
+    B::Error: Into<BodyError>,
+{
+    let body = &mut Some(body);
+    match (body as &mut dyn Any).downcast_mut::<Option<RequestBody>>() {
+        Some(body) => body.take().unwrap(),
+        None => RequestBody::body(BoxBody::new(body.take().unwrap())),
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 pub enum ResponseBody {
     #[cfg(feature = "http1")]
@@ -26,7 +41,7 @@ pub enum ResponseBody {
     #[cfg(feature = "http3")]
     H3(crate::h3::body::ResponseBody),
     Eof,
-    Unknown(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + Sync + 'static>>),
+    Unknown(Pin<Box<dyn Body<Data = Bytes, Error = BodyError> + Send + Sync + 'static>>),
 }
 
 impl fmt::Debug for ResponseBody {
@@ -62,78 +77,115 @@ impl ResponseBody {
     }
 }
 
-impl Stream for ResponseBody {
-    type Item = Result<Bytes, BodyError>;
+impl Body for ResponseBody {
+    type Data = Bytes;
+    type Error = BodyError;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
         match self.get_mut() {
             #[cfg(feature = "http1")]
-            Self::H1(body) => Pin::new(body).poll_next(cx),
+            Self::H1(body) => Pin::new(body).poll_frame(cx),
             #[cfg(feature = "http2")]
-            Self::H2(body) => Pin::new(body).poll_next(cx),
+            Self::H2(body) => Pin::new(body).poll_frame(cx),
             #[cfg(feature = "http3")]
-            Self::H3(body) => Pin::new(body).poll_next(cx),
+            Self::H3(body) => Pin::new(body).poll_frame(cx),
             Self::Eof => Poll::Ready(None),
-            Self::Unknown(stream) => stream.as_mut().poll_next(cx),
+            Self::Unknown(body) => body.as_mut().poll_frame(cx),
         }
     }
 }
 
-/// type erased stream body.
-pub struct BoxBody(Pin<Box<dyn Stream<Item = Result<Bytes, BodyError>> + Send + 'static>>);
+// Stream impl kept for compatibility with http-ws crate's RequestStream.
+impl Stream for ResponseBody {
+    type Item = Result<Bytes, BodyError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.poll_frame(cx).map(|opt| {
+            opt.and_then(|res| match res {
+                Ok(Frame::Data(data)) => Some(Ok(data)),
+                Ok(_) => None,
+                Err(e) => Some(Err(e)),
+            })
+        })
+    }
+}
+
+/// type erased body.
+pub struct BoxBody(Pin<Box<dyn Body<Data = Bytes, Error = BodyError> + Send + 'static>>);
 
 impl Default for BoxBody {
     fn default() -> Self {
-        Self::new(NoneBody::default())
+        Self::new(Empty::<Bytes>::new())
     }
 }
 
 impl BoxBody {
     #[inline]
-    pub fn new<B, E>(body: B) -> Self
+    pub fn new<B>(body: B) -> Self
     where
-        B: Stream<Item = Result<Bytes, E>> + Send + 'static,
-        E: Into<BodyError>,
+        B: Body + Send + 'static,
+        B::Data: Into<Bytes>,
+        B::Error: Into<BodyError>,
     {
-        Self(Box::pin(BoxStreamMapErr { body }))
+        Self(Box::pin(BoxBodyMap { body }))
     }
 }
 
-impl Stream for BoxBody {
-    type Item = Result<Bytes, BodyError>;
+impl Body for BoxBody {
+    type Data = Bytes;
+    type Error = BodyError;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.get_mut().0.as_mut().poll_next(cx)
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
+        self.get_mut().0.as_mut().poll_frame(cx)
     }
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
+    fn is_end_stream(&self) -> bool {
+        self.0.is_end_stream()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
         self.0.size_hint()
     }
 }
 
 pin_project! {
-    struct BoxStreamMapErr<B> {
+    struct BoxBodyMap<B> {
         #[pin]
         body: B
     }
 }
 
-impl<B, T, E> Stream for BoxStreamMapErr<B>
+impl<B> Body for BoxBodyMap<B>
 where
-    B: Stream<Item = Result<T, E>>,
-    E: Into<BodyError>,
+    B: Body,
+    B::Data: Into<Bytes>,
+    B::Error: Into<BodyError>,
 {
-    type Item = Result<T, BodyError>;
+    type Data = Bytes;
+    type Error = BodyError;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().body.poll_next(cx).map_err(Into::into)
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
+        self.project()
+            .body
+            .poll_frame(cx)
+            .map_ok(|frame| match frame {
+                Frame::Data(data) => Frame::Data(data.into()),
+                Frame::Trailers(trailers) => Frame::Trailers(trailers),
+            })
+            .map_err(Into::into)
     }
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
         self.body.size_hint()
     }
 }

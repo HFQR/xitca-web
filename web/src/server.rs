@@ -1,15 +1,14 @@
 use std::{fmt, future::Future, sync::Arc, time::Duration};
 
-use futures_core::stream::Stream;
 use xitca_http::{
     HttpServiceBuilder,
-    body::RequestBody,
     config::{DEFAULT_HEADER_LIMIT, DEFAULT_READ_BUF_LIMIT, DEFAULT_WRITE_BUF_LIMIT, HttpServiceConfig},
 };
 use xitca_server::{Builder, ServerFuture, net::IntoListener};
 use xitca_service::ServiceExt;
 
 use crate::{
+    body::{Body, RequestBody},
     bytes::Bytes,
     http::{Request, RequestExt, Response},
     service::{Service, ready::ReadyService},
@@ -24,6 +23,7 @@ pub struct HttpServer<
 > {
     service: Arc<S>,
     builder: Builder,
+    enable_io_uring: bool,
     config: HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
 }
 
@@ -35,6 +35,7 @@ where
         Self {
             service: Arc::new(service),
             builder: Builder::new(),
+            enable_io_uring: false,
             config: HttpServiceConfig::default(),
         }
     }
@@ -123,6 +124,19 @@ where
         self
     }
 
+    /// Enable HTTP/2 cleartext (h2c) with prior knowledge.
+    ///
+    /// When enabled, the server peeks at the first bytes of each connection to detect whether
+    /// the client is speaking HTTP/2 (via the connection preface) or HTTP/1.1, and dispatches
+    /// accordingly. This allows a single listener to serve both protocols without TLS-based
+    /// ALPN negotiation.
+    ///
+    /// Typically required for gRPC over plaintext, as most gRPC clients expect HTTP/2.
+    pub fn h2c_prior_knowledge(mut self) -> Self {
+        self.config = self.config.peek_protocol();
+        self
+    }
+
     /// Change max size for request head.
     ///
     /// Request has a bigger head than it would be reject with error.
@@ -166,41 +180,73 @@ where
         self
     }
 
+    #[cfg(feature = "io-uring")]
+    pub fn enable_io_uring(mut self) -> Self {
+        self.enable_io_uring = true;
+        self
+    }
+
     #[cfg(not(target_family = "wasm"))]
-    pub fn bind<A, ResB, BE>(mut self, addr: A) -> std::io::Result<Self>
+    pub fn bind<A, ResB>(mut self, addr: A) -> std::io::Result<Self>
     where
         A: std::net::ToSocketAddrs,
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
-        let config = self.config;
-        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
-        self.builder = self.builder.bind("xitca-web", addr, service)?;
+        let http = HttpServiceBuilder::with_config(self.config);
+        let service = self.service.clone();
+        let name = "xitca-web";
+
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind(name, addr, service.enclosed(http.io_uring()))?
+            }
+
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind(name, addr, service.enclosed(http))?
+        };
+
         Ok(self)
     }
 
-    pub fn listen<ResB, BE, L>(mut self, listener: L) -> std::io::Result<Self>
+    pub fn listen<ResB, L>(mut self, listener: L) -> std::io::Result<Self>
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
         L: IntoListener + 'static,
     {
-        let config = self.config;
-        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
-        self.builder = self.builder.listen("xitca-web", listener, service);
+        let http = HttpServiceBuilder::with_config(self.config);
+        let service = self.service.clone();
+        let name = "xitca-web";
+
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.listen(name, listener, service.enclosed(http.io_uring()))
+            }
+
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.listen(name, listener, service.enclosed(http))
+        };
+
         Ok(self)
     }
 
     #[cfg(feature = "openssl")]
-    pub fn bind_openssl<A: std::net::ToSocketAddrs, ResB, BE>(
+    pub fn bind_openssl<A: std::net::ToSocketAddrs, ResB>(
         mut self,
         addr: A,
         mut builder: xitca_tls::openssl::ssl::SslAcceptorBuilder,
@@ -210,8 +256,8 @@ where
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let config = self.config;
 
@@ -235,7 +281,7 @@ where
         });
 
         #[cfg(not(feature = "http2"))]
-        let protos = H11.iter().cloned().collect::<Vec<_>>();
+        let protos = H11.to_vec();
 
         #[cfg(feature = "http2")]
         let protos = H11.iter().chain(H2).cloned().collect::<Vec<_>>();
@@ -243,19 +289,27 @@ where
         builder.set_alpn_protos(&protos)?;
 
         let acceptor = builder.build();
+        let name = "xitca-web-openssl";
+        let http = HttpServiceBuilder::with_config(config).openssl(acceptor);
+        let service = self.service.clone();
 
-        let service = self
-            .service
-            .clone()
-            .enclosed(HttpServiceBuilder::with_config(config).openssl(acceptor));
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind(name, addr, service.enclosed(http.io_uring()))?
+            }
 
-        self.builder = self.builder.bind("xitca-web-openssl", addr, service)?;
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind(name, addr, service.enclosed(http))?
+        };
 
         Ok(self)
     }
 
     #[cfg(feature = "rustls")]
-    pub fn bind_rustls<A: std::net::ToSocketAddrs, ResB, BE>(
+    pub fn bind_rustls<A: std::net::ToSocketAddrs, ResB>(
         mut self,
         addr: A,
         #[cfg_attr(not(all(feature = "http1", feature = "http2")), allow(unused_mut))]
@@ -266,8 +320,8 @@ where
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let service_config = self.config;
 
@@ -278,35 +332,55 @@ where
         config.alpn_protocols.push("http/1.1".into());
 
         let config = std::sync::Arc::new(config);
+        let http = HttpServiceBuilder::with_config(service_config).rustls(config);
+        let service = self.service.clone();
+        let name = "xitca-web-rustls";
 
-        let service = self
-            .service
-            .clone()
-            .enclosed(HttpServiceBuilder::with_config(service_config).rustls(config));
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind(name, addr, service.enclosed(http.io_uring()))?
+            }
 
-        self.builder = self.builder.bind("xitca-web-rustls", addr, service)?;
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind(name, addr, service.enclosed(http))?
+        };
 
         Ok(self)
     }
 
     #[cfg(unix)]
-    pub fn bind_unix<P: AsRef<std::path::Path>, ResB, BE>(mut self, path: P) -> std::io::Result<Self>
+    pub fn bind_unix<P: AsRef<std::path::Path>, ResB>(mut self, path: P) -> std::io::Result<Self>
     where
         S: Service + 'static,
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
-        let config = self.config;
-        let service = self.service.clone().enclosed(HttpServiceBuilder::with_config(config));
-        self.builder = self.builder.bind_unix("xitca-web", path, service)?;
+        let http = HttpServiceBuilder::with_config(self.config);
+        let name = "xitca-web";
+        let service = self.service.clone();
+        self.builder = if self.enable_io_uring {
+            #[cfg(feature = "io-uring")]
+            {
+                self.builder.bind_unix(name, path, service.enclosed(http.io_uring()))?
+            }
+
+            #[cfg(not(feature = "io-uring"))]
+            unreachable!()
+        } else {
+            self.builder.bind_unix(name, path, service.enclosed(http))?
+        };
+
         Ok(self)
     }
 
     #[cfg(feature = "http3")]
-    pub fn bind_h3<A: std::net::ToSocketAddrs, ResB, BE>(
+    pub fn bind_h3<A: std::net::ToSocketAddrs, ResB>(
         mut self,
         addr: A,
         config: xitca_io::net::QuicConfig,
@@ -316,8 +390,8 @@ where
         S::Response: ReadyService + Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>> + 'static,
         S::Error: fmt::Debug,
         <S::Response as Service<Request<RequestExt<RequestBody>>>>::Error: fmt::Debug,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: fmt::Debug + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: fmt::Debug + 'static,
     {
         let service = self
             .service
@@ -337,6 +411,7 @@ where
     ) -> HttpServer<S, HEADER_LIMIT2, READ_BUF_LIMIT2, WRITE_BUF_LIMIT2> {
         HttpServer {
             service: self.service,
+            enable_io_uring: self.enable_io_uring,
             builder: self.builder,
             config: self
                 .config

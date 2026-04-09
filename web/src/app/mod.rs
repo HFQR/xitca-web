@@ -10,14 +10,13 @@ use core::{
 
 use std::error;
 
-use futures_core::stream::Stream;
 use xitca_http::util::{
     middleware::context::ContextBuilder,
     service::router::{IntoObject, PathGen, RouteGen, RouteObject, TypedRoute},
 };
 
 use crate::{
-    body::{Either, RequestBody, ResponseBody},
+    body::{Body, Either, RequestBody, ResponseBody},
     bytes::Bytes,
     context::WebContext,
     error::{Error, RouterError},
@@ -484,7 +483,7 @@ where
     }
 
     /// Finish App build. No other App method can be called afterwards.
-    pub fn finish_boxed<C, ResB, SE, BE>(
+    pub fn finish_boxed<C, ResB, SE>(
         self,
     ) -> AppObject<impl ReadyService + Service<WebRequest, Response = WebResponse, Error = Infallible>>
     where
@@ -492,8 +491,8 @@ where
         R::Response:
             ReadyService + for<'r> Service<WebContext<'r, C>, Response = WebResponse<ResB>, Error = SE> + 'static,
         SE: for<'r> Service<WebContext<'r, C>, Response = WebResponse, Error = Infallible> + 'static,
-        ResB: Stream<Item = Result<Bytes, BE>> + 'static,
-        BE: error::Error + Send + Sync + 'static,
+        ResB: Body<Data = Bytes> + 'static,
+        ResB::Error: error::Error + Send + Sync + 'static,
         CF: IntoCtx<Ctx = C> + 'static,
         C: 'static,
     {

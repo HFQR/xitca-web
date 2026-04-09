@@ -3,10 +3,10 @@
 //! example assume you run the application from the path of /examples/file/
 
 use xitca_web::{
-    handler::redirect::Redirect,
-    middleware::{compress::Compress, Logger},
-    service::file::ServeDir,
     App,
+    handler::redirect::Redirect,
+    middleware::{Logger, compress::Compress},
+    service::file::ServeDir,
 };
 
 fn main() -> std::io::Result<()> {

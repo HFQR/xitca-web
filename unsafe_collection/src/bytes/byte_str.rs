@@ -5,7 +5,7 @@ use core::{
     str::{self, Utf8Error},
 };
 
-use bytes_crate::Bytes;
+use bytes::Bytes;
 
 /// reference counted String type. cheap to Clone and share between multiple threads.
 #[derive(Clone, Default, Debug)]

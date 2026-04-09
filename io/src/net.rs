@@ -21,6 +21,31 @@ use core::net::SocketAddr;
 
 macro_rules! default_aio_impl {
     ($ty: ty) => {
+        impl crate::io::AsyncBufRead for $ty {
+            fn read<B>(&self, buf: B) -> impl core::future::Future<Output = (::std::io::Result<usize>, B)>
+            where
+                B: crate::io::BoundedBufMut,
+            {
+                crate::io::AsyncBufRead::read(&self.0, buf)
+            }
+        }
+
+        impl crate::io::AsyncBufWrite for $ty {
+            fn write<B>(&self, buf: B) -> impl core::future::Future<Output = (::std::io::Result<usize>, B)>
+            where
+                B: crate::io::BoundedBuf,
+            {
+                crate::io::AsyncBufWrite::write(&self.0, buf)
+            }
+
+            fn shutdown(
+                self,
+                direction: ::std::net::Shutdown,
+            ) -> impl core::future::Future<Output = ::std::io::Result<()>> {
+                crate::io::AsyncBufWrite::shutdown(self.0, direction)
+            }
+        }
+
         impl crate::io::AsyncIo for $ty {
             #[inline]
             async fn ready(&mut self, interest: crate::io::Interest) -> ::std::io::Result<crate::io::Ready> {

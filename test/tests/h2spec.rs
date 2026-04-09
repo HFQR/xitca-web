@@ -10,48 +10,24 @@
 
 #[cfg(feature = "io-uring")]
 mod inner {
-    use core::{
-        convert::Infallible,
-        pin::Pin,
-        task::{Context, Poll},
-    };
+    use core::time::Duration;
 
     use std::{net::TcpListener, process::Command};
 
-    use futures_util::Stream;
     use xitca_http::{
         HttpServiceBuilder,
+        body::Full,
         bytes::Bytes,
         config::HttpServiceConfig,
-        h2::dispatcher_uring::{Frame, RequestBody},
+        h2::RequestBody,
         http::{Request, RequestExt, Response},
     };
     use xitca_service::{ServiceExt, fn_service};
 
-    struct Once(Option<Frame>);
-
-    impl Once {
-        fn new() -> Self {
-            Self(Some(Frame::Data(Bytes::new())))
-        }
-    }
-
-    impl Stream for Once {
-        type Item = Result<Frame, Infallible>;
-
-        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            Poll::Ready(self.get_mut().0.take().map(Ok))
-        }
-
-        fn size_hint(&self) -> (usize, Option<usize>) {
-            (0, Some(0))
-        }
-    }
-
     async fn handler(
         _: Request<RequestExt<RequestBody>>,
-    ) -> Result<Response<Once>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Response::new(Once::new()))
+    ) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Response::new(Full::new(Bytes::new())))
     }
 
     /// Bind to port 0 and immediately release it to get a free port number.
@@ -77,9 +53,12 @@ mod inner {
 
         std::thread::spawn(move || {
             let service = fn_service(handler).enclosed(
-                HttpServiceBuilder::h2()
-                    .io_uring()
-                    .config(HttpServiceConfig::new().h2_max_concurrent_streams(2)),
+                HttpServiceBuilder::h2().io_uring().config(
+                    HttpServiceConfig::new()
+                        .request_head_timeout(Duration::from_mins(1))
+                        .keep_alive_timeout(Duration::from_mins(1))
+                        .h2_max_concurrent_streams(2),
+                ),
             );
 
             let server = xitca_server::Builder::new()

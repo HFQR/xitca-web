@@ -6,12 +6,11 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
 use xitca_http::Request;
 
 use crate::{
-    body::BodyStream,
+    body::{Body, BodyStream, Frame},
     context::WebContext,
     error::{BodyError, BodyOverFlow},
     service::{Service, ready::ReadyService},
@@ -130,13 +129,14 @@ impl<B> LimitBody<B> {
     }
 }
 
-impl<B> Stream for LimitBody<B>
+impl<B> Body for LimitBody<B>
 where
     B: BodyStream,
 {
-    type Item = Result<B::Chunk, BodyError>;
+    type Data = B::Data;
+    type Error = BodyError;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let this = self.project();
 
         if *this.record >= *this.limit {
@@ -145,12 +145,15 @@ where
             return Poll::Ready(Some(Err(BodyError::from(BodyOverFlow { limit: *this.limit }))));
         }
 
-        match ready!(this.body.poll_next(cx)) {
+        match ready!(Body::poll_frame(this.body, cx)) {
             Some(res) => {
-                let chunk = res.map_err(Into::into)?;
-                *this.record += chunk.as_ref().len();
-                // TODO: for now there is no way to split a chunk if it goes beyond body limit.
-                Poll::Ready(Some(Ok(chunk)))
+                let frame = res.map_err(Into::into)?;
+
+                if let Some(data) = frame.data_ref() {
+                    *this.record += data.as_ref().len();
+                }
+                // TODO: for now there is no way to split a frame if it goes beyond body limit.
+                Poll::Ready(Some(Ok(frame)))
             }
             None => Poll::Ready(None),
         }
@@ -159,13 +162,13 @@ where
 
 #[cfg(test)]
 mod test {
-    use core::{future::poll_fn, pin::pin};
+    use core::pin::pin;
 
     use xitca_unsafe_collection::futures::NowOrPanic;
 
     use crate::{
         App,
-        body::BoxBody,
+        body::{BodyExt, BoxBody, Full},
         bytes::Bytes,
         handler::{body::Body, handler_service},
         http::{StatusCode, WebRequest},
@@ -179,9 +182,18 @@ mod test {
     async fn handler<B: BodyStream>(Body(body): Body<B>) -> String {
         let mut body = pin!(body);
 
-        let chunk = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().ok().unwrap();
+        let chunk = body
+            .as_mut()
+            .frame()
+            .await
+            .unwrap()
+            .ok()
+            .unwrap()
+            .into_data()
+            .ok()
+            .unwrap();
 
-        let err = poll_fn(|cx| body.as_mut().poll_next(cx)).await.unwrap().err().unwrap();
+        let err = body.as_mut().frame().await.unwrap().err().unwrap();
         let err = crate::error::Error::from(err.into());
         assert_eq!(
             err.to_string(),
@@ -197,11 +209,7 @@ mod test {
 
     #[test]
     fn request_body_over_limit() {
-        use futures_util::stream::{self, StreamExt};
-
-        let item = || async { Ok::<_, BodyError>(Bytes::from_static(CHUNK)) };
-
-        let body = stream::once(item()).chain(stream::once(item()));
+        let body = Full::new(Bytes::from_static(CHUNK)).chain(Full::new(Bytes::from_static(CHUNK)));
         let req = WebRequest::default().map(|ext| ext.map_body(|_: ()| BoxBody::new(body).into()));
 
         let body = App::new()

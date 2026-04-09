@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-xitca-web = { version = "0.7", features = ["codegen", "nightly"] }
+xitca-web = { workspace = true, features = ["codegen", "nightly"] }
 
 thiserror = "2"

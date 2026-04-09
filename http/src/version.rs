@@ -4,6 +4,7 @@ use crate::http::Version;
 pub trait AsVersion {
     fn as_version(&self) -> Version;
 
+    #[cfg(feature = "__tls")]
     fn from_alpn<B: AsRef<[u8]>>(proto: B) -> Version {
         if proto.as_ref().windows(2).any(|window| window == b"h2") {
             Version::HTTP_2
@@ -27,6 +28,31 @@ impl AsVersion for xitca_io::net::Stream {
 }
 
 impl AsVersion for xitca_io::net::TcpStream {
+    #[inline]
+    fn as_version(&self) -> Version {
+        Version::HTTP_11
+    }
+}
+
+#[cfg(unix)]
+impl AsVersion for xitca_io::net::UnixStream {
+    #[inline]
+    fn as_version(&self) -> Version {
+        Version::HTTP_11
+    }
+}
+
+#[cfg(feature = "io-uring")]
+impl AsVersion for xitca_io::net::io_uring::TcpStream {
+    #[inline]
+    fn as_version(&self) -> Version {
+        Version::HTTP_11
+    }
+}
+
+#[cfg(unix)]
+#[cfg(feature = "io-uring")]
+impl AsVersion for xitca_io::net::io_uring::UnixStream {
     #[inline]
     fn as_version(&self) -> Version {
         Version::HTTP_11

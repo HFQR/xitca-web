@@ -1,26 +1,30 @@
 [package]
 name = "http-encoding"
-version = "0.2.2"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 license = "Apache-2.0"
 description = "compression for http crate type"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "compression"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
+rust-version.workspace = true
 
 [features]
 default = []
-all = ["br", "gz", "de"]
+all = ["br", "gz", "de", "zs"]
 br = ["brotli2"]
 gz = ["flate2"]
 de = ["flate2"]
+zs = ["zstd"]
 
 [dependencies]
-bytes = "1.4"
-futures-core = "0.3"
-http = "1"
-pin-project-lite = "0.2.6"
+bytes = { workspace = true }
+futures-core = { workspace = true }
+http = { workspace = true }
+http-body-alt = { workspace = true }
+pin-project-lite = { workspace = true }
 
 brotli2 = { version = "0.3.2", optional = true }
 flate2 = { version = "1.0.13", optional = true }
+zstd = { version = "0.13", optional = true }

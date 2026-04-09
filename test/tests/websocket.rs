@@ -1,7 +1,11 @@
-use futures_util::{SinkExt, Stream, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use http_ws::{Message, ws};
 use xitca_client::Client;
-use xitca_http::{Request, body::ResponseBody, http::Response};
+use xitca_http::{
+    Request,
+    body::{Body, BoxBody, StreamDataBody},
+    http::{Protocol, RequestExt, Response, Version},
+};
 use xitca_io::bytes::Bytes;
 use xitca_service::fn_service;
 use xitca_test::{Error, test_h2_server};
@@ -70,29 +74,33 @@ async fn message_h2() -> Result<(), Error> {
     handle.await.map_err(Into::into)
 }
 
-async fn handler<B, E>(
-    req: Request<B>,
-) -> Result<Response<ResponseBody<impl Stream<Item = Result<Bytes, impl std::fmt::Debug>>>>, Error>
+async fn handler<B>(req: Request<RequestExt<B>>) -> Result<Response<BoxBody>, Error>
 where
-    B: Stream<Item = Result<Bytes, E>> + Unpin + 'static,
-    E: 'static,
+    B: Body<Data = Bytes> + Unpin + 'static,
+    B::Error: 'static,
 {
     let (parts, body) = req.into_parts();
     let req = Request::from_parts(parts, ());
-    let (mut decode, res, tx) = ws(&req, body)?;
+    let (ext, body) = body.replace_body(());
+
+    if req.version() == Version::HTTP_2 {
+        assert_eq!(ext.protocol().unwrap(), Protocol::WEB_SOCKET);
+    }
+
+    let (mut decode, res, mut tx) = ws(&req, StreamDataBody::new(body))?;
 
     // spawn websocket message handling logic task.
     tokio::task::spawn_local(async move {
         while let Some(Ok(msg)) = decode.next().await {
             match msg {
                 Message::Text(bytes) => {
-                    tx.send(Message::Text(bytes)).await.unwrap();
+                    tx.text(bytes).await.unwrap();
                 }
                 Message::Ping(bytes) => {
-                    tx.send(Message::Pong(bytes)).await.unwrap();
+                    tx.pong(bytes).await.unwrap();
                 }
                 Message::Close(reason) => {
-                    tx.send(Message::Close(reason)).await.unwrap();
+                    tx.close(reason).await.unwrap();
                     return;
                 }
                 _ => {}
@@ -100,5 +108,5 @@ where
         }
     });
 
-    Ok(res.map(ResponseBody::stream))
+    Ok(res.map(|stream| BoxBody::new(StreamDataBody::new(stream))))
 }

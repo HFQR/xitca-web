@@ -3,8 +3,8 @@ use core::{
     task::{Context, Poll},
 };
 
+use crate::body::{Body, Frame, SizeHint};
 use ::h3::server::RequestStream;
-use futures_core::stream::Stream;
 use h3_quinn::RecvStream;
 
 use crate::{
@@ -15,14 +15,23 @@ use crate::{
 /// Request body type for Http/3 specifically.
 pub struct RequestBody(pub(super) RequestStream<RecvStream, Bytes>);
 
-impl Stream for RequestBody {
-    type Item = Result<Bytes, BodyError>;
+impl Body for RequestBody {
+    type Data = Bytes;
+    type Error = BodyError;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
         self.get_mut()
             .0
             .poll_recv_data(cx)?
-            .map(|res| res.map(|buf| Ok(Bytes::copy_from_slice(buf.chunk()))))
+            .map(|res| res.map(|buf| Ok(Frame::Data(Bytes::copy_from_slice(buf.chunk())))))
+    }
+
+    fn is_end_stream(&self) -> bool {
+        false
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::default()
     }
 }
 

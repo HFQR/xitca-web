@@ -1,11 +1,11 @@
 //! sync version of hello-world example in this repo.
 
 use xitca_web::{
+    App, WebContext,
     handler::handler_sync_service,
     http::{WebRequest, WebResponse},
     middleware::sync::{Next, SyncMiddleware},
     route::get,
-    App, WebContext,
 };
 
 fn main() -> std::io::Result<()> {

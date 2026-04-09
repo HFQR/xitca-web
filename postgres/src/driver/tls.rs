@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use xitca_io::io::AsyncIo;
-use xitca_tls::rustls::{
+use xitca_tls::rustls_poll::{
     self, ClientConfig, ClientConnection, DigitallySignedStruct, RootCertStore, TlsStream,
     client::danger::HandshakeSignatureValid,
     crypto::{verify_tls12_signature, verify_tls13_signature},
@@ -46,7 +46,7 @@ where
     Ok(stream)
 }
 
-pub(crate) fn dangerous_config(alpn: Vec<Vec<u8>>) -> xitca_tls::rustls::ClientConfig {
+pub(crate) fn dangerous_config(alpn: Vec<Vec<u8>>) -> xitca_tls::rustls_poll::ClientConfig {
     let mut root_store = RootCertStore::empty();
 
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -70,7 +70,7 @@ impl SkipServerVerification {
     }
 }
 
-impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
+impl rustls_poll::client::danger::ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(
         &self,
         _end_entity: &CertificateDer<'_>,
@@ -78,8 +78,8 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
         _server_name: &ServerName<'_>,
         _ocsp: &[u8],
         _now: UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    ) -> Result<rustls_poll::client::danger::ServerCertVerified, rustls_poll::Error> {
+        Ok(rustls_poll::client::danger::ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
@@ -87,12 +87,12 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
         message: &[u8],
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+    ) -> Result<HandshakeSignatureValid, rustls_poll::Error> {
         verify_tls12_signature(
             message,
             cert,
             dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            &rustls_poll::crypto::ring::default_provider().signature_verification_algorithms,
         )
     }
 
@@ -101,17 +101,17 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
         message: &[u8],
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+    ) -> Result<HandshakeSignatureValid, rustls_poll::Error> {
         verify_tls13_signature(
             message,
             cert,
             dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            &rustls_poll::crypto::ring::default_provider().signature_verification_algorithms,
         )
     }
 
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        rustls::crypto::ring::default_provider()
+    fn supported_verify_schemes(&self) -> Vec<rustls_poll::SignatureScheme> {
+        rustls_poll::crypto::ring::default_provider()
             .signature_verification_algorithms
             .supported_schemes()
     }

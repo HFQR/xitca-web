@@ -1,9 +1,8 @@
 use std::time::{Duration, Instant};
 
-use futures_util::StreamExt;
 use xitca_client::Client;
 use xitca_http::{
-    body::ResponseBody,
+    body::{BodyExt, Frame, ResponseBody},
     bytes::{Bytes, BytesMut},
     h2,
     http::{Method, Request, RequestExt, Response, Version, header},
@@ -192,11 +191,13 @@ async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<Re
         )),
         (&Method::CONNECT, "/") => {
             let (_, mut body) = req.into_parts();
-            Ok(Response::new(ResponseBody::box_stream(async_stream::stream! {
-                while let Some(chunk) = body.next().await {
-                    yield chunk;
-                }
-            })))
+            Ok(Response::new(ResponseBody::boxed(xitca_http::body::StreamBody::new(
+                async_stream::stream! {
+                    while let Some(chunk) = body.frame().await {
+                        yield chunk;
+                    }
+                },
+            ))))
         }
         (&Method::POST, "/") => {
             let (parts, mut body) = req.into_parts();
@@ -210,8 +211,10 @@ async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<Re
 
             let mut buf = BytesMut::new();
 
-            while let Some(bytes) = body.next().await {
-                buf.extend_from_slice(&bytes?);
+            while let Some(bytes) = body.frame().await {
+                if let Frame::Data(bytes) = bytes? {
+                    buf.extend_from_slice(&bytes);
+                }
             }
 
             assert_eq!(buf.len(), length);

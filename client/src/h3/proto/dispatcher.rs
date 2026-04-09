@@ -1,7 +1,7 @@
 use core::{future::poll_fn, net::SocketAddr, pin::pin};
 
 use crate::{
-    body::{BodyError, BodySize, ResponseBody},
+    body::{Body, BodyError, Frame, ResponseBody, SizeHint},
     bytes::{Buf, Bytes},
     date::DateTimeHandle,
     h3::{Connection, Error},
@@ -11,7 +11,6 @@ use crate::{
     },
 };
 use ::h3_quinn::quinn::Endpoint;
-use futures_core::stream::Stream;
 use xitca_http::date::DateTime;
 
 pub(crate) async fn send<B, E>(
@@ -20,27 +19,27 @@ pub(crate) async fn send<B, E>(
     req: Request<B>,
 ) -> Result<Response<ResponseBody>, Error>
 where
-    B: Stream<Item = Result<Bytes, E>>,
+    B: Body<Data = Bytes, Error = E>,
     BodyError: From<E>,
 {
     let (parts, body) = req.into_parts();
     let mut req = Request::from_parts(parts, ());
 
     // Content length and is body is in eof state.
-    let is_eof = match BodySize::from_stream(&body) {
-        BodySize::None => {
+    let is_eof = match body.size_hint() {
+        SizeHint::None => {
             req.headers_mut().remove(CONTENT_LENGTH);
             true
         }
-        BodySize::Stream => {
+        SizeHint::Unknown => {
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
-        BodySize::Sized(0) => {
+        SizeHint::Exact(0) => {
             req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
             true
         }
-        BodySize::Sized(len) => {
+        SizeHint::Exact(len) => {
             let mut buf = itoa::Buffer::new();
             req.headers_mut()
                 .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
@@ -62,9 +61,12 @@ where
 
     if !is_eof {
         let mut body = pin!(body);
-        while let Some(bytes) = poll_fn(|cx| body.as_mut().poll_next(cx)).await {
-            let bytes = bytes.map_err(BodyError::from)?;
-            stream.send_data(bytes).await?;
+        while let Some(frame) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+            let frame = frame.map_err(BodyError::from)?;
+            match frame {
+                Frame::Data(bytes) => stream.send_data(bytes).await?,
+                Frame::Trailers(trailers) => stream.send_trailers(trailers).await?,
+            }
         }
     }
 
@@ -75,12 +77,16 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
+        use xitca_http::body::{Frame, StreamBody};
         let body = async_stream::stream! {
             while let Some(bytes) = stream.recv_data().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
-                yield Ok(Bytes::copy_from_slice(bytes.chunk()));
+                yield Ok::<_, BodyError>(Frame::Data(Bytes::copy_from_slice(bytes.chunk())));
+            }
+            if let Some(trailers) = stream.recv_trailers().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
+                yield Ok::<_, BodyError>(Frame::Trailers(trailers));
             }
         };
-        let body = crate::h3::body::ResponseBody(Box::pin(body));
+        let body = crate::h3::body::ResponseBody(Box::pin(StreamBody::new(body)));
 
         res.map(|_| ResponseBody::H3(body))
     };

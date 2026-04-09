@@ -49,7 +49,8 @@ struct Flags(u8);
 impl Flags {
     const SERVER: u8 = 0b0001;
     const CONTINUATION: u8 = 0b0010;
-    const CLOSED: u8 = 0b0100;
+    const SEND_CLOSED: u8 = 0b0100;
+    const RECV_CLOSED: u8 = 0b1000;
 
     #[inline(always)]
     fn remove(&mut self, other: u8) {
@@ -115,15 +116,32 @@ impl Codec {
         self.flags.remove(Flags::CONTINUATION);
         self
     }
+
+    pub(super) fn send_closed(&self) -> bool {
+        self.flags.contains(Flags::SEND_CLOSED)
+    }
+
+    fn set_send_closed(&mut self) {
+        self.flags.insert(Flags::SEND_CLOSED);
+    }
+
+    fn recv_closed(&self) -> bool {
+        self.flags.contains(Flags::RECV_CLOSED)
+    }
+
+    fn set_recv_closed(&mut self) {
+        self.flags.insert(Flags::RECV_CLOSED);
+    }
 }
 
 impl Codec {
     pub fn encode(&mut self, item: Message, dst: &mut BytesMut) -> Result<(), ProtocolError> {
-        if self.flags.contains(Flags::CLOSED) {
-            return Err(ProtocolError::Closed);
+        if self.send_closed() {
+            return Err(ProtocolError::SendClosed);
         }
 
         let mask = !self.flags.contains(Flags::SERVER);
+
         match item {
             Message::Text(bytes) => Parser::write_message(dst, bytes, OpCode::Text, true, mask),
             Message::Binary(bytes) => Parser::write_message(dst, bytes, OpCode::Binary, true, mask),
@@ -131,7 +149,7 @@ impl Codec {
             Message::Pong(bytes) => Parser::write_message(dst, bytes, OpCode::Pong, true, mask),
             Message::Close(reason) => {
                 Parser::write_close(dst, reason, mask);
-                self.flags.insert(Flags::CLOSED);
+                self.set_send_closed();
             }
             Message::Continuation(cont) => match cont {
                 Item::Continue(_) | Item::Last(_) if !self.flags.contains(Flags::CONTINUATION) => {
@@ -158,6 +176,10 @@ impl Codec {
     }
 
     pub fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Message>, ProtocolError> {
+        if self.recv_closed() {
+            return Err(ProtocolError::RecvClosed);
+        }
+
         match Parser::parse(src, self.flags.contains(Flags::SERVER), self.max_size)? {
             Some((finished, opcode, payload)) => match opcode {
                 OpCode::Continue if !self.flags.contains(Flags::CONTINUATION) => {
@@ -189,9 +211,12 @@ impl Codec {
                 }
                 OpCode::Binary => Ok(Some(Message::Binary(payload.unwrap_or_else(Bytes::new)))),
                 OpCode::Text => Ok(Some(Message::Text(payload.unwrap_or_else(Bytes::new)))),
-                OpCode::Close => Ok(Some(Message::Close(
-                    payload.as_deref().and_then(Parser::parse_close_payload),
-                ))),
+                OpCode::Close => {
+                    self.set_recv_closed();
+                    Ok(Some(Message::Close(
+                        payload.as_deref().and_then(Parser::parse_close_payload),
+                    )))
+                }
                 OpCode::Ping => Ok(Some(Message::Ping(payload.unwrap_or_else(Bytes::new)))),
                 OpCode::Pong => Ok(Some(Message::Pong(payload.unwrap_or_else(Bytes::new)))),
                 OpCode::Bad => Err(ProtocolError::BadOpCode),
@@ -219,14 +244,19 @@ mod test {
         let mut flags = Flags(Flags::SERVER);
 
         assert!(flags.contains(Flags::SERVER));
-        assert!(!flags.contains(Flags::CONTINUATION));
+        assert!(!flags.contains(Flags::SEND_CLOSED));
 
         flags.remove(Flags::SERVER);
         assert!(!flags.contains(Flags::SERVER));
-        assert!(!flags.contains(Flags::CONTINUATION));
+        assert!(!flags.contains(Flags::SEND_CLOSED));
 
-        flags.insert(Flags::CONTINUATION);
-        assert!(flags.contains(Flags::CONTINUATION));
+        flags.insert(Flags::SEND_CLOSED);
+        assert!(flags.contains(Flags::SEND_CLOSED));
+        assert!(!flags.contains(Flags::SERVER));
+
+        flags.insert(Flags::RECV_CLOSED);
+        assert!(flags.contains(Flags::SEND_CLOSED));
+        assert!(flags.contains(Flags::RECV_CLOSED));
         assert!(!flags.contains(Flags::SERVER));
     }
 }

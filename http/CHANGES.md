@@ -1,4 +1,39 @@
-# unreleased
+# unreleased 0.9.0
+## Add
+- add io_uring, tls, HTTP/2 and HTTP/2 cleartext support for unix socket
+- add io_uring support for unified `HttpServiceBuilder`
+- add trailers support for HTTP/1.1, HTTP/2, HTTP/3
+- add `http::Protocol` type to `http::RequestExt`
+- add `http::RequestExt::protocol` method
+
+## Change
+- use `http-body-alt` crate for generic http body type and streaming interface
+
+    `futures::Stream` -> `http_body_alt::Body`
+    
+    `Bytes` -> `http_body_alt::Frame<Bytes>`
+
+- use `http-body-alt` crate for concrete http body type
+
+    `Once` -> `http_body_alt::Full`
+
+    `NoneBody` -> `http_body_alt::Empty`
+
+    `Either` -> `http_body_alt::Either`
+- `body::ResponseBody` methods rename
+
+    `none` -> removed
+
+    `box_stream` -> `boxed`
+
+    `stream` -> `body`
+
+- update `xitca-io` to `0.6.0`
+- update `xitca-tls` to `0.6.0`
+- use completion based API for all I/O operations
+
+## Remove
+- remove all `futures::Stream` trait interface
 
 # 0.8.2
 ## Fix

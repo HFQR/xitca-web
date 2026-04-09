@@ -4,15 +4,15 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use futures_core::stream::Stream;
 use xitca_http::{
     bytes::{Bytes, BytesMut},
     error::BodyError,
-    h1::proto::codec::{ChunkResult, TransferCoding},
+    h1::proto::trasnder_coding::{ChunkResult, TransferCoding},
 };
 use xitca_io::io::Interest;
 
 use crate::{
+    body::{Body, Frame, SizeHint},
     connection::{ConnectionExclusive, ConnectionKey},
     pool::exclusive::Conn,
 };
@@ -39,15 +39,17 @@ impl ResponseBody {
     }
 }
 
-impl Stream for ResponseBody {
-    type Item = Result<Bytes, BodyError>;
+impl Body for ResponseBody {
+    type Data = Bytes;
+    type Error = BodyError;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
         let this = self.get_mut();
 
         loop {
             match this.decoder.decode(&mut this.buf) {
-                ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(bytes))),
+                ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(Frame::Data(bytes)))),
+                ChunkResult::Trailers(trailers) => return Poll::Ready(Some(Ok(Frame::Trailers(trailers)))),
                 ChunkResult::InsufficientData => 'inner: loop {
                     match xitca_unsafe_collection::bytes::read_buf(&mut *this.conn, &mut this.buf) {
                         Ok(n) => {
@@ -69,6 +71,14 @@ impl Stream for ResponseBody {
                 _ => return Poll::Ready(None),
             }
         }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.decoder.is_eof()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::default()
     }
 }
 

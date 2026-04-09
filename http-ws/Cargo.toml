@@ -18,19 +18,19 @@ stream = ["pin-project-lite", "tokio/sync"]
 
 [dependencies]
 base64 = { version = "0.22.0", default-features = false }
-bytes = "1.4"
-futures-core = { version = "0.3.25", default-features = false }
-http = "1"
-rand = { version = "0.9.0" }
-sha1 = "0.10"
+bytes = { workspace = true }
+futures-core = { workspace = true, default-features = false }
+http = { workspace = true }
+rand = { version = "0.10.0" }
+sha1 = "0.11.0"
 tracing = { version = "0.1.40", default-features = false }
 
 # stream feature
-pin-project-lite = { version = "0.2.9", optional = true }
-tokio = { version = "1.35", optional = true }
+pin-project-lite = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.35", features = ["io-util", "net", "rt", "time"] }
+tokio = { workspace = true, features = ["io-util", "net", "rt", "time"] }
 futures-util = { version = "0.3.25", default-features = false }
 
 [package.metadata.docs.rs]

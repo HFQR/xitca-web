@@ -1,15 +1,15 @@
 //! example of utilizing macro for routing service and handling error.
 
 use xitca_web::{
+    App, WebContext,
     codegen::{error_impl, route},
     handler::state::{StateOwn, StateRef},
     http::{StatusCode, WebResponse},
     middleware::{
-        sync::{Next, SyncMiddleware},
         Logger,
+        sync::{Next, SyncMiddleware},
     },
     service::Service,
-    App, WebContext,
 };
 
 #[tokio::main]

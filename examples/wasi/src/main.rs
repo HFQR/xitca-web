@@ -1,6 +1,6 @@
 use std::{io, os::wasi::io::FromRawFd};
 
-use xitca_web::{handler::handler_service, middleware::Logger, route::get, App};
+use xitca_web::{App, handler::handler_service, middleware::Logger, route::get};
 
 fn main() -> io::Result<()> {
     // get fd int from env.

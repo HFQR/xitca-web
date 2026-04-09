@@ -102,7 +102,7 @@ mod service {
     use http_file::{ServeDir, ServeError, runtime::AsyncFs};
 
     use crate::{
-        body::ResponseBody,
+        body::{ResponseBody, StreamDataBody},
         context::WebContext,
         error::{Error, ErrorStatus, MatchError, MethodNotAllowed, RouterError},
         http::{Method, StatusCode, WebResponse},
@@ -121,9 +121,9 @@ mod service {
 
         async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
             match self.0.serve(ctx.req()).await {
-                Ok(res) => Ok(res.map(ResponseBody::box_stream)),
+                Ok(res) => Ok(res.map(|body| ResponseBody::boxed(StreamDataBody::new(body)))),
                 Err(ServeError::NotModified) => {
-                    let mut res = ctx.into_response(ResponseBody::none());
+                    let mut res = ctx.into_response(ResponseBody::empty());
                     *res.status_mut() = StatusCode::NOT_MODIFIED;
                     Ok(res)
                 }

@@ -1,277 +1,202 @@
 use core::{
-    cell::{RefCell, RefMut},
-    fmt,
-    future::poll_fn,
-    ops::DerefMut,
+    mem,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll, ready},
 };
 
-use std::{collections::VecDeque, io, rc::Rc};
+use std::io;
 
-use futures_core::stream::Stream;
+use pin_project_lite::pin_project;
+use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 
-use crate::bytes::Bytes;
+use crate::{
+    body::{Body, BoxBody, Frame, SizeHint},
+    bytes::{Bytes, BytesMut},
+    error::BodyError,
+};
 
-/// max buffer size 32k
-pub(crate) const MAX_BUFFER_SIZE: usize = 32_768;
+use super::{
+    io::{BufIo, NotifierIo},
+    proto::{
+        encode::CONTINUE_BYTES,
+        trasnder_coding::{ChunkResult, TransferCoding},
+    },
+};
 
-/// Buffered stream of request body chunk.
-///
-/// impl [Stream] trait to produce chunk as [Bytes] type in async manner.
-pub struct RequestBody(Option<Body>);
+pub use crate::body::RequestBody;
 
-impl fmt::Debug for RequestBody {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("RequestBody")
+pub(super) fn body<Io>(
+    io: NotifierIo<Io>,
+    is_expect: bool,
+    limit: usize,
+    decoder: TransferCoding,
+    read_buf: BytesMut,
+) -> RequestBody
+where
+    Io: AsyncBufRead + AsyncBufWrite + 'static,
+{
+    let size = match decoder {
+        TransferCoding::Length(len) => SizeHint::Exact(len),
+        TransferCoding::Eof => SizeHint::None,
+        _ => SizeHint::Unknown,
+    };
+
+    let body = BodyInner {
+        io,
+        decoder: Decoder {
+            decoder,
+            limit,
+            read_buf,
+        },
+    };
+
+    let state = if is_expect {
+        State::ExpectWrite {
+            fut: async {
+                let (res, _) = body.io.io().write_all(CONTINUE_BYTES).await;
+                res.map(|_| body)
+            },
+        }
+    } else {
+        State::Body { body }
+    };
+
+    RequestBody::Boxed(BoxBody::new(BodyReader {
+        size,
+        chunk_read,
+        state,
+    }))
+}
+
+pin_project! {
+    #[project = StateProj]
+    #[project_replace = StateProjReplace]
+    enum State<Io, FutC, FutE> {
+        Body {
+            body: BodyInner<Io>
+        },
+        ChunkRead {
+            #[pin]
+            fut: FutC
+        },
+        ExpectWrite {
+            #[pin]
+            fut: FutE,
+        },
+        None,
     }
 }
 
-type Body = Pin<Box<dyn Stream<Item = io::Result<Bytes>>>>;
-
-impl Default for RequestBody {
-    fn default() -> Self {
-        Self::none()
+pin_project! {
+    struct BodyReader<Io, F, FutC, FutE> {
+        size: SizeHint,
+        chunk_read: F,
+        #[pin]
+        state: State<Io, FutC, FutE>
     }
 }
 
-impl RequestBody {
-    // an async spsc channel where sender is used to push data and popped from RequestBody.
-    pub(super) fn channel(eof: bool) -> (BodySender, Self) {
-        if eof {
-            (ChannelBody::none(), RequestBody::none())
-        } else {
-            let body = ChannelBody::stream();
-            (body.clone(), RequestBody::stream(body))
-        }
-    }
-
-    pub(super) fn stream<S>(stream: S) -> Self
-    where
-        S: Stream<Item = io::Result<Bytes>> + 'static,
-    {
-        RequestBody(Some(Box::pin(stream)))
-    }
-
-    pub(super) fn none() -> Self {
-        Self(None)
-    }
+struct BodyInner<Io> {
+    io: NotifierIo<Io>,
+    decoder: Decoder,
 }
 
-impl Stream for RequestBody {
-    type Item = io::Result<Bytes>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
-        match self.get_mut().0 {
-            Some(ref mut body) => body.as_mut().poll_next(cx),
-            None => Poll::Ready(None),
-        }
-    }
+async fn chunk_read<Io>(mut body: BodyInner<Io>) -> io::Result<(usize, BodyInner<Io>)>
+where
+    Io: AsyncBufRead,
+{
+    let (res, r_buf) = body.decoder.read_buf.split().read(body.io.io()).await;
+    body.decoder.read_buf.unsplit(r_buf);
+    let read = res?;
+    Ok((read, body))
 }
 
-impl From<RequestBody> for crate::body::RequestBody {
-    fn from(body: RequestBody) -> Self {
-        Self::H1(body)
-    }
-}
+impl<Io, F, FutC, FutE> Body for BodyReader<Io, F, FutC, FutE>
+where
+    Io: AsyncBufRead,
+    F: Fn(BodyInner<Io>) -> FutC,
+    FutC: Future<Output = io::Result<(usize, BodyInner<Io>)>>,
+    FutE: Future<Output = io::Result<BodyInner<Io>>>,
+{
+    type Data = Bytes;
+    type Error = BodyError;
 
-/// Sender part of the payload stream
-pub(super) type BodySender = ChannelBody;
-
-#[derive(Clone)]
-pub(super) struct ChannelBody(Option<Rc<RefCell<Inner>>>);
-
-impl Stream for ChannelBody {
-    type Item = io::Result<Bytes>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
-        match self.get_mut().0 {
-            Some(ref body) => body.borrow_mut().poll_next_unpin(cx),
-            None => Poll::Ready(None),
-        }
-    }
-}
-
-// TODO: rework early eof error handling.
-impl Drop for ChannelBody {
-    fn drop(&mut self) {
-        if let Some(mut inner) = self.try_inner() {
-            if !inner.eof {
-                inner.feed_error(io::ErrorKind::UnexpectedEof.into());
-            }
-        }
-    }
-}
-
-impl ChannelBody {
-    fn stream() -> Self {
-        Self(Some(Default::default()))
-    }
-
-    fn none() -> Self {
-        Self(None)
-    }
-
-    // try to get a mutable reference of inner and ignore RequestBody::None variant.
-    fn try_inner(&mut self) -> Option<RefMut<'_, Inner>> {
-        self.try_inner_on_none_with(|| {})
-    }
-
-    // try to get a mutable reference of inner and panic on RequestBody::None variant.
-    // this is a runtime check for internal optimization to avoid unnecessary operations.
-    // public api must not be able to trigger this panic.
-    fn try_inner_infallible(&mut self) -> Option<RefMut<'_, Inner>> {
-        self.try_inner_on_none_with(|| panic!("No Request Body found. Do not waste operation on Sender."))
-    }
-
-    fn try_inner_on_none_with<F>(&mut self, func: F) -> Option<RefMut<'_, Inner>>
-    where
-        F: FnOnce(),
-    {
-        match self.0 {
-            Some(ref inner) => {
-                // request body is a shared pointer between only two owners and no weak reference.
-                debug_assert!(Rc::strong_count(inner) <= 2);
-                debug_assert_eq!(Rc::weak_count(inner), 0);
-                (Rc::strong_count(inner) != 1).then_some(inner.borrow_mut())
-            }
-            None => {
-                func();
-                None
-            }
-        }
-    }
-
-    pub(super) fn feed_error(&mut self, e: io::Error) {
-        if let Some(mut inner) = self.try_inner_infallible() {
-            inner.feed_error(e);
-        }
-    }
-
-    pub(super) fn feed_eof(&mut self) {
-        if let Some(mut inner) = self.try_inner_infallible() {
-            inner.feed_eof();
-        }
-    }
-
-    pub(super) fn feed_data(&mut self, data: Bytes) {
-        if let Some(mut inner) = self.try_inner_infallible() {
-            inner.feed_data(data);
-        }
-    }
-
-    pub(super) fn ready(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
-        self.ready_with(|inner| !inner.backpressure())
-    }
-
-    // Lazily wait until RequestBody is already polled.
-    // For specific use case body must not be eagerly polled.
-    // For example: Request with Expect: Continue header.
-    pub(super) fn wait_for_poll(&mut self) -> impl Future<Output = io::Result<()>> + '_ {
-        self.ready_with(|inner| inner.waiting())
-    }
-
-    async fn ready_with<F>(&mut self, func: F) -> io::Result<()>
-    where
-        F: Fn(&mut Inner) -> bool,
-    {
-        poll_fn(|cx| {
-            // Check only if Payload (other side) is alive, Otherwise always return io error.
-            match self.try_inner_infallible() {
-                Some(mut inner) => {
-                    if func(inner.deref_mut()) {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        // when payload is not ready register current task waker and wait.
-                        inner.register_io(cx);
-                        Poll::Pending
+    #[inline]
+    fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let mut this = self.project();
+        loop {
+            match this.state.as_mut().project() {
+                StateProj::Body { body } => {
+                    match body.decoder.decode() {
+                        ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(Frame::Data(bytes)))),
+                        ChunkResult::Trailers(trailers) => return Poll::Ready(Some(Ok(Frame::Trailers(trailers)))),
+                        ChunkResult::Err(e) => return Poll::Ready(Some(Err(e.into()))),
+                        ChunkResult::InsufficientData => body.decoder.limit_check()?,
+                        _ => return Poll::Ready(None),
                     }
+
+                    let StateProjReplace::Body { body } = this.state.as_mut().project_replace(State::None) else {
+                        unreachable!()
+                    };
+                    this.state.as_mut().project_replace(State::ChunkRead {
+                        fut: (this.chunk_read)(body),
+                    });
                 }
-                None => Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into())),
+                StateProj::ChunkRead { fut } => {
+                    let (read, body) = ready!(fut.poll(cx))?;
+                    if read == 0 {
+                        this.state.as_mut().project_replace(State::None);
+                        return Poll::Ready(None);
+                    }
+                    this.state.as_mut().project_replace(State::Body { body });
+                }
+                StateProj::ExpectWrite { fut } => {
+                    let body = ready!(fut.poll(cx))?;
+                    this.state.as_mut().project_replace(State::ChunkRead {
+                        fut: (this.chunk_read)(body),
+                    });
+                }
+                StateProj::None => return Poll::Ready(None),
             }
-        })
-        .await
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> SizeHint {
+        self.size
     }
 }
 
-#[derive(Debug, Default)]
-struct Inner {
-    eof: bool,
-    len: usize,
-    err: Option<io::Error>,
-    items: VecDeque<Bytes>,
-    task: Option<Waker>,
-    io_task: Option<Waker>,
+impl<Io> Drop for BodyInner<Io> {
+    fn drop(&mut self) {
+        if self.decoder.decoder.is_eof() {
+            let buf = mem::take(&mut self.decoder.read_buf);
+            self.io.notify(buf);
+        }
+    }
 }
 
-impl Inner {
-    /// Wake up future waiting for payload data to be available.
-    fn wake(&mut self) {
-        if let Some(waker) = self.task.take() {
-            waker.wake();
+struct Decoder {
+    decoder: TransferCoding,
+    limit: usize,
+    read_buf: BytesMut,
+}
+
+impl Decoder {
+    fn decode(&mut self) -> ChunkResult {
+        self.decoder.decode(&mut self.read_buf)
+    }
+
+    fn limit_check(&self) -> io::Result<()> {
+        if self.read_buf.len() < self.limit {
+            return Ok(());
         }
-    }
 
-    /// Wake up future feeding data to Payload.
-    fn wake_io(&mut self) {
-        if let Some(waker) = self.io_task.take() {
-            waker.wake();
-        }
-    }
-
-    /// true when a future is waiting for payload data.
-    fn waiting(&self) -> bool {
-        self.task.is_some()
-    }
-
-    /// Register future waiting data from payload.
-    /// Waker would be used in `Inner::wake`
-    fn register(&mut self, cx: &Context<'_>) {
-        if self.task.as_ref().map(|w| !cx.waker().will_wake(w)).unwrap_or(true) {
-            self.task = Some(cx.waker().clone());
-        }
-    }
-
-    // Register future feeding data to payload.
-    /// Waker would be used in `Inner::wake_io`
-    fn register_io(&mut self, cx: &Context<'_>) {
-        if self.io_task.as_ref().map(|w| !cx.waker().will_wake(w)).unwrap_or(true) {
-            self.io_task = Some(cx.waker().clone());
-        }
-    }
-
-    fn feed_error(&mut self, err: io::Error) {
-        self.err = Some(err);
-        self.wake();
-    }
-
-    fn feed_eof(&mut self) {
-        self.eof = true;
-        self.wake();
-    }
-
-    fn feed_data(&mut self, data: Bytes) {
-        self.len += data.len();
-        self.items.push_back(data);
-        self.wake();
-    }
-
-    fn backpressure(&self) -> bool {
-        self.len >= MAX_BUFFER_SIZE
-    }
-
-    fn poll_next_unpin(&mut self, cx: &Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
-        if let Some(data) = self.items.pop_front() {
-            self.len -= data.len();
-            Poll::Ready(Some(Ok(data)))
-        } else if let Some(err) = self.err.take() {
-            Poll::Ready(Some(Err(err)))
-        } else if self.eof {
-            Poll::Ready(None)
-        } else {
-            self.register(cx);
-            self.wake_io();
-            Poll::Pending
-        }
+        let msg = format!(
+            "READ_BUF_LIMIT reached: {{ limit: {}, length: {} }}",
+            self.limit,
+            self.read_buf.len()
+        );
+        Err(io::Error::other(msg))
     }
 }

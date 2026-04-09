@@ -11,10 +11,10 @@ use crate::{
 };
 
 use super::{
-    codec::TransferCoding,
     context::Context,
     error::ProtoError,
     header::{self, HeaderIndex},
+    trasnder_coding::TransferCoding,
 };
 
 type Decoded = (Request<RequestExt<()>>, TransferCoding);
@@ -54,6 +54,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                     // Default ctype is KeepAlive so set_ctype is skipped here.
                     Version::HTTP_11
                 } else {
+                    self.set_http10();
                     self.set_close();
                     Version::HTTP_10
                 };
@@ -125,7 +126,7 @@ impl<D, const MAX_HEADERS: usize> Context<'_, D, MAX_HEADERS> {
                 for val in value.to_str().map_err(|_| ProtoError::HeaderValue)?.split(',') {
                     let val = val.trim();
                     if val.eq_ignore_ascii_case("chunked") {
-                        decoder.try_set(TransferCoding::decode_chunked())?;
+                        decoder.try_set(TransferCoding::decode_chunked(MAX_HEADERS))?;
                     }
                 }
             }
@@ -226,7 +227,7 @@ mod test {
         assert_eq!(iter.next().unwrap().to_str().unwrap(), "gzip");
         assert_eq!(iter.next().unwrap().to_str().unwrap(), "chunked");
         assert!(
-            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            matches!(decoder, TransferCoding::DecodeChunked { .. }),
             "transfer coding is not decoded to chunked"
         );
 
@@ -245,7 +246,7 @@ mod test {
         assert_eq!(iter.next().unwrap().to_str().unwrap(), "chunked");
         assert_eq!(iter.next().unwrap().to_str().unwrap(), "gzip");
         assert!(
-            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            matches!(decoder, TransferCoding::DecodeChunked { .. }),
             "transfer coding is not decoded to chunked"
         );
 
@@ -264,7 +265,7 @@ mod test {
             "gzip, chunked"
         );
         assert!(
-            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            matches!(decoder, TransferCoding::DecodeChunked { .. }),
             "transfer coding is not decoded to chunked"
         );
 
@@ -283,7 +284,7 @@ mod test {
             "chunked"
         );
         assert!(
-            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            matches!(decoder, TransferCoding::DecodeChunked { .. }),
             "transfer coding is not decoded to chunked"
         );
 
@@ -307,7 +308,7 @@ mod test {
         let mut buf = BytesMut::from(&head[..]);
         let (_, decoder) = ctx.decode_head::<128>(&mut buf).unwrap().unwrap();
         assert!(
-            matches!(decoder, TransferCoding::DecodeChunked(..)),
+            matches!(decoder, TransferCoding::DecodeChunked { .. }),
             "transfer coding is not decoded to chunked"
         );
     }
