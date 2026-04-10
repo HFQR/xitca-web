@@ -27,6 +27,20 @@ use super::{
 
 pub use http_encoding::ContentEncoding;
 
+/// Returns `true` if the request carries a gRPC content-type.
+///
+/// Matches `application/grpc` and any `application/grpc+...` / `application/grpc-...`
+/// subtype. Used by the transport layer to short-circuit h2c prior-knowledge fallback
+/// to HTTP/1.1: a gRPC request that can't complete an HTTP/2 handshake cannot succeed
+/// over HTTP/1.1 either, so surfacing the handshake error directly gives a better
+/// diagnostic than letting the response body fail to decode as gRPC framing.
+pub(crate) fn is_grpc_request<B>(req: &xitca_http::http::Request<B>) -> bool {
+    req.headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/grpc"))
+}
+
 /// new type of [`RequestBuilder`] with extended functionality for grpc stream handling.
 pub type GrpcStreamRequest<'a> = GrpcRequest<'a, marker::GrpcStream>;
 

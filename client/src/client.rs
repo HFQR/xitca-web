@@ -46,6 +46,20 @@ impl Default for Client {
     }
 }
 
+// Pick a sensible default HTTP version for a request based on the URI scheme.
+//
+// For TLS schemes (`https`/`wss`) the client can use ALPN to negotiate up to
+// `max_version`. For plaintext schemes the default is HTTP/1.1 — selecting
+// HTTP/2 over plaintext (h2c prior-knowledge) is an explicit opt-in via
+// `RequestBuilder::version(Version::HTTP_2)`.
+fn default_version_for_scheme(scheme: Option<&str>, max_version: Version) -> Version {
+    if matches!(scheme, Some("https" | "wss")) {
+        max_version
+    } else {
+        Version::HTTP_11
+    }
+}
+
 macro_rules! method {
     ($method: tt, $method2: tt) => {
         #[doc = concat!("Start a new [Method::",stringify!($method2),"] request with empty request body.")]
@@ -99,7 +113,12 @@ impl Client {
         *req.method_mut() = method;
         *req.version_mut() = self.max_http_version;
 
-        let err = uri::Uri::try_from(url).map(|uri| *req.uri_mut() = uri).err();
+        let err = uri::Uri::try_from(url)
+            .map(|uri| {
+                *req.version_mut() = default_version_for_scheme(uri.scheme_str(), self.max_http_version);
+                *req.uri_mut() = uri;
+            })
+            .err();
 
         let mut builder = self.request(req);
 

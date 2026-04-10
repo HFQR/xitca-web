@@ -74,11 +74,18 @@ impl Body for ResponseBody {
     }
 
     fn is_end_stream(&self) -> bool {
-        self.decoder.is_eof()
+        match self.decoder {
+            TransferCoding::Eof | TransferCoding::Corrupted => true,
+            _ => false,
+        }
     }
 
     fn size_hint(&self) -> SizeHint {
-        SizeHint::default()
+        match self.decoder {
+            TransferCoding::Length(size) => SizeHint::Exact(size),
+            TransferCoding::Corrupted | TransferCoding::Eof => SizeHint::None,
+            _ => SizeHint::Unknown,
+        }
     }
 }
 

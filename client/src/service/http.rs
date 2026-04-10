@@ -126,8 +126,39 @@ pub(crate) fn base_service() -> HttpService {
                                         client.make_exclusive(&mut connect, &mut timer, Version::HTTP_2).await?;
 
                                     if alpn_version == Version::HTTP_2 {
-                                        let conn = crate::h2::proto::handshake(conn).await?;
-                                        _spawner.spawned(conn.into());
+                                        // For plaintext this is an h2c prior-knowledge attempt. A handshake
+                                        // failure against an H1-only origin is recoverable for normal
+                                        // requests: drop the spawning slot and retry on a fresh connection
+                                        // via the H1 path. The preface bytes have already been written, so
+                                        // the failed socket cannot be reused.
+                                        //
+                                        // gRPC is HTTP/2-only — falling back to H1 would produce a response
+                                        // that can't be decoded as gRPC framing, so surface the handshake
+                                        // error directly instead.
+                                        #[allow(unused_mut)]
+                                        let mut is_h2c = matches!(connect.uri, Uri::Tcp(_));
+
+                                        #[cfg(all(feature = "grpc", feature = "http2"))]
+                                        {
+                                            is_h2c &= !crate::grpc::is_grpc_request(&*req);
+                                        }
+
+                                        match crate::h2::proto::handshake(conn).await {
+                                            Ok(conn) => _spawner.spawned(conn.into()),
+                                            Err(e) if is_h2c => {
+                                                drop(_spawner);
+                                                #[cfg(not(feature = "http1"))]
+                                                {
+                                                    return Err(e.into());
+                                                }
+                                                #[cfg(feature = "http1")]
+                                                {
+                                                    let _ = e;
+                                                    version = Version::HTTP_11;
+                                                }
+                                            }
+                                            Err(e) => return Err(e.into()),
+                                        }
                                     } else {
                                         #[cfg(not(feature = "http1"))]
                                         {

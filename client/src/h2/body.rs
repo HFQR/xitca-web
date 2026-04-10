@@ -4,7 +4,7 @@ use core::{
     task::{Context, Poll, ready},
 };
 
-use xitca_http::body::{Body, Frame, SizeHint};
+use xitca_http::body::{Body, Frame};
 
 use crate::{
     body::BodyError,
@@ -91,9 +91,5 @@ impl Body for ResponseBody {
 
     fn is_end_stream(&self) -> bool {
         self.rx.is_end_stream()
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        SizeHint::default()
     }
 }

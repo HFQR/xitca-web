@@ -66,9 +66,6 @@ use super::{
 struct DecodeContext<'a, S> {
     max_header_list_size: usize,
     max_concurrent_streams: usize,
-    /// Highest stream ID fully accepted by the server. Sent in GOAWAY frames
-    /// so the client knows which streams were processed (RFC 7540 §6.8).
-    last_stream_id: StreamId,
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
@@ -297,16 +294,19 @@ impl StreamState {
         self.closed() && self.recv_state.queue.is_empty() && self.recv_state.error.is_none()
     }
 
-    /// Push a frame to the recv queue, waking the body reader. No-op if the
-    /// service already dropped `RequestBody` (RECV_CANCELED) or recv is closed.
-    /// Returns `true` if the frame was actually enqueued.
-    fn try_push_frame(&mut self, buf: &mut FrameBuffer, frame: Frame) -> bool {
-        if !self.recv_closed() && !self.recv_canceled() {
+    /// Push a frame to the recv queue, waking the body reader. If the service
+    /// already dropped `RequestBody` (RECV_CANCELED), DATA frames are discarded
+    /// and their flow-control bytes are replenished on the connection window.
+    /// Callers must ensure the recv side is not already closed.
+    fn try_push_frame(&mut self, buf: &mut FrameBuffer, queue: &mut WriterQueue, frame: Frame) {
+        debug_assert!(!self.recv_closed(), "try_push_frame called on recv-closed stream");
+        if !self.recv_canceled() {
             self.recv_state.queue.push_back(buf, frame);
             self.recv_state.wake();
-            true
-        } else {
-            false
+        } else if let Frame::Data(data) = frame {
+            // Data discarded (RECV_CANCELED): replenish connection
+            // window so other streams don't stall.
+            queue.push_window_update(data.len());
         }
     }
 
@@ -379,6 +379,67 @@ enum KeepalivePing {
     InFlight,
 }
 
+/// Tracks the highest stream id we've accepted from the peer plus whether
+/// the boundary is still open to advancement.
+///
+/// - `Incrementable(id)` is the normal state. New HEADERS may advance the
+///   boundary via `try_advance`.
+/// - `Saturated(id)` is the post-GOAWAY state (RFC 7540 §6.8). The value
+///   is frozen and serves as the boundary for silently dropping HEADERS
+///   for higher stream ids; `try_advance` becomes a no-op.
+///
+/// All read paths (DATA / WINDOW_UPDATE / RST_STREAM / trailer routing)
+/// use `get` and treat both variants identically — they only need the
+/// value to detect frames addressed to idle stream ids (RFC 7540 §5.1).
+#[derive(Clone, Copy)]
+pub(super) enum LastStreamId {
+    Incrementable(StreamId),
+    Saturated(StreamId),
+}
+
+impl LastStreamId {
+    /// Read the current boundary value regardless of variant.
+    pub(super) fn get(self) -> StreamId {
+        match self {
+            Self::Incrementable(id) | Self::Saturated(id) => id,
+        }
+    }
+
+    /// Returns `true` once `saturate` has been called. The dispatcher's
+    /// main loop uses this to detect that the graceful drain may
+    /// terminate as soon as the in-flight queue empties.
+    pub(super) fn is_saturated(self) -> bool {
+        matches!(self, Self::Saturated(_))
+    }
+
+    /// Advance the boundary to `id` if still incrementable. No-op once
+    /// saturated, which is the mechanism by which post-GOAWAY HEADERS
+    /// are dropped without bumping internal counters.
+    pub(super) fn try_set(&mut self, id: StreamId) -> Result<Option<()>, Error> {
+        match self {
+            Self::Saturated(_) => Ok(None),
+            Self::Incrementable(last_id) if !id.is_client_initiated() || id <= *last_id => {
+                Err(Error::GoAway(Reason::PROTOCOL_ERROR))
+            }
+            Self::Incrementable(last_id) => {
+                *last_id = id;
+                Ok(Some(()))
+            }
+        }
+    }
+
+    /// try transit into Saturated state. Returns Some(last_stream_id) when succeeded
+    pub(super) fn try_set_saturate(&mut self) -> Option<StreamId> {
+        match *self {
+            Self::Incrementable(id) => {
+                let _ = mem::replace(self, LastStreamId::Saturated(id));
+                Some(id)
+            }
+            _ => None,
+        }
+    }
+}
+
 pub(super) struct FlowControl {
     /// Number of currently open streams (RFC 7540 §5.1.2).
     open_streams: usize,
@@ -398,6 +459,13 @@ pub(super) struct FlowControl {
     /// Stays near zero for well-behaved clients; climbs toward
     /// PREMATURE_RESET_LIMIT only when resets consistently outpace completions.
     premature_reset_count: usize,
+    /// Highest accepted client stream id, with explicit lifecycle: while
+    /// `Incrementable` it advances on each new HEADERS; once GOAWAY is
+    /// queued it transitions to `Saturated` and is frozen, which both
+    /// causes new-stream HEADERS to be silently dropped (RFC 7540 §6.8)
+    /// and signals the dispatcher's main loop that the graceful drain
+    /// can terminate when the in-flight queue empties.
+    pub(super) last_stream_id: LastStreamId,
 }
 
 /// The peer's remote settings and their ACK state.
@@ -437,6 +505,41 @@ impl RemoteSettings {
 }
 
 impl FlowControl {
+    fn insert_stream(&mut self, id: StreamId, is_end_stream: bool, content_length: SizeHint) {
+        let (flag, window) = if is_end_stream {
+            (StreamState::RECV_CLOSED, 0)
+        } else {
+            (StreamState::OPEN, settings::DEFAULT_INITIAL_WINDOW_SIZE as usize)
+        };
+
+        let state = StreamState {
+            recv_state: RecvState {
+                queue: Deque::new(),
+                waker: None,
+                window,
+                error: None,
+                content_length,
+            },
+            send_state: SendState {
+                window: self.stream_window,
+                frame_size: self.max_frame_size,
+                waker: None,
+            },
+            flag,
+        };
+
+        self.open_streams += 1;
+        self.stream_map.insert(id, state);
+    }
+
+    fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
+        if id > self.last_stream_id.get() {
+            Err(Error::GoAway(Reason::PROTOCOL_ERROR))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Close both sides of a stream. Shortcut for calling `remove_recv` +
     /// `remove_send` together on unrecoverable protocol errors.
     fn remove_stream(&mut self, id: StreamId) {
@@ -477,10 +580,11 @@ impl FlowControl {
     ///   - `Ok(Some(state))` — stream is active
     ///   - `Ok(None)`        — stream was previously open but is now closed; caller decides how to respond
     ///   - `Err`             — stream is idle (never opened); always a connection error PROTOCOL_ERROR
-    fn get_stream_mut(&mut self, id: StreamId, last_stream_id: StreamId) -> Result<Option<&mut StreamState>, Error> {
+    fn get_stream_mut(&mut self, id: StreamId) -> Result<Option<&mut StreamState>, Error> {
+        let last = self.last_stream_id.get();
         match self.stream_map.get_mut(&id) {
             Some(state) => Ok(Some(state)),
-            None if id > last_stream_id => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            None if id > last => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
             None => Ok(None),
         }
     }
@@ -563,7 +667,7 @@ pub(super) struct WriterQueue {
 
 /// All per-connection mutable state, shared between the read path, write path,
 /// and any live `RequestBody` handles via a single `Rc<RefCell<…>>`.
-pub(super) struct ConnectionInner {
+pub(super) struct ConnectionState {
     pub(super) flow: FlowControl,
     pub(super) queue: WriterQueue,
     /// Shared slab backing all per-stream recv frame deques, avoiding
@@ -571,7 +675,55 @@ pub(super) struct ConnectionInner {
     pub(super) frame_buf: FrameBuffer,
 }
 
-pub(super) type Shared = Rc<RefCell<ConnectionInner>>;
+impl ConnectionState {
+    fn on_data_payload(&mut self, id: StreamId, payload: Bytes) -> Result<(), Error> {
+        let payload_len = payload.len();
+
+        if payload_len > self.flow.recv_connection_window {
+            return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
+        }
+
+        self.flow.recv_connection_window -= payload_len;
+
+        // Three cases (RFC 7540 §5.1 / §6.1):
+        //   body_tx open  → active stream; forward payload, restore window on success.
+        //   body_tx closed → half-closed (remote); DATA after END_STREAM → STREAM_CLOSED.
+        //   Ok(None)       → fully closed stream → STREAM_CLOSED.
+        // For the error cases the window is restored via the Reset handler in try_decode.
+        let reason = match self.flow.get_stream_mut(id)? {
+            Some(state) if !state.recv_closed() => {
+                // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
+                let reason = if let Err(err) = state.recv_state.content_length.dec(payload_len) {
+                    state.try_set_err(err);
+                    Reason::PROTOCOL_ERROR
+                } else if payload_len > state.recv_state.window {
+                    state.try_set_err(io::Error::new(io::ErrorKind::InvalidData, "flow control error"));
+                    Reason::FLOW_CONTROL_ERROR
+                } else {
+                    state.recv_state.window -= payload_len;
+                    // Service may have dropped RequestBody early (RECV_CANCELED).
+                    // Still track content-length above, but discard the payload.
+                    state.try_push_frame(&mut self.frame_buf, &mut self.queue, Frame::Data(payload));
+                    return Ok(());
+                };
+
+                self.flow.remove_stream(id);
+
+                reason
+            }
+            // RECV_CLOSED: half-closed (remote); any further DATA is STREAM_CLOSED.
+            // stream not in map: fully closed; same error.
+            _ => Reason::STREAM_CLOSED,
+        };
+
+        // Replenish connection-level window for the rejected DATA payload; the
+        // bytes were already subtracted above and the stream is being reset.
+        self.queue.push_window_update(payload_len);
+        Err(Error::Reset(id, reason))
+    }
+}
+
+pub(super) type Shared = Rc<RefCell<ConnectionState>>;
 
 impl WriterQueue {
     fn new() -> Self {
@@ -666,75 +818,15 @@ impl WriterQueue {
 type Decoded = (Request<RequestExt<RequestBody>>, StreamId);
 
 impl<'a, S> DecodeContext<'a, S> {
-    fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
-        if id > self.last_stream_id {
-            Err(Error::GoAway(Reason::PROTOCOL_ERROR))
-        } else {
-            Ok(())
-        }
-    }
-
     /// Handle a stream-level error: queue RST_STREAM and replenish any
     /// connection window bytes consumed by the offending frame.
     /// Returns `Err(GoAway)` if the client has triggered too many resets.
-    fn handle_stream_reset(&self, id: StreamId, reason: Reason, window: Option<usize>) -> Result<(), Error> {
+    fn handle_stream_reset(&self, id: StreamId, reason: Reason) -> Result<(), Error> {
         let mut inner = self.ctx.borrow_mut();
-        let tx = &mut inner.queue;
-        if tx.push_client_reset(id, reason) {
+        if inner.queue.push_client_reset(id, reason) {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
-        if let Some(size) = window {
-            tx.push_window_update(size);
-        }
         Ok(())
-    }
-
-    fn on_data_payload(&self, id: StreamId, payload: Bytes) -> Result<(), Error> {
-        let payload_len = payload.len();
-        let mut inner = self.ctx.borrow_mut();
-        let ci = &mut *inner; // deref once to enable split borrows on ConnectionInner fields
-
-        if payload_len > ci.flow.recv_connection_window {
-            return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
-        }
-        ci.flow.recv_connection_window -= payload_len;
-
-        // Three cases (RFC 7540 §5.1 / §6.1):
-        //   body_tx open  → active stream; forward payload, restore window on success.
-        //   body_tx closed → half-closed (remote); DATA after END_STREAM → STREAM_CLOSED.
-        //   Ok(None)       → fully closed stream → STREAM_CLOSED.
-        // For the error cases the window is restored via the Reset handler in try_decode.
-        let reason = match ci.flow.get_stream_mut(id, self.last_stream_id)? {
-            Some(state) if !state.recv_closed() => {
-                // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
-                let reason = if let Err(err) = state.recv_state.content_length.dec(payload_len) {
-                    state.try_set_err(err);
-                    Reason::PROTOCOL_ERROR
-                } else if payload_len > state.recv_state.window {
-                    state.try_set_err(io::Error::new(io::ErrorKind::InvalidData, "flow control error"));
-                    Reason::FLOW_CONTROL_ERROR
-                } else {
-                    state.recv_state.window -= payload_len;
-                    // Service may have dropped RequestBody early (RECV_CANCELED).
-                    // Still track content-length above, but discard the payload.
-                    if !state.try_push_frame(&mut ci.frame_buf, Frame::Data(payload)) {
-                        // Data discarded (RECV_CANCELED): replenish connection
-                        // window so other streams don't stall.
-                        ci.queue.push_window_update(payload_len);
-                    }
-                    return Ok(());
-                };
-
-                ci.flow.remove_stream(id);
-
-                reason
-            }
-            // RECV_CLOSED: half-closed (remote); any further DATA is STREAM_CLOSED.
-            // stream not in map: fully closed; same error.
-            _ => Reason::STREAM_CLOSED,
-        };
-
-        Err(Error::Reset(id, reason, Some(payload_len)))
     }
 
     fn new(
@@ -747,7 +839,6 @@ impl<'a, S> DecodeContext<'a, S> {
         Self {
             max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
             max_concurrent_streams,
-            last_stream_id: StreamId::zero(),
             decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
             next_frame_len: 0,
             continuation: None,
@@ -763,7 +854,7 @@ impl<'a, S> DecodeContext<'a, S> {
             match self.try_decode(&mut buf.buf) {
                 Ok(Some(res)) => on_msg(self, res),
                 Ok(None) => return Ok(()),
-                Err(Error::Reset(id, reason, window)) => match self.handle_stream_reset(id, reason, window) {
+                Err(Error::Reset(id, reason)) => match self.handle_stream_reset(id, reason) {
                     Ok(()) => {}
                     Err(Error::GoAway(reason)) => break reason,
                     Err(_) => unreachable!(),
@@ -807,20 +898,24 @@ impl<'a, S> DecodeContext<'a, S> {
         }
     }
 
-    /// Queue a GOAWAY frame with the given reason, close the write queue,
-    /// and return the appropriate `ShutDown` variant.
+    /// Queue a GOAWAY frame with the given reason and close the write
+    /// queue. Idempotent: subsequent calls (e.g. from a peer GOAWAY
+    /// arriving after we already initiated shutdown, or from a critical
+    /// error escalating an in-progress graceful drain) only update local
+    /// state and do not emit a second GOAWAY frame on the wire.
+    ///
+    /// Always returns `ShutDown::DrainWrite`. Non-critical (`NO_ERROR`)
+    /// shutdowns do not propagate through this path — see the GOAWAY
+    /// frame handler in `decode_frame`, which calls this for side
+    /// effects only and returns `Ok(None)` to keep the decode loop
+    /// running until in-flight streams drain naturally.
     fn go_away(&self, reason: Reason) -> ShutDown {
         let mut inner = self.ctx.borrow_mut();
-        inner.queue.push(Message::GoAway {
-            last_stream_id: self.last_stream_id,
-            reason,
-        });
-        inner.queue.close();
-        if reason == Reason::NO_ERROR {
-            ShutDown::Graceful
-        } else {
-            ShutDown::DrainWrite
+        if let Some(last_stream_id) = inner.flow.last_stream_id.try_set_saturate() {
+            inner.queue.push(Message::GoAway { last_stream_id, reason });
+            inner.queue.close();
         }
+        ShutDown::DrainWrite
     }
 
     fn decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
@@ -841,30 +936,31 @@ impl<'a, S> DecodeContext<'a, S> {
                 let id = data.stream_id();
                 let payload = data.into_payload();
 
-                self.check_not_idle(id)?;
+                let mut inner = self.ctx.borrow_mut();
+
+                inner.flow.check_not_idle(id)?;
+
                 // A zero-length DATA frame without END_STREAM carries no
                 // payload and signals nothing — it has no legitimate purpose.
                 // The only valid use of empty DATA is to set END_STREAM on a
                 // stream with no body (RFC 7540 §6.1).
 
                 if payload.is_empty() && !is_end {
-                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
                 }
 
                 if !payload.is_empty() {
-                    self.on_data_payload(id, payload)?;
+                    inner.on_data_payload(id, payload)?;
                 }
 
                 if is_end {
-                    let mut inner = self.ctx.borrow_mut();
                     let flow = &mut inner.flow;
                     if let Some(state) = flow.stream_map.get_mut(&id) {
                         // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
                         if let Err(err) = state.recv_state.content_length.ensure_zero() {
                             state.try_set_err(err);
                             flow.remove_stream(id);
-                            drop(inner);
-                            return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+                            return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
                         }
                     }
                     flow.remove_recv(id);
@@ -873,17 +969,16 @@ impl<'a, S> DecodeContext<'a, S> {
             (head::Kind::WindowUpdate, _) => {
                 let window = WindowUpdate::load(head, frame.as_ref())?;
 
+                let flow = &mut self.ctx.borrow_mut().flow;
                 match (window.size_increment(), window.stream_id()) {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
-                        self.check_not_idle(id)?;
-                        self.ctx.borrow_mut().flow.remove_stream(id);
-                        return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
+                        flow.check_not_idle(id)?;
+                        flow.remove_stream(id);
+                        return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
                     }
                     (incr, StreamId::ZERO) => {
                         let incr = incr as usize;
-                        let mut inner = self.ctx.borrow_mut();
-                        let flow = &mut inner.flow;
 
                         if flow.send_connection_window + incr > settings::MAX_INITIAL_WINDOW_SIZE {
                             return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
@@ -900,14 +995,12 @@ impl<'a, S> DecodeContext<'a, S> {
                     }
                     (incr, id) => {
                         let incr = incr as i64;
-                        let mut inner = self.ctx.borrow_mut();
-                        let flow = &mut inner.flow;
                         let window = flow.send_connection_window;
-                        if let Some(state) = flow.get_stream_mut(id, self.last_stream_id)? {
+                        if let Some(state) = flow.get_stream_mut(id)? {
                             let sf = &mut state.send_state;
                             if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
                                 flow.remove_stream(id);
-                                return Err(Error::Reset(id, Reason::FLOW_CONTROL_ERROR, None));
+                                return Err(Error::Reset(id, Reason::FLOW_CONTROL_ERROR));
                             } else {
                                 sf.window += incr;
                                 if window > 0 {
@@ -935,12 +1028,13 @@ impl<'a, S> DecodeContext<'a, S> {
                 if id.is_zero() {
                     return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
                 }
-                self.check_not_idle(id)?;
-                self.ctx.borrow_mut().flow.try_reset_stream(id)?;
+                let mut inner = self.ctx.borrow_mut();
+                inner.flow.check_not_idle(id)?;
+                inner.flow.try_reset_stream(id)?;
             }
             (head::Kind::GoAway, _) => {
-                // The peer is shutting down. Always respond with graceful
-                // close regardless of the error code — RFC 7540 §7 says
+                // The peer is shutting down. Always treat it as a graceful
+                // shutdown regardless of the error code — RFC 7540 §7 says
                 // unknown error codes MUST NOT trigger special behavior.
                 let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
                 if go_away.reason() != Reason::NO_ERROR {
@@ -950,7 +1044,16 @@ impl<'a, S> DecodeContext<'a, S> {
                         go_away.last_stream_id(),
                     );
                 }
-                return Err(Error::GoAway(Reason::NO_ERROR));
+                // Mirror the peer's intent: queue our own GOAWAY and mark
+                // `flow.goaway_sent` so the dispatcher's main loop can
+                // terminate the graceful drain once all in-flight streams
+                // complete. RFC 7540 §6.8 explicitly allows the peer to
+                // keep sending frames (DATA, WINDOW_UPDATE, RST_STREAM,
+                // trailers) for streams that were already in flight at
+                // the time the GOAWAY was sent, so we deliberately do not
+                // bail out of the decode loop — subsequent frames in the
+                // same buffer must still be processed.
+                self.go_away(Reason::NO_ERROR);
             }
             (head::Kind::Priority, _) => handle_priority(head.stream_id(), &frame)?,
             (head::Kind::PushPromise, _) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
@@ -1040,8 +1143,8 @@ impl<'a, S> DecodeContext<'a, S> {
                 // The HPACK context was decoded successfully so no compression error.
                 Error::MalformedMessage => {
                     let id = headers.stream_id();
-                    self.last_stream_id = id;
-                    Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None))
+                    let _ = self.ctx.borrow_mut().flow.last_stream_id.try_set(id);
+                    Err(Error::Reset(id, Reason::PROTOCOL_ERROR))
                 }
                 _ => Err(Error::GoAway(Reason::COMPRESSION_ERROR)),
             };
@@ -1061,66 +1164,57 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let (pseudo, headers) = headers.into_parts();
 
-        {
-            let mut inner = self.ctx.borrow_mut();
-            let ci = &mut *inner;
-            if let Some(state) = ci.flow.stream_map.get_mut(&id) {
-                // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
-                if !is_end_stream {
-                    ci.flow.remove_recv(id);
-                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
-                }
-                if state.recv_closed() {
-                    return Err(Error::Reset(id, Reason::STREAM_CLOSED, None));
-                }
-                // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-                if let Err(err) = state.recv_state.content_length.ensure_zero() {
-                    state.try_set_err(err);
-                    ci.flow.remove_stream(id);
-                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
-                }
-                state.try_push_frame(&mut ci.frame_buf, Frame::Trailers(headers));
-                ci.flow.remove_recv(id);
-                return Ok(None);
-            }
-        }
-
-        if !id.is_client_initiated() || id <= self.last_stream_id {
-            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
-        }
-
-        let Some(method) = pseudo.method else {
-            // :method is required; stream was seen so last_stream_id must be updated.
-            self.last_stream_id = id;
-            return Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None));
-        };
-
         let mut inner = self.ctx.borrow_mut();
-        let flow = &mut inner.flow;
+        let ci = &mut *inner;
+
+        if ci.flow.last_stream_id.get() >= id
+            && let Some(state) = ci.flow.stream_map.get_mut(&id)
+        {
+            // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
+            if !is_end_stream {
+                state.try_set_err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "trailer HEADERS without END_STREAM",
+                ));
+                ci.flow.remove_stream(id);
+                return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+            }
+            if state.recv_closed() {
+                return Err(Error::Reset(id, Reason::STREAM_CLOSED));
+            }
+            // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
+            if let Err(err) = state.recv_state.content_length.ensure_zero() {
+                state.try_set_err(err);
+                ci.flow.remove_stream(id);
+                return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+            }
+            state.try_push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers));
+            ci.flow.remove_recv(id);
+            return Ok(None);
+        }
 
         // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
         // Do NOT update last_stream_id: REFUSED_STREAM means no application
         // processing occurred and the client should retry (RFC 7540 §8.1.4).
-        if flow.open_streams >= self.max_concurrent_streams {
-            return Err(Error::Reset(id, Reason::REFUSED_STREAM, None));
+        if ci.flow.open_streams >= self.max_concurrent_streams {
+            return Err(Error::Reset(id, Reason::REFUSED_STREAM));
         }
+
+        // last stream id is already saturated. throw away the header frame and keep going
+        if ci.flow.last_stream_id.try_set(id)?.is_none() {
+            return Ok(None);
+        };
 
         // RFC 7540 §8.1.2.6: parse content-length before headers are moved into the request.
         // Only meaningful when there will be DATA frames (not end_stream).
         // Malformed content-length → RST_STREAM PROTOCOL_ERROR per §8.1.2.6.
-        let content_length = BodySize::from_header(&headers, is_end_stream)
-            .map_err(|_| Error::Reset(id, Reason::PROTOCOL_ERROR, None))?;
+        let content_length =
+            BodySize::from_header(&headers, is_end_stream).map_err(|_| Error::Reset(id, Reason::PROTOCOL_ERROR))?;
 
-        // Initialize send_flow at stream creation so any WINDOW_UPDATE that
-        // arrives before response_task starts its body loop is not lost.
-        let sf = SendState {
-            window: flow.stream_window,
-            frame_size: flow.max_frame_size,
-            waker: None,
-        };
-
-        self.last_stream_id = id;
-        flow.open_streams += 1;
+        // :method is required; stream was seen so the boundary must
+        // advance (no-op once saturated, but the saturation gate
+        // above already returned in that case).
+        let method = pseudo.method.ok_or_else(|| Error::Reset(id, Reason::PROTOCOL_ERROR))?;
 
         let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
         let ext = Extension::with_protocol(self.addr, protocol);
@@ -1161,32 +1255,7 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let body = RequestBody::new(id, content_length, Rc::clone(self.ctx));
 
-        let flag = if is_end_stream {
-            StreamState::RECV_CLOSED
-        } else {
-            StreamState::OPEN
-        };
-
-        flow.stream_map.insert(
-            id,
-            StreamState {
-                recv_state: RecvState {
-                    queue: Deque::new(),
-                    waker: None,
-                    window: if is_end_stream {
-                        0
-                    } else {
-                        settings::DEFAULT_INITIAL_WINDOW_SIZE as usize
-                    },
-                    error: None,
-                    content_length,
-                },
-                send_state: sf,
-                flag,
-            },
-        );
-
-        drop(inner);
+        ci.flow.insert_stream(id, is_end_stream, content_length);
 
         let req = req.map(|ext| ext.map_body(|_| body));
 
@@ -1561,7 +1630,7 @@ where
     let max_frame_size = settings.max_frame_size().unwrap_or(settings::DEFAULT_MAX_FRAME_SIZE);
     let max_concurrent_streams = settings.max_concurrent_streams().unwrap_or(u32::MAX) as usize;
 
-    let shared = Rc::new(RefCell::new(ConnectionInner {
+    let shared = Rc::new(RefCell::new(ConnectionState {
         flow: FlowControl {
             open_streams: 0,
             // Send windows start at RFC 7540 §6.9.2 default (65535) until the
@@ -1572,6 +1641,7 @@ where
             recv_connection_window: recv_initial_window_size as usize,
             stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
             premature_reset_count: 0,
+            last_stream_id: LastStreamId::Incrementable(StreamId::ZERO),
         },
         queue: WriterQueue::new(),
         frame_buf: FrameBuffer::new(),
@@ -1607,6 +1677,16 @@ where
                 .as_mut()
                 .select(async {
                     loop {
+                        // Once a GOAWAY has been queued (either initiated
+                        // locally or mirrored from the peer at L955), the
+                        // graceful drain completes the moment there are
+                        // no more in-flight response tasks. Returning here
+                        // breaks the main loop into the write-only drain
+                        // path with empty stream/queue state, so the
+                        // subsequent fault/clear is a no-op.
+                        if queue.is_empty() && shared.borrow().flow.last_stream_id.is_saturated() {
+                            return;
+                        }
                         let _ = queue.next().await;
                     }
                 })
@@ -1630,7 +1710,10 @@ where
 
                     read_task.set(read_io(read_buf, &io));
                 }
-                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => {}
+                // The inner future returns only when the graceful drain is
+                // complete (queue empty and a GOAWAY has been sent). Falls
+                // through to the write-only drain path with empty state.
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break ShutDown::DrainWrite,
                 SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
                 SelectOutput::B(Ok(_)) => {}
                 SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
@@ -1659,7 +1742,6 @@ where
 
                     read_res = res;
                 }
-                ShutDown::Graceful => {}
                 ShutDown::DrainWrite => queue.clear(),
             }
 
@@ -1685,7 +1767,6 @@ where
 
 enum ShutDown {
     ReadClosed(io::Result<()>),
-    Graceful,
     WriteClosed(io::Result<()>),
     Timeout(io::Error),
     DrainWrite,
@@ -1700,9 +1781,9 @@ fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), Error> {
     if id.is_zero() {
         Err(Error::GoAway(Reason::PROTOCOL_ERROR))
     } else if payload.len() != 5 {
-        Err(Error::Reset(id, Reason::FRAME_SIZE_ERROR, None))
+        Err(Error::Reset(id, Reason::FRAME_SIZE_ERROR))
     } else if id == StreamId::parse(&payload[..4]).0 {
-        Err(Error::Reset(id, Reason::PROTOCOL_ERROR, None))
+        Err(Error::Reset(id, Reason::PROTOCOL_ERROR))
     } else {
         Ok(())
     }

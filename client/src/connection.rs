@@ -34,7 +34,7 @@ impl From<crate::h3::Connection> for ConnectionShared {
 #[doc(hidden)]
 #[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub enum ConnectionKey {
-    Regular(Authority),
+    Regular { authority: Authority, is_tls: bool },
     Unix(AuthorityWithPath),
 }
 
@@ -61,7 +61,14 @@ impl Hash for AuthorityWithPath {
 impl From<&Uri<'_>> for ConnectionKey {
     fn from(uri: &Uri<'_>) -> Self {
         match *uri {
-            Uri::Tcp(uri) | Uri::Tls(uri) => ConnectionKey::Regular(uri.authority().unwrap().clone()),
+            Uri::Tcp(uri) => ConnectionKey::Regular {
+                authority: uri.authority().unwrap().clone(),
+                is_tls: false,
+            },
+            Uri::Tls(uri) => ConnectionKey::Regular {
+                authority: uri.authority().unwrap().clone(),
+                is_tls: true,
+            },
             Uri::Unix(uri) => ConnectionKey::Unix(AuthorityWithPath {
                 authority: uri.authority().unwrap().clone(),
                 path_and_query: uri.path_and_query().unwrap().clone(),

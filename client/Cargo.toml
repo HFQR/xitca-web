@@ -15,7 +15,7 @@ http1 = ["httparse", "xitca-http/http1"]
 # http/2 client(tls enabled by default. see `dangerous` feature for clear text http/2)
 http2 = ["h2", "itoa", "xitca-http/http2"]
 # http/3 client(tls always enabled with rustls)
-http3 = ["h3", "h3-quinn", "quinn", "itoa", "async-stream", "rustls-ring-crypto"]
+http3 = ["h3", "h3-quinn", "quinn", "itoa", "rustls-ring-crypto"]
 # openssl as http/1 and http/2 tls handler
 openssl = ["xitca-tls/openssl-poll"]
 # rustls as http/1 and http/2 tls handler
@@ -30,11 +30,11 @@ json = ["serde", "serde_json"]
 websocket = ["http-ws"]
 # grpc support
 grpc = ["compress", "dep:http-grpc-rs", "dep:prost", "http-grpc-rs/compress-gz", "http-grpc-rs/compress-br", "http-grpc-rs/compress-de", "http-grpc-rs/compress-zs"]
+# mulipart support
+multipart = ["dep:http-multipart"]
 # feature for trusted local network:
 # - http/2 clear text over plain tcp connection
 # - http/3 connection to server with self signed certificates
-# mulipart support
-multipart = ["dep:http-multipart"]
 dangerous = []
 
 [dependencies]
@@ -58,7 +58,6 @@ h2 = { version = "0.4", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
 quinn = { version = "0.11", features = ["ring"], optional = true }
-async-stream = { version = "0.3", optional = true }
 
 # http/2 and http/3 shared
 itoa = { version = "1", optional = true }
@@ -86,7 +85,7 @@ prost = { version = "0.14", optional =true }
 http-ws = { workspace = true, features = ["stream"], optional = true }
 
 # multipart
-http-multipart = { version = "0.1.2", optional = true }
+http-multipart = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = "0.3"

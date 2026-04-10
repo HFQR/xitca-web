@@ -199,7 +199,24 @@ impl<'a, M> RequestBuilder<'a, M> {
 
     /// Set HTTP version of this request.
     ///
-    /// By default request's HTTP version depends on network stream
+    /// # Default
+    /// When this method is not called the version is chosen from the request URI scheme:
+    /// - `https://` / `wss://`: the highest version the enabled crate features allow.
+    ///   The final wire protocol is picked by TLS ALPN (or QUIC for HTTP/3), so the server
+    ///   can negotiate down to HTTP/1.1 transparently.
+    /// - `http://` / `ws://` / `unix://`: HTTP/1.1. HTTP/2 over plaintext is opt-in (see
+    ///   below). HTTP/3 is never chosen for plaintext since it requires QUIC.
+    ///
+    /// # HTTP/2 over plaintext (h2c)
+    /// Calling `.version(Version::HTTP_2)` on a plaintext request (e.g. an `http://` URI)
+    /// opts into HTTP/2 prior-knowledge: the client writes the HTTP/2 connection preface
+    /// directly on the TCP socket. If the origin does not speak HTTP/2 the handshake fails
+    /// and the request is transparently retried over HTTP/1.1 on a fresh connection — one
+    /// extra TCP round trip is spent on the failed probe. Successful h2c connections are
+    /// cached in the shared pool and multiplexed across subsequent requests, so the cost
+    /// is paid at most once per pool miss.
+    ///
+    /// This is also the path used by the gRPC helpers on plaintext origins.
     ///
     /// # Panic
     /// - when received a version beyond the range crate is able to handle.

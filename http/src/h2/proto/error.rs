@@ -9,9 +9,8 @@ pub enum Error {
     GoAway(Reason),
     Hpack(DecoderError),
     /// Stream-level error: send RST_STREAM(reason) to the peer. Does not close
-    /// the connection. If the third field is `Some(n)`, also send a connection-level
-    /// WINDOW_UPDATE(n) to replenish bytes consumed by a discarded DATA payload.
-    Reset(StreamId, Reason, Option<usize>),
+    /// the connection.
+    Reset(StreamId, Reason),
 }
 
 impl From<DecoderError> for Error {
