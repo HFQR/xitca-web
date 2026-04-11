@@ -428,11 +428,11 @@ async fn establish(
 
 impl ExclusiveLeaseInner for exclusive::Conn<ConnectionKey, ConnectionExclusive> {
     fn get(&self) -> &ConnectionExclusive {
-        &**self
+        self
     }
 
     fn get_mut(&mut self) -> &mut ConnectionExclusive {
-        &mut **self
+        self
     }
 
     fn mark_destroy(&mut self) {

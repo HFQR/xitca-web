@@ -40,8 +40,10 @@ jobs:
 
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
-      run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-http"
+      shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+      env:
+        RUSTUP_TOOLCHAIN: ${{ matrix.version }}
+      run: cargo ci-check-http
 
   check_web:
     strategy:
@@ -76,8 +78,10 @@ jobs:
 
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
-      run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-web"
+      shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+      env:
+        RUSTUP_TOOLCHAIN: ${{ matrix.version }}
+      run: cargo ci-check-web
 
   check_client:
     strategy:
@@ -112,8 +116,10 @@ jobs:
 
     - name: check-linux
       if: matrix.target.os == 'ubuntu-latest'
-      run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-client"
+      shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+      env:
+        RUSTUP_TOOLCHAIN: ${{ matrix.version }}
+      run: cargo ci-check-client
 
   check_other:
     strategy:
@@ -149,8 +155,10 @@ jobs:
 
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
-        run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-other"
+        shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+        env:
+          RUSTUP_TOOLCHAIN: ${{ matrix.version }}
+        run: cargo ci-check-other
 
   test_linux:
     strategy:
@@ -194,13 +202,17 @@ jobs:
 
     - name: test-linux-other
       if: matrix.target.os == 'ubuntu-latest'
-      run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-other"  
+      shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+      env:
+        RUSTUP_TOOLCHAIN: ${{ matrix.version }}
+      run: cargo ci-test-other
 
     - name: test-linux-test
       if: matrix.target.os == 'ubuntu-latest'
-      run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-test-test"  
+      shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+      env:
+        RUSTUP_TOOLCHAIN: ${{ matrix.version }}
+      run: cargo ci-test-test
 
   h2spec:
     name: h2spec conformance @ Linux
@@ -228,8 +240,10 @@ jobs:
           | tar xz -C /usr/local/bin
 
     - name: Run h2spec conformance
-      run: |
-        sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin:/usr/local/bin && RUSTUP_TOOLCHAIN=nightly cargo ci-test-h2spec"
+      shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+      env:
+        RUSTUP_TOOLCHAIN: nightly
+      run: cargo ci-test-h2spec
 
   check_examples:
     strategy:
@@ -266,5 +280,8 @@ jobs:
 
       - name: check-linux
         if: matrix.target.os == 'ubuntu-latest'
-        run: |
-          sudo bash -c "ulimit -Sl 512 && ulimit -Hl 512 && PATH=$PATH:/home/runner/.cargo/bin && cd examples && RUSTUP_TOOLCHAIN=${{ matrix.version }} cargo ci-check-examples"
+        shell: 'sudo --preserve-env=PATH,RUSTUP_TOOLCHAIN bash -e -c "ulimit -Sl 512 && ulimit -Hl 512 && {0}"'
+        env:
+          RUSTUP_TOOLCHAIN: ${{ matrix.version }}
+        working-directory: examples
+        run: cargo ci-check-examples

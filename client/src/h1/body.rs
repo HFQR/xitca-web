@@ -73,10 +73,7 @@ impl Body for ResponseBody {
     }
 
     fn is_end_stream(&self) -> bool {
-        match self.decoder {
-            TransferCoding::Eof | TransferCoding::Corrupted => true,
-            _ => false,
-        }
+        matches!(self.decoder, TransferCoding::Eof | TransferCoding::Corrupted)
     }
 
     fn size_hint(&self) -> SizeHint {
