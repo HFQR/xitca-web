@@ -318,6 +318,52 @@ impl Client {
     }
 
     #[cfg(all(feature = "grpc", feature = "http2"))]
+    /// Start a new gRPC unary request.
+    ///
+    /// gRPC is always carried over HTTP/2; the returned request builder is pinned to
+    /// [`Version::HTTP_2`] regardless of the client's `max_http_version`. The request
+    /// is sent with a single [`prost::Message`] payload and the response body is
+    /// decoded into another `prost::Message` via [`Response::grpc`].
+    ///
+    /// [`Response::grpc`]: crate::response::Response::grpc
+    ///
+    /// # Example
+    /// ```no_run
+    /// use xitca_client::Client;
+    ///
+    /// // message types are normally generated from a .proto file by prost-build.
+    /// #[derive(Clone, PartialEq, prost::Message)]
+    /// struct HelloRequest {
+    ///     #[prost(string, tag = "1")]
+    ///     name: String,
+    /// }
+    ///
+    /// #[derive(Clone, PartialEq, prost::Message)]
+    /// struct HelloReply {
+    ///     #[prost(string, tag = "1")]
+    ///     message: String,
+    /// }
+    ///
+    /// # async fn _main() -> Result<(), xitca_client::error::Error> {
+    /// let client = Client::new();
+    ///
+    /// // construct a unary gRPC request pointing at a fully qualified method path.
+    /// let req = client.grpc("http://localhost:50051/helloworld.Greeter/SayHello");
+    ///
+    /// // optionally pick a compression encoding for the outgoing message.
+    /// // let mut req = req;
+    /// // req.set_encoding(xitca_client::grpc::ContentEncoding::Gzip);
+    ///
+    /// // send the request with a single protobuf message and await the response.
+    /// let res = req.send(HelloRequest { name: "996".into() }).await?;
+    ///
+    /// // decode the response body into a protobuf message. trailers (including
+    /// // grpc-status / grpc-message) are returned alongside it.
+    /// let (reply, _trailers) = res.grpc::<HelloReply>().await?;
+    /// println!("{}", reply.message);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn grpc<U>(&self, url: U) -> crate::grpc::GrpcUnaryRequest<'_>
     where
         uri::Uri: TryFrom<U>,
@@ -328,6 +374,68 @@ impl Client {
     }
 
     #[cfg(all(feature = "grpc", feature = "http2"))]
+    /// Start a new streaming gRPC request.
+    ///
+    /// Unlike [`Client::grpc`], the returned request resolves to a [`Grpc`] tunnel that
+    /// implements both [`Sink`] (for sending request messages) and [`Stream`] (for
+    /// receiving response messages), and therefore supports client streaming, server
+    /// streaming and bidirectional streaming calls uniformly. The connection is always
+    /// HTTP/2.
+    ///
+    /// [`Grpc`]: crate::grpc::Grpc
+    /// [`Sink`]: futures::SinkExt
+    /// [`Stream`]: futures::StreamExt
+    ///
+    /// # Example
+    /// ```no_run
+    /// use xitca_client::Client;
+    ///
+    /// #[derive(Clone, PartialEq, prost::Message)]
+    /// struct HelloRequest {
+    ///     #[prost(string, tag = "1")]
+    ///     name: String,
+    /// }
+    ///
+    /// #[derive(Clone, PartialEq, prost::Message)]
+    /// struct HelloReply {
+    ///     #[prost(string, tag = "1")]
+    ///     message: String,
+    /// }
+    ///
+    /// # async fn _main() -> Result<(), xitca_client::error::Error> {
+    /// let client = Client::new();
+    ///
+    /// // open a bidirectional gRPC stream. the turbofish picks the protobuf type
+    /// // used by the receiving half; the sending half accepts any `prost::Message`.
+    /// let mut stream = client
+    ///     .grpc_stream("http://localhost:50051/helloworld.Greeter/SayHelloStream")
+    ///     .send::<HelloReply>()
+    ///     .await?;
+    ///
+    /// // send request messages with the Sink half.
+    /// use futures::SinkExt;
+    /// stream.send(HelloRequest { name: "996".into() }).await?;
+    ///
+    /// // receive response messages with the Stream half.
+    /// use futures::StreamExt;
+    /// while let Some(reply) = stream.next().await {
+    ///     let reply = reply?;
+    ///     println!("{}", reply.message);
+    /// }
+    ///
+    /// // split into independent send/receive halves for concurrent use.
+    /// let mut stream = client
+    ///     .grpc_stream("http://localhost:50051/helloworld.Greeter/SayHelloStream")
+    ///     .send::<HelloReply>()
+    ///     .await?;
+    /// let (mut tx, mut rx) = stream.split();
+    /// tx.send(HelloRequest { name: "icu".into() }).await?;
+    /// if let Some(Ok(reply)) = rx.next().await {
+    ///     println!("{}", reply.message);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn grpc_stream<U>(&self, url: U) -> crate::grpc::GrpcStreamRequest<'_>
     where
         uri::Uri: TryFrom<U>,
