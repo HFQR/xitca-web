@@ -1042,30 +1042,30 @@ impl<'a, S> DecodeContext<'a, S> {
         let mut inner = self.ctx.borrow_mut();
         let ci = &mut *inner;
 
-        if ci.flow.last_stream_id.get() >= id
-            && let Some(state) = ci.flow.stream_map.get_mut(&id)
-        {
-            // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
-            if !is_end_stream {
-                state.try_set_err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "trailer HEADERS without END_STREAM",
-                ));
-                ci.flow.remove_stream(id);
-                return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+        if ci.flow.last_stream_id.get() >= id {
+            if let Some(state) = ci.flow.stream_map.get_mut(&id) {
+                // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
+                if !is_end_stream {
+                    state.try_set_err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "trailer HEADERS without END_STREAM",
+                    ));
+                    ci.flow.remove_stream(id);
+                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+                }
+                if state.recv_closed() {
+                    return Err(Error::Reset(id, Reason::STREAM_CLOSED));
+                }
+                // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
+                if let Err(err) = state.recv_state.content_length.ensure_zero() {
+                    state.try_set_err(err);
+                    ci.flow.remove_stream(id);
+                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+                }
+                state.push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers));
+                ci.flow.remove_recv(id);
+                return Ok(None);
             }
-            if state.recv_closed() {
-                return Err(Error::Reset(id, Reason::STREAM_CLOSED));
-            }
-            // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-            if let Err(err) = state.recv_state.content_length.ensure_zero() {
-                state.try_set_err(err);
-                ci.flow.remove_stream(id);
-                return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
-            }
-            state.push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers));
-            ci.flow.remove_recv(id);
-            return Ok(None);
         }
 
         // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
