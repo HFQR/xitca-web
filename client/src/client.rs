@@ -8,12 +8,12 @@ use crate::{
     builder::ClientBuilder,
     bytes::Bytes,
     connect::Connect,
-    connection::{ConnectionExclusive, ConnectionKey, ConnectionShared},
+    connection::ConnectionExclusive,
     date::DateTimeService,
     error::{Error, ResolveError, TimeoutError},
     http::{self, Method, Version, uri},
     http_tunnel::HttpTunnelRequest,
-    pool,
+    pool::service::PoolService,
     request::RequestBuilder,
     resolver::ResolverService,
     service::HttpService,
@@ -27,8 +27,7 @@ use crate::{
 /// [Request]: crate::request::RequestBuilder
 /// [Response]: crate::response::Response
 pub struct Client {
-    pub(crate) exclusive_pool: pool::exclusive::Pool<ConnectionKey, ConnectionExclusive>,
-    pub(crate) shared_pool: pool::shared::Pool<ConnectionKey, ConnectionShared>,
+    pub(crate) pool: PoolService,
     pub(crate) connector: Connector,
     pub(crate) resolver: ResolverService,
     pub(crate) timeout_config: TimeoutConfig,

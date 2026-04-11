@@ -31,3 +31,6 @@ xitca-postgres = "0.4.0"
 xitca-server = "0.7.0"
 xitca-service = "0.3.0"
 xitca-web = "0.8.0"
+
+[patch.crates-io]
+xitca-http = { path = "../http" }

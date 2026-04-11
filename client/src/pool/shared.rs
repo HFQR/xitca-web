@@ -148,7 +148,11 @@ impl<K, C> Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
-    pub(crate) fn destroy_on_drop(&mut self) {
+    pub(crate) fn set_destroy_on_drop(&mut self) {
         self.destroy_on_drop = true;
+    }
+
+    pub(crate) fn is_destroy_on_drop(&self) -> bool {
+        self.destroy_on_drop
     }
 }

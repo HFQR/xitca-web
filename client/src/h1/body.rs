@@ -13,11 +13,10 @@ use xitca_io::io::Interest;
 
 use crate::{
     body::{Body, Frame, SizeHint},
-    connection::{ConnectionExclusive, ConnectionKey},
-    pool::exclusive::Conn,
+    pool::service::ExclusiveLease,
 };
 
-pub type Connection = Conn<ConnectionKey, ConnectionExclusive>;
+pub type Connection = ExclusiveLease;
 
 pub struct ResponseBody {
     conn: Connection,

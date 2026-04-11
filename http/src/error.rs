@@ -1,10 +1,6 @@
 //! error types.
 
-use std::{
-    convert::Infallible,
-    error::Error,
-    fmt::{self, Debug, Formatter},
-};
+use core::{convert::Infallible, error::Error, fmt};
 
 use tracing::error;
 
@@ -30,33 +26,33 @@ pub enum HttpServiceError<S, B> {
     H3(super::h3::Error<S, B>),
 }
 
-impl<S, B> Debug for HttpServiceError<S, B>
+impl<S, B> fmt::Debug for HttpServiceError<S, B>
 where
-    S: Debug,
-    B: Debug,
+    S: fmt::Debug,
+    B: fmt::Debug,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Ignored => write!(f, "Error detail is ignored."),
-            Self::Service(ref e) => Debug::fmt(e, f),
+            Self::Ignored => f.write_str("Error detail is ignored."),
+            Self::Service(ref e) => fmt::Debug::fmt(e, f),
             Self::Timeout(ref timeout) => write!(f, "{timeout:?} is timed out"),
             Self::UnSupportedVersion(ref protocol) => write!(f, "Protocol: {protocol:?} is not supported"),
-            Self::Body(ref e) => Debug::fmt(e, f),
-            Self::Tls(ref e) => Debug::fmt(e, f),
+            Self::Body(ref e) => fmt::Debug::fmt(e, f),
+            Self::Tls(ref e) => fmt::Debug::fmt(e, f),
             #[cfg(feature = "http1")]
-            Self::H1(ref e) => Debug::fmt(e, f),
+            Self::H1(ref e) => fmt::Debug::fmt(e, f),
             #[cfg(feature = "http2")]
-            Self::H2(ref e) => Debug::fmt(e, f),
+            Self::H2(ref e) => fmt::Debug::fmt(e, f),
             #[cfg(feature = "http3")]
-            Self::H3(ref e) => Debug::fmt(e, f),
+            Self::H3(ref e) => fmt::Debug::fmt(e, f),
         }
     }
 }
 
 impl<S, B> HttpServiceError<S, B>
 where
-    S: Debug,
-    B: Debug,
+    S: fmt::Debug,
+    B: fmt::Debug,
 {
     pub fn log(self, target: &str) {
         // TODO: add logging for different error types.

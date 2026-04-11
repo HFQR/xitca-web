@@ -38,7 +38,7 @@ mod client;
 mod connect;
 mod connection;
 mod date;
-mod pool;
+pub(crate) mod pool;
 mod request;
 mod resolver;
 mod response;
@@ -74,11 +74,16 @@ pub mod middleware;
 pub use self::builder::ClientBuilder;
 pub use self::client::Client;
 pub use self::connect::Connect;
+pub use self::connection::{ConnectionExclusive, ConnectionKey, ConnectionShared};
 pub use self::request::RequestBuilder;
 pub use self::response::Response;
 pub use self::service::{HttpService, Service, ServiceRequest};
 pub use self::timeout::TimeoutConfig;
 pub use self::tls::{TlsStream, connector::Connector};
+
+pub use self::pool::service::{
+    ExclusiveLease, ExclusiveLeaseInner, Lease, PoolRequest, PoolService, SharedLease, SharedLeaseInner,
+};
 
 // re-export http crate.
 pub use xitca_http::http;

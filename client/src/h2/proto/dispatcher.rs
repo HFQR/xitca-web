@@ -1,5 +1,7 @@
 use core::{cmp, future::poll_fn, pin::pin};
 
+use std::io;
+
 use ::h2::client;
 use xitca_http::{date::DateTime, http::header::CONTENT_TYPE};
 use xitca_io::io::{AsyncIo, PollIoAdapter};
@@ -107,7 +109,7 @@ where
 
                         let cap = poll_fn(|cx| stream.poll_capacity(cx))
                             .await
-                            .expect("No capacity left. http2 request is dropped")?;
+                            .ok_or_else(|| Error::Body(io::Error::from(io::ErrorKind::UnexpectedEof).into()))??;
 
                         // Split chuck to writeable size and send to client.
                         let bytes = chunk.split_to(cmp::min(cap, len));

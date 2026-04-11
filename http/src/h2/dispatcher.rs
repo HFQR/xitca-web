@@ -61,6 +61,7 @@ use super::{
         },
         hpack,
     },
+    util::Deque,
 };
 
 struct DecodeContext<'a, S> {
@@ -76,110 +77,7 @@ struct DecodeContext<'a, S> {
 }
 
 type Frame = crate::body::Frame<Bytes>;
-
-/// Shared slab-backed storage for frames across all streams, avoiding
-/// per-stream heap allocation. Mirrors `h2::proto::streams::buffer::Buffer`.
-pub(super) struct FrameBuffer {
-    entries: Vec<Slot>,
-    /// Head of the free list (indices of vacant slots), or `usize::MAX` if none.
-    next_free: usize,
-    len: usize,
-}
-
-struct Slot {
-    /// The frame value. Meaningless when the slot is vacant (on the free list).
-    value: Frame,
-    /// Next index in the linked list (occupied) or the free list (vacant).
-    /// `usize::MAX` means end-of-list.
-    next: usize,
-}
-
-/// A per-stream linked-list deque backed by a shared [`FrameBuffer`].
-/// Stores only head/tail indices — zero per-stream allocation.
-pub(super) struct Deque {
-    head: usize,
-    tail: usize,
-}
-
-const NONE: usize = usize::MAX;
-
-impl FrameBuffer {
-    fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-            next_free: NONE,
-            len: 0,
-        }
-    }
-
-    // fn is_empty(&self) -> bool {
-    //     self.len == 0
-    // }
-
-    /// Insert a value into the slab, returning its index.
-    fn insert(&mut self, value: Frame) -> usize {
-        self.len += 1;
-        if self.next_free != NONE {
-            let idx = self.next_free;
-            let slot = &mut self.entries[idx];
-            self.next_free = slot.next;
-            slot.value = value;
-            slot.next = NONE;
-            idx
-        } else {
-            let idx = self.entries.len();
-            self.entries.push(Slot { value, next: NONE });
-            idx
-        }
-    }
-
-    /// Remove a value by index, returning it and placing the slot on the free list.
-    fn remove(&mut self, idx: usize) -> Frame {
-        self.len -= 1;
-        let slot = &mut self.entries[idx];
-        slot.next = self.next_free;
-        self.next_free = idx;
-        mem::replace(&mut slot.value, Frame::Data(Bytes::new()))
-    }
-}
-
-impl Deque {
-    pub(super) fn new() -> Self {
-        Self { head: NONE, tail: NONE }
-    }
-
-    pub(super) fn is_empty(&self) -> bool {
-        self.head == NONE
-    }
-
-    pub(super) fn push_back(&mut self, buf: &mut FrameBuffer, value: Frame) {
-        let key = buf.insert(value);
-        if self.tail != NONE {
-            buf.entries[self.tail].next = key;
-            self.tail = key;
-        } else {
-            self.head = key;
-            self.tail = key;
-        }
-    }
-
-    pub(super) fn pop_front(&mut self, buf: &mut FrameBuffer) -> Option<Frame> {
-        if self.head == NONE {
-            return None;
-        }
-        let idx = self.head;
-        let next = buf.entries[idx].next;
-        if next == NONE {
-            self.tail = NONE;
-        }
-        self.head = next;
-        Some(buf.remove(idx))
-    }
-
-    pub(super) fn clear(&mut self, buf: &mut FrameBuffer) {
-        while self.pop_front(buf).is_some() {}
-    }
-}
+type FrameBuffer = super::util::FrameBuffer<Frame>;
 
 trait BodySize {
     /// Parse content-length from headers.
@@ -298,7 +196,7 @@ impl StreamState {
     /// already dropped `RequestBody` (RECV_CANCELED), DATA frames are discarded
     /// and their flow-control bytes are replenished on the connection window.
     /// Callers must ensure the recv side is not already closed.
-    fn try_push_frame(&mut self, buf: &mut FrameBuffer, queue: &mut WriterQueue, frame: Frame) {
+    fn push_frame(&mut self, buf: &mut FrameBuffer, queue: &mut WriterQueue, frame: Frame) {
         debug_assert!(!self.recv_closed(), "try_push_frame called on recv-closed stream");
         if !self.recv_canceled() {
             self.recv_state.queue.push_back(buf, frame);
@@ -576,19 +474,6 @@ impl FlowControl {
         }
     }
 
-    /// Look up a stream by ID, distinguishing three cases:
-    ///   - `Ok(Some(state))` — stream is active
-    ///   - `Ok(None)`        — stream was previously open but is now closed; caller decides how to respond
-    ///   - `Err`             — stream is idle (never opened); always a connection error PROTOCOL_ERROR
-    fn get_stream_mut(&mut self, id: StreamId) -> Result<Option<&mut StreamState>, Error> {
-        let last = self.last_stream_id.get();
-        match self.stream_map.get_mut(&id) {
-            Some(state) => Ok(Some(state)),
-            None if id > last => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-            None => Ok(None),
-        }
-    }
-
     /// Apply `delta` to every active send stream's window and wake any that
     /// now have a positive window. Use `delta = 0` to wake without changing
     /// windows (e.g. after a connection-level WINDOW_UPDATE).
@@ -676,8 +561,16 @@ pub(super) struct ConnectionState {
 }
 
 impl ConnectionState {
-    fn on_data_payload(&mut self, id: StreamId, payload: Bytes) -> Result<(), Error> {
+    fn handle_data(&mut self, id: StreamId, payload: Bytes, is_end: bool) -> Result<(), Error> {
         let payload_len = payload.len();
+
+        // A zero-length DATA frame without END_STREAM carries no
+        // payload and signals nothing — it has no legitimate purpose.
+        // The only valid use of empty DATA is to set END_STREAM on a
+        // stream with no body (RFC 7540 §6.1).
+        if payload_len == 0 && !is_end {
+            return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+        }
 
         if payload_len > self.flow.recv_connection_window {
             return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
@@ -690,7 +583,7 @@ impl ConnectionState {
         //   body_tx closed → half-closed (remote); DATA after END_STREAM → STREAM_CLOSED.
         //   Ok(None)       → fully closed stream → STREAM_CLOSED.
         // For the error cases the window is restored via the Reset handler in try_decode.
-        let reason = match self.flow.get_stream_mut(id)? {
+        let reason = match self.flow.stream_map.get_mut(&id) {
             Some(state) if !state.recv_closed() => {
                 // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
                 let reason = if let Err(err) = state.recv_state.content_length.dec(payload_len) {
@@ -701,10 +594,26 @@ impl ConnectionState {
                     Reason::FLOW_CONTROL_ERROR
                 } else {
                     state.recv_state.window -= payload_len;
+
                     // Service may have dropped RequestBody early (RECV_CANCELED).
                     // Still track content-length above, but discard the payload.
-                    state.try_push_frame(&mut self.frame_buf, &mut self.queue, Frame::Data(payload));
-                    return Ok(());
+                    state.push_frame(&mut self.frame_buf, &mut self.queue, Frame::Data(payload));
+
+                    if is_end {
+                        match state.recv_state.content_length.ensure_zero() {
+                            Ok(_) => {
+                                self.flow.remove_recv(id);
+                                return Ok(());
+                            }
+                            // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
+                            Err(err) => {
+                                state.try_set_err(err);
+                                Reason::PROTOCOL_ERROR
+                            }
+                        }
+                    } else {
+                        return Ok(());
+                    }
                 };
 
                 self.flow.remove_stream(id);
@@ -774,8 +683,6 @@ impl WriterQueue {
     /// last chunk with no intervening yield point, so the tail of the queue IS
     /// the last DATA frame for this stream in the vast majority of cases.
     /// The O(n) search and zero-length fallback handle the rare exceptions.
-    #[cold]
-    #[inline(never)]
     fn push_end_stream(&mut self, stream_id: StreamId) {
         for msg in self.messages.iter_mut().rev() {
             if let Message::Data(d) = msg {
@@ -788,12 +695,6 @@ impl WriterQueue {
 
         // Fallback: last DATA already consumed by writer. Send a zero-length
         // DATA frame with END_STREAM (9 bytes on the wire, no window cost).
-        self.push_end_stream_cold(stream_id);
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn push_end_stream_cold(&mut self, stream_id: StreamId) {
         self.push_data(stream_id, Bytes::new(), true);
     }
 
@@ -803,9 +704,8 @@ impl WriterQueue {
 
     fn poll_recv(&mut self) -> Poll<Option<Message>> {
         if let Some((stream_id, reason)) = self.resets.pop_front() {
-            return Poll::Ready(Some(Message::Reset { stream_id, reason }));
-        }
-        if let Some(msg) = self.messages.pop_front() {
+            Poll::Ready(Some(Message::Reset { stream_id, reason }))
+        } else if let Some(msg) = self.messages.pop_front() {
             Poll::Ready(Some(msg))
         } else if self.closed {
             Poll::Ready(None)
@@ -849,9 +749,9 @@ impl<'a, S> DecodeContext<'a, S> {
         }
     }
 
-    fn decode(&mut self, buf: &mut ReadBuf, mut on_msg: impl FnMut(&Self, Decoded)) -> Result<(), ShutDown> {
+    fn decode(&mut self, buf: &mut BytesMut, mut on_msg: impl FnMut(&Self, Decoded)) -> Result<(), ShutDown> {
         let reason = loop {
-            match self.try_decode(&mut buf.buf) {
+            match self.try_decode(buf) {
                 Ok(Some(res)) => on_msg(self, res),
                 Ok(None) => return Ok(()),
                 Err(Error::Reset(id, reason)) => match self.handle_stream_reset(id, reason) {
@@ -936,35 +836,9 @@ impl<'a, S> DecodeContext<'a, S> {
                 let id = data.stream_id();
                 let payload = data.into_payload();
 
-                let mut inner = self.ctx.borrow_mut();
-
-                inner.flow.check_not_idle(id)?;
-
-                // A zero-length DATA frame without END_STREAM carries no
-                // payload and signals nothing — it has no legitimate purpose.
-                // The only valid use of empty DATA is to set END_STREAM on a
-                // stream with no body (RFC 7540 §6.1).
-
-                if payload.is_empty() && !is_end {
-                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
-                }
-
-                if !payload.is_empty() {
-                    inner.on_data_payload(id, payload)?;
-                }
-
-                if is_end {
-                    let flow = &mut inner.flow;
-                    if let Some(state) = flow.stream_map.get_mut(&id) {
-                        // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-                        if let Err(err) = state.recv_state.content_length.ensure_zero() {
-                            state.try_set_err(err);
-                            flow.remove_stream(id);
-                            return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
-                        }
-                    }
-                    flow.remove_recv(id);
-                }
+                let mut state = self.ctx.borrow_mut();
+                state.flow.check_not_idle(id)?;
+                state.handle_data(id, payload, is_end)?;
             }
             (head::Kind::WindowUpdate, _) => {
                 let window = WindowUpdate::load(head, frame.as_ref())?;
@@ -994,9 +868,10 @@ impl<'a, S> DecodeContext<'a, S> {
                         }
                     }
                     (incr, id) => {
+                        flow.check_not_idle(id)?;
                         let incr = incr as i64;
                         let window = flow.send_connection_window;
-                        if let Some(state) = flow.get_stream_mut(id)? {
+                        if let Some(state) = flow.stream_map.get_mut(&id) {
                             let sf = &mut state.send_state;
                             if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
                                 flow.remove_stream(id);
@@ -1188,7 +1063,7 @@ impl<'a, S> DecodeContext<'a, S> {
                 ci.flow.remove_stream(id);
                 return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
             }
-            state.try_push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers));
+            state.push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers));
             ci.flow.remove_recv(id);
             return Ok(None);
         }
@@ -1214,7 +1089,7 @@ impl<'a, S> DecodeContext<'a, S> {
         // :method is required; stream was seen so the boundary must
         // advance (no-op once saturated, but the saturation gate
         // above already returned in that case).
-        let method = pseudo.method.ok_or_else(|| Error::Reset(id, Reason::PROTOCOL_ERROR))?;
+        let method = pseudo.method.ok_or(Error::Reset(id, Reason::PROTOCOL_ERROR))?;
 
         let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
         let ext = Extension::with_protocol(self.addr, protocol);
@@ -1263,32 +1138,16 @@ impl<'a, S> DecodeContext<'a, S> {
     }
 }
 
-/// Read buffer with a hard cap on accumulated unprocessed bytes.
-///
-/// `read_io` yields `Poll::Pending` without touching the socket when
-/// `buf.len() >= cap`, preventing unbounded ingest when the write side is
-/// stalled and frames cannot be drained fast enough.
-struct ReadBuf {
-    buf: BytesMut,
-    cap: usize,
-}
-
-async fn read_io(mut rbuf: ReadBuf, io: &impl AsyncBufRead) -> (io::Result<usize>, ReadBuf) {
-    if rbuf.buf.len() >= rbuf.cap {
+async fn read_io<const LIMIT: usize>(mut buf: BytesMut, io: &impl AsyncBufRead) -> (io::Result<usize>, BytesMut) {
+    if buf.len() >= LIMIT {
         // Unprocessed data has hit the cap. Yield without issuing a new read
         // until the caller drains the buffer and restarts the task.
         return core::future::pending().await;
     }
-    let len = rbuf.buf.len();
-    rbuf.buf.reserve(4096);
-    let (res, buf) = io.read(rbuf.buf.slice(len..)).await;
-    (
-        res,
-        ReadBuf {
-            buf: buf.into_inner(),
-            cap: rbuf.cap,
-        },
-    )
+    let len = buf.len();
+    buf.reserve(4096);
+    let (res, buf) = io.read(buf.slice(len..)).await;
+    (res, buf.into_inner())
 }
 
 async fn write_io(buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
@@ -1398,26 +1257,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
     ResB: Body<Data = Bytes, Error = ResBE>,
     ResBE: fmt::Debug,
 {
-    struct StreamGuard<'a> {
-        stream_id: StreamId,
-        ctx: &'a Shared,
-    }
-
-    impl Drop for StreamGuard<'_> {
-        fn drop(&mut self) {
-            let mut inner = self.ctx.borrow_mut();
-            let flow = &mut inner.flow;
-            flow.open_streams -= 1;
-            // Stream was still in the map: it completed normally (not evicted
-            // by RST_STREAM). Credit back one premature reset so well-behaved
-            // connections never accumulate toward the limit over time.
-            if flow.remove_send(self.stream_id) {
-                flow.premature_reset_count = flow.premature_reset_count.saturating_sub(1);
-            }
-        }
-    }
-
-    let _guard = StreamGuard { stream_id, ctx };
+    let guard = StreamGuard { stream_id, ctx };
 
     let req = req.map(|ext| ext.map_body(From::from));
 
@@ -1450,9 +1290,11 @@ async fn response_task<S, ReqB, ResB, ResBE>(
     let mut headers = headers::Headers::new(stream_id, pseudo, parts.headers);
 
     let has_body = !matches!(size, SizeHint::None);
+
     if !has_body {
         headers.set_end_stream();
     }
+
     ctx.borrow_mut().queue.push(Message::Head(headers));
 
     if has_body {
@@ -1460,66 +1302,108 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
         'body: loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-                None => break ctx.borrow_mut().queue.push_end_stream(stream_id),
+                None => break ctx.borrow_mut().queue.push_end_stream(guard.stream_id),
                 Some(Err(e)) => {
                     error!("body error: {:?}", e);
-                    ctx.borrow_mut().queue.push(Message::Reset {
-                        stream_id,
+                    break guard.ctx.borrow_mut().queue.push(Message::Reset {
+                        stream_id: guard.stream_id,
                         reason: Reason::INTERNAL_ERROR,
                     });
-                    break;
                 }
-                Some(Ok(Frame::Data(mut bytes))) => {
-                    while !bytes.is_empty() {
-                        let len = bytes.len();
-
-                        let aval = poll_fn(|cx| {
-                            let mut inner = ctx.borrow_mut();
-                            let f = &mut inner.flow;
-
-                            let Some(state) = f.stream_map.get_mut(&stream_id) else {
-                                return Poll::Ready(None);
-                            };
-
-                            if state.send_closed() {
-                                return Poll::Ready(None);
-                            }
-
-                            let sf = &mut state.send_state;
-                            if f.send_connection_window == 0 || sf.window <= 0 {
-                                sf.waker = Some(cx.waker().clone());
-                                return Poll::Pending;
-                            }
-
-                            let len = cmp::min(len, sf.frame_size);
-                            let aval = cmp::min(sf.window as usize, f.send_connection_window);
-                            let aval = cmp::min(aval, len);
-                            sf.window -= aval as i64;
-                            f.send_connection_window -= aval;
-                            Poll::Ready(Some(aval))
-                        })
-                        .await;
-
-                        let Some(aval) = aval else {
-                            break 'body;
-                        };
-
-                        let payload = bytes.split_to(aval);
-                        let end_stream = bytes.is_empty() && body.is_end_stream();
-
-                        ctx.borrow_mut().queue.push_data(stream_id, payload, end_stream);
-
-                        if end_stream {
-                            break 'body;
-                        }
+                Some(Ok(Frame::Data(bytes))) => {
+                    if guard.send_data(bytes, body.is_end_stream()).await {
+                        break 'body;
                     }
                 }
-                Some(Ok(Frame::Trailers(trailers))) => {
-                    ctx.borrow_mut().queue.push_trailers(stream_id, trailers);
-                    break;
-                }
+                Some(Ok(Frame::Trailers(trailers))) => break guard.send_trailers(trailers),
             }
         }
+    }
+}
+
+struct StreamGuard<'a> {
+    stream_id: StreamId,
+    ctx: &'a Shared,
+}
+
+impl Drop for StreamGuard<'_> {
+    fn drop(&mut self) {
+        let mut inner = self.ctx.borrow_mut();
+        let flow = &mut inner.flow;
+        flow.open_streams -= 1;
+        // Stream was still in the map: it completed normally (not evicted
+        // by RST_STREAM). Credit back one premature reset so well-behaved
+        // connections never accumulate toward the limit over time.
+        if flow.remove_send(self.stream_id) {
+            flow.premature_reset_count = flow.premature_reset_count.saturating_sub(1);
+        }
+    }
+}
+
+impl StreamGuard<'_> {
+    // return true to inform outer loop to break
+    async fn send_data(&self, mut data: Bytes, end_stream: bool) -> bool {
+        if data.is_empty() && !end_stream {
+            tracing::warn!("response body should not yield empty Frame::Data unless it's the last chunk of Body");
+            return false;
+        }
+
+        loop {
+            let len = data.len();
+
+            let opt = poll_fn(|cx| {
+                let mut conn = self.ctx.borrow_mut();
+                let flow = &mut conn.flow;
+
+                let Some(state) = flow.stream_map.get_mut(&self.stream_id) else {
+                    return Poll::Ready(None);
+                };
+
+                if state.send_closed() {
+                    return Poll::Ready(None);
+                }
+
+                let sf = &mut state.send_state;
+                if len > 0 && (flow.send_connection_window == 0 || sf.window <= 0) {
+                    sf.waker = Some(cx.waker().clone());
+                    return Poll::Pending;
+                }
+
+                let len = cmp::min(len, sf.frame_size);
+                let aval = cmp::min(sf.window as usize, flow.send_connection_window);
+                let aval = cmp::min(aval, len);
+                sf.window -= aval as i64;
+                flow.send_connection_window -= aval;
+                Poll::Ready(Some((aval, conn)))
+            })
+            .await;
+
+            let Some((aval, mut conn)) = opt else {
+                return true;
+            };
+
+            let all_consumed = aval == len;
+
+            let payload = if all_consumed {
+                mem::take(&mut data)
+            } else {
+                data.split_to(aval)
+            };
+
+            let end_stream = all_consumed && end_stream;
+
+            conn.queue.push_data(self.stream_id, payload, end_stream);
+
+            if end_stream {
+                return true;
+            } else if all_consumed {
+                return false;
+            }
+        }
+    }
+
+    fn send_trailers(&self, trailers: HeaderMap) {
+        self.ctx.borrow_mut().queue.push_trailers(self.stream_id, trailers);
     }
 }
 
@@ -1569,10 +1453,6 @@ const PREMATURE_RESET_LIMIT: usize = 100;
 /// GOAWAY(ENHANCE_YOUR_CALM). A well-behaved client should not trigger more
 /// resets than it has open streams; a burst beyond this cap is abuse.
 const CLIENT_RESET_QUEUE_CAP: usize = 64;
-/// Hard cap on unprocessed bytes in the read buffer. `read_io` yields
-/// `Poll::Pending` when this is reached, preventing unbounded ingest when
-/// the write side cannot keep up.
-const READ_BUF_CAP: usize = settings::DEFAULT_MAX_FRAME_SIZE as usize * 4; // 64 KiB
 
 /// Peek into the given buffer (and read more if needed) to determine whether
 /// the connection speaks HTTP/2.  Returns `(version, buf)` where `buf` contains
@@ -1582,9 +1462,9 @@ pub(crate) async fn peek_version(
     io: &(impl AsyncBufRead + AsyncBufWrite),
     buf: BytesMut,
 ) -> io::Result<(Version, BytesMut)> {
-    let (read_buf, res) = prefix_check(buf, io).await;
+    let (read_buf, res) = prefix_check::<4096>(buf, io).await;
     let version = if res.is_ok() { Version::HTTP_2 } else { Version::HTTP_11 };
-    Ok((version, read_buf.buf))
+    Ok((version, read_buf))
 }
 
 pub(crate) async fn run<
@@ -1621,8 +1501,7 @@ where
     settings.set_max_header_list_size(Some(config.h2_max_header_list_size));
     settings.set_enable_connect_protocol(Some(1));
 
-    let (buf, mut write_buf) = handshake(&io, read_buf, &settings, ka.as_mut()).await?;
-    let mut read_buf = ReadBuf { buf, cap: READ_BUF_CAP };
+    let (mut read_buf, mut write_buf) = handshake::<READ_BUF_LIMIT>(&io, read_buf, &settings, ka.as_mut()).await?;
 
     let recv_initial_window_size = settings
         .initial_window_size()
@@ -1654,7 +1533,7 @@ where
     let mut ping_pong = PingPong::new(ka, &shared, date, config.keep_alive_timeout);
 
     let res = {
-        let mut read_task = pin!(read_io(read_buf, &io));
+        let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
 
         let mut write_task = pin!(async {
             while poll_fn(|_| enc.poll_encode(&mut write_buf)).await {
@@ -1796,7 +1675,7 @@ type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 /// consumed) and the write buffer (ready for reuse).
 #[cold]
 #[inline(never)]
-fn handshake<'a>(
+fn handshake<'a, const LIMIT: usize>(
     io: &'a (impl AsyncBufRead + AsyncBufWrite),
     buf: BytesMut,
     settings: &'a settings::Settings,
@@ -1805,16 +1684,16 @@ fn handshake<'a>(
     Box::pin(async {
         async {
             // No cap during preface: the buffer is tiny and always fully drained.
-            let (mut read_buf, res) = prefix_check(buf, io).await;
+            let (mut read_buf, res) = prefix_check::<LIMIT>(buf, io).await;
             res?;
-            read_buf.buf.advance(PREFACE.len());
+            read_buf.advance(PREFACE.len());
 
             let mut write_buf = BytesMut::new();
             settings.encode(&mut write_buf);
             let (res, write_buf) = write_io(write_buf, io).await;
             res?;
 
-            Ok((read_buf.buf, write_buf))
+            Ok((read_buf, write_buf))
         }
         .timeout(timer)
         .await
@@ -1823,11 +1702,12 @@ fn handshake<'a>(
 }
 
 // only check the prefix but not consume it
-async fn prefix_check(buf: BytesMut, io: &(impl AsyncBufRead + AsyncBufWrite)) -> (ReadBuf, io::Result<()>) {
-    let mut read_buf = ReadBuf { buf, cap: usize::MAX };
-
-    while read_buf.buf.len() < PREFACE.len() {
-        let (res, b) = read_io(read_buf, io).await;
+async fn prefix_check<const LIMIT: usize>(
+    mut read_buf: BytesMut,
+    io: &(impl AsyncBufRead + AsyncBufWrite),
+) -> (BytesMut, io::Result<()>) {
+    while read_buf.len() < PREFACE.len() {
+        let (res, b) = read_io::<LIMIT>(read_buf, io).await;
         read_buf = b;
 
         if res.is_err() {
@@ -1835,7 +1715,7 @@ async fn prefix_check(buf: BytesMut, io: &(impl AsyncBufRead + AsyncBufWrite)) -
         };
     }
 
-    let res = if !read_buf.buf.starts_with(PREFACE) {
+    let res = if !read_buf.starts_with(PREFACE) {
         // No GOAWAY is sent because our own preface has not been exchanged yet.
         Err(io::Error::new(
             io::ErrorKind::InvalidData,

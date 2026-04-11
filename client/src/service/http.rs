@@ -2,8 +2,7 @@ use crate::{
     Service, ServiceRequest,
     connect::Connect,
     error::Error,
-    http::Version,
-    pool::{exclusive, shared},
+    pool::service::{Lease, PoolRequest},
     response::Response,
     service::ServiceDyn,
     uri::Uri,
@@ -27,204 +26,107 @@ pub(crate) fn base_service() -> HttpService {
             let ServiceRequest { req, client, timeout } = req;
 
             let uri = Uri::try_parse(req.uri())?;
-
-            // temporary version to record possible version downgrade/upgrade happens when making connections.
-            // alpn protocol and alt-svc header are possible source of version change.
-            #[allow(unused_mut)]
-            let mut version = req.version();
-
-            let mut connect = Connect::new(uri);
+            let version = req.version();
+            let connect = Connect::new(uri);
 
             let _date = client.date_service.handle();
 
-            loop {
-                match version {
-                    Version::HTTP_2 | Version::HTTP_3 => match client.shared_pool.acquire(&connect.uri).await {
-                        shared::AcquireOutput::Conn(mut _conn) => {
-                            let mut _timer = Box::pin(tokio::time::sleep(timeout));
-                            *req.version_mut() = version;
-                            #[allow(unreachable_code)]
-                            return match _conn.conn {
-                                #[cfg(feature = "http2")]
-                                crate::connection::ConnectionShared::H2(ref mut conn) => {
-                                    match crate::h2::proto::send(conn, _date, core::mem::take(req))
-                                        .timeout(_timer.as_mut())
-                                        .await
-                                    {
-                                        Ok(Ok(res)) => {
-                                            let timeout = client.timeout_config.response_timeout;
-                                            Ok(Response::new(res, _timer, timeout))
-                                        }
-                                        Ok(Err(e)) => {
-                                            _conn.destroy_on_drop();
-                                            Err(e.into())
-                                        }
-                                        Err(_) => {
-                                            _conn.destroy_on_drop();
-                                            Err(TimeoutError::Request.into())
-                                        }
-                                    }
-                                }
-                                #[cfg(feature = "http3")]
-                                crate::connection::ConnectionShared::H3(ref mut conn) => {
-                                    let res = crate::h3::proto::send(conn, _date, core::mem::take(req))
-                                        .timeout(_timer.as_mut())
-                                        .await
-                                        .map_err(|_| TimeoutError::Request)??;
+            // determine whether the pool is permitted to transparently downgrade
+            // a failed h2c handshake to http/1. gRPC callers must disable this.
+            #[cfg(all(feature = "grpc", feature = "http2"))]
+            let allow_h2c_downgrade = !crate::grpc::is_grpc_request(&*req);
+            #[cfg(not(all(feature = "grpc", feature = "http2")))]
+            let allow_h2c_downgrade = true;
 
+            let lease = Service::call(
+                &client.pool,
+                PoolRequest {
+                    client,
+                    connect,
+                    version,
+                    allow_h2c_downgrade,
+                },
+            )
+            .await?;
+
+            match lease {
+                Lease::Shared { mut conn, version } => {
+                    let mut _timer = Box::pin(tokio::time::sleep(timeout));
+                    *req.version_mut() = version;
+                    #[allow(unreachable_patterns, unreachable_code)]
+                    match &mut *conn {
+                        #[cfg(feature = "http2")]
+                        crate::connection::ConnectionShared::H2(c) => {
+                            match crate::h2::proto::send(c, _date, core::mem::take(req))
+                                .timeout(_timer.as_mut())
+                                .await
+                            {
+                                Ok(Ok(res)) => {
                                     let timeout = client.timeout_config.response_timeout;
                                     Ok(Response::new(res, _timer, timeout))
                                 }
-                            };
-                        }
-                        shared::AcquireOutput::Spawner(_spawner) => match version {
-                            Version::HTTP_3 => {
-                                #[cfg(feature = "http3")]
-                                {
-                                    let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
-
-                                    Service::call(&client.resolver, &mut connect)
-                                        .timeout(timer.as_mut())
-                                        .await
-                                        .map_err(|_| TimeoutError::Resolve)??;
-                                    timer
-                                        .as_mut()
-                                        .reset(tokio::time::Instant::now() + client.timeout_config.connect_timeout);
-
-                                    if let Ok(Ok(conn)) = crate::h3::proto::connect(
-                                        &client.h3_client,
-                                        connect.addrs(),
-                                        connect.hostname(),
-                                    )
-                                    .timeout(timer.as_mut())
-                                    .await
-                                    {
-                                        _spawner.spawned(conn.into());
-                                    } else {
-                                        #[cfg(feature = "http2")]
-                                        {
-                                            version = Version::HTTP_2;
-                                        }
-
-                                        #[cfg(not(feature = "http2"))]
-                                        {
-                                            version = Version::HTTP_11;
-                                        }
-                                    }
+                                Ok(Err(e)) => {
+                                    conn.destroy_on_drop();
+                                    Err(e.into())
                                 }
-
-                                #[cfg(not(feature = "http3"))]
-                                {
-                                    return Err(crate::error::FeatureError::Http3NotEnabled.into());
+                                Err(_) => {
+                                    conn.destroy_on_drop();
+                                    Err(TimeoutError::Request.into())
                                 }
-                            }
-                            Version::HTTP_2 => {
-                                #[cfg(feature = "http2")]
-                                {
-                                    let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
-                                    let (conn, alpn_version) =
-                                        client.make_exclusive(&mut connect, &mut timer, Version::HTTP_2).await?;
-
-                                    if alpn_version == Version::HTTP_2 {
-                                        // For plaintext this is an h2c prior-knowledge attempt. A handshake
-                                        // failure against an H1-only origin is recoverable for normal
-                                        // requests: drop the spawning slot and retry on a fresh connection
-                                        // via the H1 path. The preface bytes have already been written, so
-                                        // the failed socket cannot be reused.
-                                        //
-                                        // gRPC is HTTP/2-only — falling back to H1 would produce a response
-                                        // that can't be decoded as gRPC framing, so surface the handshake
-                                        // error directly instead.
-                                        #[allow(unused_mut)]
-                                        let mut is_h2c = matches!(connect.uri, Uri::Tcp(_));
-
-                                        #[cfg(all(feature = "grpc", feature = "http2"))]
-                                        {
-                                            is_h2c &= !crate::grpc::is_grpc_request(&*req);
-                                        }
-
-                                        match crate::h2::proto::handshake(conn).await {
-                                            Ok(conn) => _spawner.spawned(conn.into()),
-                                            Err(e) if is_h2c => {
-                                                drop(_spawner);
-                                                #[cfg(not(feature = "http1"))]
-                                                {
-                                                    return Err(e.into());
-                                                }
-                                                #[cfg(feature = "http1")]
-                                                {
-                                                    let _ = e;
-                                                    version = Version::HTTP_11;
-                                                }
-                                            }
-                                            Err(e) => return Err(e.into()),
-                                        }
-                                    } else {
-                                        #[cfg(not(feature = "http1"))]
-                                        {
-                                            return Err(crate::error::FeatureError::Http1NotEnabled.into());
-                                        }
-
-                                        #[cfg(feature = "http1")]
-                                        {
-                                            client.exclusive_pool.try_add(&connect.uri, conn);
-                                            // downgrade request version to what alpn protocol suggested from make_exclusive.
-                                            version = alpn_version;
-                                        }
-                                    }
-                                }
-
-                                #[cfg(not(feature = "http2"))]
-                                {
-                                    return Err(crate::error::FeatureError::Http2NotEnabled.into());
-                                }
-                            }
-                            _ => unreachable!("outer match didn't  handle version correctly."),
-                        },
-                    },
-                    version => match client.exclusive_pool.acquire(&connect.uri).await {
-                        exclusive::AcquireOutput::Conn(mut _conn) => {
-                            *req.version_mut() = version;
-
-                            #[cfg(feature = "http1")]
-                            {
-                                let mut timer = Box::pin(tokio::time::sleep(timeout));
-                                let res = crate::h1::proto::send(&mut *_conn, _date, req)
-                                    .timeout(timer.as_mut())
-                                    .await;
-
-                                return match res {
-                                    Ok(Ok((res, buf, decoder, is_close))) => {
-                                        if is_close {
-                                            _conn.destroy_on_drop();
-                                        }
-                                        let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
-                                        let res = res.map(|_| crate::body::ResponseBody::H1(body));
-                                        let timeout = client.timeout_config.response_timeout;
-                                        Ok(Response::new(res, timer, timeout))
-                                    }
-                                    Ok(Err(e)) => {
-                                        _conn.destroy_on_drop();
-                                        Err(e.into())
-                                    }
-                                    Err(_) => {
-                                        _conn.destroy_on_drop();
-                                        Err(TimeoutError::Request.into())
-                                    }
-                                };
-                            }
-
-                            #[cfg(not(feature = "http1"))]
-                            {
-                                return Err(crate::error::FeatureError::Http1NotEnabled.into());
                             }
                         }
-                        exclusive::AcquireOutput::Spawner(_spawner) => {
-                            let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
-                            let (conn, _) = client.make_exclusive(&mut connect, &mut timer, version).await?;
-                            _spawner.spawned(conn);
+                        #[cfg(feature = "http3")]
+                        crate::connection::ConnectionShared::H3(c) => {
+                            let res = crate::h3::proto::send(c, _date, core::mem::take(req))
+                                .timeout(_timer.as_mut())
+                                .await
+                                .map_err(|_| TimeoutError::Request)??;
+
+                            let timeout = client.timeout_config.response_timeout;
+                            Ok(Response::new(res, _timer, timeout))
                         }
-                    },
+                        _ => unreachable!("ConnectionShared has no enabled variants"),
+                    }
+                }
+                Lease::Exclusive {
+                    conn: mut _conn,
+                    version,
+                } => {
+                    *req.version_mut() = version;
+
+                    #[cfg(feature = "http1")]
+                    {
+                        let mut timer = Box::pin(tokio::time::sleep(timeout));
+                        let res = crate::h1::proto::send(&mut *_conn, _date, req)
+                            .timeout(timer.as_mut())
+                            .await;
+
+                        match res {
+                            Ok(Ok((res, buf, decoder, is_close))) => {
+                                if is_close {
+                                    _conn.destroy_on_drop();
+                                }
+                                let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
+                                let res = res.map(|_| crate::body::ResponseBody::H1(body));
+                                let timeout = client.timeout_config.response_timeout;
+                                Ok(Response::new(res, timer, timeout))
+                            }
+                            Ok(Err(e)) => {
+                                _conn.destroy_on_drop();
+                                Err(e.into())
+                            }
+                            Err(_) => {
+                                _conn.destroy_on_drop();
+                                Err(TimeoutError::Request.into())
+                            }
+                        }
+                    }
+
+                    #[cfg(not(feature = "http1"))]
+                    {
+                        let _ = _conn;
+                        Err(crate::error::FeatureError::Http1NotEnabled.into())
+                    }
                 }
             }
         }

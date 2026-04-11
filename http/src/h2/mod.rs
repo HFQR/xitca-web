@@ -5,6 +5,7 @@ mod builder;
 mod error;
 mod proto;
 mod service;
+mod util;
 
 pub(crate) mod dispatcher;
 
