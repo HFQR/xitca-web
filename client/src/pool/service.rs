@@ -323,7 +323,7 @@ async fn establish(
 ) -> Result<EstablishOutcome, Error> {
     #[cfg(feature = "http2")]
     use crate::uri::Uri as UriKind;
-    #[cfg(any(feature = "http2", feature = "http3"))]
+    #[cfg(feature = "http3")]
     use crate::{error::TimeoutError, timeout::Timeout};
 
     match version {
