@@ -339,8 +339,6 @@ impl LastStreamId {
 }
 
 pub(super) struct FlowControl {
-    /// Number of currently open streams (RFC 7540 §5.1.2).
-    open_streams: usize,
     /// Remaining bytes we may send on the whole connection.
     send_connection_window: usize,
     /// Default send-window for new streams (RFC 7540 §6.9.2).
@@ -426,7 +424,6 @@ impl FlowControl {
             flag,
         };
 
-        self.open_streams += 1;
         self.stream_map.insert(id, state);
     }
 
@@ -1069,9 +1066,11 @@ impl<'a, S> DecodeContext<'a, S> {
         }
 
         // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
+        // stream_map holds streams in open / half-closed states — exactly
+        // those that count toward the concurrent-stream limit.
         // Do NOT update last_stream_id: REFUSED_STREAM means no application
         // processing occurred and the client should retry (RFC 7540 §8.1.4).
-        if ci.flow.open_streams >= self.max_concurrent_streams {
+        if ci.flow.stream_map.len() >= self.max_concurrent_streams {
             return Err(Error::Reset(id, Reason::REFUSED_STREAM));
         }
 
@@ -1330,7 +1329,6 @@ impl Drop for StreamGuard<'_> {
     fn drop(&mut self) {
         let mut inner = self.ctx.borrow_mut();
         let flow = &mut inner.flow;
-        flow.open_streams -= 1;
         // Stream was still in the map: it completed normally (not evicted
         // by RST_STREAM). Credit back one premature reset so well-behaved
         // connections never accumulate toward the limit over time.
@@ -1511,7 +1509,6 @@ where
 
     let shared = Rc::new(RefCell::new(ConnectionState {
         flow: FlowControl {
-            open_streams: 0,
             // Send windows start at RFC 7540 §6.9.2 default (65535) until the
             // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
             send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
