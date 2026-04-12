@@ -6,9 +6,11 @@
 //! [ClientBuilder::pool] to replace the default behavior.
 //!
 //! Connection making (dns resolve, tcp / tls connect, alpn negotiation,
-//! h2 / h3 handshake, h2c fallback) is exposed through [PoolRequest::spawn]
-//! so a user pool can reach the crate-internal connection primitives without
-//! any dependency on crate-private modules.
+//! h2 / h3 handshake, h2c fallback) is exposed through [PoolRequest::spawn],
+//! which returns a [SpawnOutCome] describing the raw connection or a fallback
+//! instruction. The user pool wraps the connection in a [Lease] (via
+//! [Lease::exclusive] / [Lease::shared]) with its own [Leaser] implementation
+//! to control caching and destruction on drop.
 //!
 //! [ClientBuilder::pool]: crate::builder::ClientBuilder::pool
 //! [Service]: crate::service::Service
@@ -34,8 +36,10 @@ use crate::{
 ///
 /// Use [PoolRequest::spawn] on cache-miss to reach the crate-internal
 /// connection establishment logic (dns resolve, tcp / tls connect, h2 / h3
-/// handshake, version fallback). The produced lease is "plain" and not
-/// attached to any cache — managing reuse is the user pool's responsibility.
+/// handshake, version fallback). It returns a [SpawnOutCome] carrying the raw
+/// connection or a fallback instruction. The user pool is responsible for
+/// wrapping the connection in a [Lease] (via [Lease::exclusive] /
+/// [Lease::shared]) with a custom [Leaser] to manage caching and reuse.
 pub struct PoolRequest<'a, 'c> {
     /// the [Client] the request originated from. pool implementations can use
     /// it to reach resolver / tls connector / timeout configuration.
@@ -56,9 +60,12 @@ impl PoolRequest<'_, '_> {
     /// spawn a fresh connection using the crate-internal connection
     /// establishment logic.
     ///
-    /// On success, returns a plain [Lease] — a lease whose drop does not
-    /// return the connection to any cache. The user pool is expected to
-    /// install its own caching / re-use strategy around this primitive.
+    /// On success, returns a [SpawnOutCome] carrying either the raw
+    /// connection (exclusive or shared) or a [SpawnOutCome::RetryLower]
+    /// instruction when the requested version cannot be established.
+    /// The user pool wraps the connection in a [Lease] via
+    /// [Lease::exclusive] or [Lease::shared], supplying its own [Leaser]
+    /// implementation to control caching and destruction on drop.
     ///
     /// Runs the full version negotiation loop: http/3 falls back to http/2
     /// on connect failure, http/2 falls back to http/1 when alpn selects
@@ -78,6 +85,10 @@ pub type PoolService =
     Box<dyn for<'a, 'c> ServiceDyn<PoolRequest<'a, 'c>, Response = Lease, Error = Error> + Send + Sync>;
 
 /// a leased connection returned by a [PoolService].
+///
+/// construct via [Lease::exclusive] or [Lease::shared], providing a custom
+/// [Leaser] implementation that controls how the connection is cached or
+/// destroyed on drop.
 pub enum Lease {
     /// an exclusive (http/1) lease.
     Exclusive {
@@ -98,6 +109,8 @@ pub type ExclusiveLease = Box<dyn Leaser<ConnectionExclusive>>;
 pub type SharedLease = Box<dyn Leaser<ConnectionShared>>;
 
 impl Lease {
+    /// construct an exclusive (http/1) lease from a custom [Leaser] and the
+    /// negotiated version.
     pub fn exclusive<L>(leaser: L, version: Version) -> Self
     where
         L: Leaser<ConnectionExclusive> + 'static,
@@ -108,6 +121,8 @@ impl Lease {
         }
     }
 
+    /// construct a shared (http/2 or http/3) lease from a custom [Leaser]
+    /// and the negotiated version.
     pub fn shared<L>(leaser: L, version: Version) -> Self
     where
         L: Leaser<ConnectionShared> + 'static,
@@ -120,7 +135,9 @@ impl Lease {
 }
 
 /// implementation hook for [`Lease`]. a custom pool implementation
-/// provides this trait on its leased connection type.
+/// provides this trait on its leased connection type. requires
+/// [`DerefMut<Target = Conn>`](DerefMut) so the connection is accessible
+/// through the lease.
 pub trait Leaser<Conn>: Send + Sync + DerefMut<Target = Conn> {
     /// mark the connection as not re-usable. it should be discarded rather
     /// than returned to the pool on drop.

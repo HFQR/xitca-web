@@ -6,10 +6,15 @@ use xitca_io::io::{AsyncIoDyn, Interest};
 
 use super::{
     http::uri::{Authority, PathAndQuery},
-    pool::Ready,
     tls::TlsStream,
     uri::Uri,
 };
+
+/// readiness probe used to evict dead cached entries before handing them to a caller. 
+/// implementations must return `Err` when the connection can no longer open new streams.
+pub trait Ready {
+    fn ready(&mut self) -> impl Future<Output = Result<(), ()>> + Send;
+}
 
 impl<'a> Ready for Box<dyn AsyncIoDyn + Send + Sync + 'a> {
     // an exclusive connect is considered ready if it's ready to be written(not closed)

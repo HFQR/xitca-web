@@ -11,7 +11,7 @@ use std::{
 
 use tokio::sync::Notify;
 
-use super::Ready;
+use crate::connection::Ready;
 
 #[doc(hidden)]
 pub struct Pool<K, C> {

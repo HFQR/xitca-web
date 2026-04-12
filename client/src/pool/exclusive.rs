@@ -12,7 +12,7 @@ use std::{
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use super::Ready;
+use crate::connection::Ready;
 
 type Entries<K, C> = HashMap<K, (Arc<Semaphore>, VecDeque<PooledConn<C>>)>;
 
