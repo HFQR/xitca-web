@@ -91,7 +91,7 @@ impl ClientBuilder {
     ///             Ok(res) => {
     ///                 // Ok branch contains the response we received from server. in this case we just
     ///                 // print out it's status code.
-    ///                 println!("response status is: {}", res.status());   
+    ///                 println!("response status is: {}", res.status());
     ///
     ///                 // after post-processing return the response
     ///                 Ok(res)
@@ -129,7 +129,7 @@ impl ClientBuilder {
     ///
     /// # Examples
     /// ```rust
-    /// use xitca_client::{ClientBuilder, Service, ServiceRequest,error::Error};
+    /// use xitca_client::{ClientBuilder, Service, ServiceRequest, error::Error};
     /// use xitca_http::http::HeaderValue;
     ///
     /// // start a new client builder and apply our middleware to it:
@@ -165,9 +165,40 @@ impl ClientBuilder {
     ///
     /// # Example
     /// ```rust
-    /// use xitca_client::{error::Error, ClientBuilder, Lease, PoolRequest, Service};
+    /// use std::ops::{Deref, DerefMut};
     ///
+    /// use xitca_client::{error::Error, ConnectionExclusive, ClientBuilder, Lease, Leaser, PoolRequest, Service, SpawnOutCome};
+    ///
+    /// // customized connection pool with no internal storage
     /// struct MyPool;
+    ///
+    /// // a lease of customized connection pool
+    /// struct MyPoolLease {
+    ///     conn: ConnectionExclusive,
+    /// }
+    ///
+    /// // trait impls required for lease type
+    /// impl Deref for MyPoolLease {
+    ///     type Target = ConnectionExclusive;
+    ///
+    ///     fn deref(&self) -> &Self::Target {
+    ///         &self.conn
+    ///     }
+    /// }
+    ///
+    /// impl DerefMut for MyPoolLease {
+    ///     fn deref_mut(&mut self) -> &mut Self::Target {
+    ///         &mut self.conn
+    ///     }
+    /// }
+    ///
+    /// impl Leaser<ConnectionExclusive> for MyPoolLease {
+    ///     fn mark_destroy(&mut self) {}
+    ///
+    ///     fn is_marked_destroy(&self) -> bool {
+    ///         true
+    ///     }
+    /// }
     ///
     /// impl<'a, 'c> Service<PoolRequest<'a, 'c>> for MyPool {
     ///     type Response = Lease;
@@ -176,7 +207,15 @@ impl ClientBuilder {
     ///     async fn call(&self, mut req: PoolRequest<'a, 'c>) -> Result<Self::Response, Self::Error> {
     ///         // consult user cache / emit metrics here.
     ///         // on miss, fall through to the built-in spawner to create a connection.
-    ///         req.spawn().await
+    ///         match req.spawn().await? {
+    ///             SpawnOutCome::Exclusive { conn, version } => {
+    ///                 // construct the customized lease type and return as result.
+    ///                 let lease = Lease::exclusive(MyPoolLease { conn }, version);
+    ///                 Ok(lease)
+    ///             }
+    ///             SpawnOutCome::Shared { .. } => todo!("shared connection for http2/http3"),
+    ///             SpawnOutCome::RetryLower { .. } => todo!("retry with a lower http version if desired"),
+    ///         }
     ///     }
     /// }
     ///
@@ -237,7 +276,7 @@ impl ClientBuilder {
     ///     async fn call(&self, connect: &'r mut Connect<'c>) -> Result<Self::Response, Self::Error> {
     ///         let _host = connect.hostname(); // connect provides host name of domain needs to be resolved.
     ///         let _port = connect.port(); // the same goes for optional port number of domain.
-    ///         
+    ///
     ///         // your dns resolving logic should produce one or multiple std::net::SocketAddr
     ///         let addr = "127.0.0.1".parse().unwrap();
     ///
@@ -269,7 +308,7 @@ impl ClientBuilder {
     ///
     /// // custom connector type
     /// struct MyConnector;
-    ///     
+    ///
     /// // impl trait for connector.
     /// impl<'n> Service<(&'n str, TlsStream)> for MyConnector {
     ///     // expected output types.

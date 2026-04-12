@@ -156,7 +156,7 @@ impl Sink<Message> for WebSocketTunnel {
         match self.get_mut().recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(body.conn_mut().deref_mut()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {

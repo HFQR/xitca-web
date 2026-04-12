@@ -1,5 +1,6 @@
 use core::{
     hash::Hash,
+    ops::{Deref, DerefMut},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -10,7 +11,7 @@ use std::{
 
 use tokio::sync::Notify;
 
-use super::Ready;
+use crate::connection::Ready;
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
@@ -150,6 +151,26 @@ where
     /// freshly spawned replacement.
     generation: u64,
     destroy_on_drop: bool,
+}
+
+impl<K, C> Deref for Conn<K, C>
+where
+    K: Eq + Hash + Clone,
+{
+    type Target = C;
+
+    fn deref(&self) -> &Self::Target {
+        &self.conn
+    }
+}
+
+impl<K, C> DerefMut for Conn<K, C>
+where
+    K: Eq + Hash + Clone,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.conn
+    }
 }
 
 pub(crate) struct Spawner<'a, K, C>

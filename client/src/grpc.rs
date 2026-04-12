@@ -14,11 +14,12 @@ use xitca_http::http::{
     const_header_name::{GRPC_ACCEPT_ENCODING, GRPC_ENCODING},
 };
 
+#[cfg(feature = "http2")]
+use super::bytes::Buf;
 use super::{
     body::{Body, Frame, RequestBody},
-    bytes::{Buf, Bytes, BytesMut},
+    bytes::{Bytes, BytesMut},
     error::{Error, ErrorResponse},
-    h2::body::ResponseBody,
     http::{StatusCode, const_header_value::GRPC, header::CONTENT_TYPE},
     request::RequestBuilder,
     response::Response,
@@ -157,8 +158,11 @@ impl GrpcStreamRequest<'_> {
         let decode_codec = Codec::from_headers(res.headers());
 
         let body = match res.res.into_body() {
-            crate::body::ResponseBody::H2(body) => body,
-            _ => unreachable!("only HTTP/2 gRPC is supported"),
+            #[cfg(feature = "http2")]
+            crate::body::ResponseBody::H2(body) => GrpcBody::H2(body),
+            #[cfg(feature = "http3")]
+            crate::body::ResponseBody::H3(body) => GrpcBody::H3(body),
+            _ => unreachable!("gRPC requires http2 or http3"),
         };
 
         Ok(Tunnel::new(GrpcTunnel {
@@ -172,12 +176,34 @@ impl GrpcStreamRequest<'_> {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
+/// Transport-agnostic body enum for gRPC streaming over HTTP/2 or HTTP/3.
+enum GrpcBody {
+    #[cfg(feature = "http2")]
+    H2(crate::h2::body::ResponseBody),
+    #[cfg(feature = "http3")]
+    H3(crate::h3::body::ResponseBody),
+}
+
+impl GrpcBody {
+    fn poll_frame(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, Error>>> {
+        match self {
+            #[cfg(feature = "http2")]
+            Self::H2(body) => Pin::new(body).poll_frame(cx).map_err(Into::into),
+            #[cfg(feature = "http3")]
+            Self::H3(body) => Pin::new(body).poll_frame(cx).map_err(Into::into),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
+        }
+    }
+}
+
 pub struct GrpcTunnel<M> {
     encode_codec: Codec,
     decode_codec: Codec,
     send_buf: BytesMut,
     recv_buf: BytesMut,
-    body: ResponseBody,
+    body: GrpcBody,
     _msg: PhantomData<fn(M)>,
 }
 
@@ -202,19 +228,57 @@ where
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
-        while !inner.send_buf.chunk().is_empty() {
-            ready!(inner.body.poll_send_buf(&mut inner.send_buf, cx))?;
+        match inner.body {
+            #[cfg(feature = "http2")]
+            GrpcBody::H2(ref mut body) => {
+                while !inner.send_buf.chunk().is_empty() {
+                    ready!(body.poll_send_buf(&mut inner.send_buf, cx))?;
+                }
+                Poll::Ready(Ok(()))
+            }
+            #[cfg(feature = "http3")]
+            GrpcBody::H3(ref mut body) => {
+                if inner.send_buf.is_empty() {
+                    return Poll::Ready(Ok(()));
+                }
+                let buf = inner.send_buf.split().freeze();
+                // h3's send_data is: synchronous buffer into QUIC, then async poll_ready
+                // for flow control. If poll_ready returns Pending the data is already
+                // queued in QUIC — the flow-control wait is best-effort here because
+                // pin! creates a stack-local future that cannot survive across poll calls.
+                // TODO: store the future to properly respect QUIC flow control backpressure.
+                let mut fut = core::pin::pin!(body.send_data(buf));
+                fut.as_mut().poll(cx).map_err(Into::into)
+            }
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
         }
-        Poll::Ready(Ok(()))
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let inner = self.get_mut();
-        while !inner.send_buf.chunk().is_empty() {
-            ready!(inner.body.poll_send_buf(&mut inner.send_buf, cx))?;
+        match inner.body {
+            #[cfg(feature = "http2")]
+            GrpcBody::H2(ref mut body) => {
+                while !inner.send_buf.chunk().is_empty() {
+                    ready!(body.poll_send_buf(&mut inner.send_buf, cx))?;
+                }
+                body.send_data(Bytes::new(), true)?;
+                Poll::Ready(Ok(()))
+            }
+            #[cfg(feature = "http3")]
+            GrpcBody::H3(ref mut body) => {
+                if !inner.send_buf.is_empty() {
+                    let buf = inner.send_buf.split().freeze();
+                    let mut fut = core::pin::pin!(body.send_data(buf));
+                    ready!(fut.as_mut().poll(cx)).map_err(Error::from)?;
+                }
+                let mut fut = core::pin::pin!(body.finish());
+                fut.as_mut().poll(cx).map_err(Into::into)
+            }
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
         }
-        inner.body.send_data(Bytes::new(), true)?;
-        Poll::Ready(Ok(()))
     }
 }
 
@@ -235,14 +299,14 @@ where
                 Err(e) => return Poll::Ready(Some(Err(Error::Std(Box::new(e))))),
             }
 
-            // Need more data — poll the H2 body.
-            match ready!(Pin::new(&mut inner.body).poll_frame(cx)) {
+            // Need more data — poll the body.
+            match ready!(inner.body.poll_frame(cx)) {
                 Some(Ok(Frame::Data(data))) => inner.recv_buf.extend_from_slice(data.as_ref()),
                 Some(Ok(Frame::Trailers(_))) => {
                     // TODO: check grpc-status trailer for server errors.
                     return Poll::Ready(None);
                 }
-                Some(Err(e)) => return Poll::Ready(Some(Err(Error::Std(e)))),
+                Some(Err(e)) => return Poll::Ready(Some(Err(e))),
                 None => {
                     return if inner.recv_buf.is_empty() {
                         Poll::Ready(None)

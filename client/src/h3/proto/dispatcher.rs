@@ -4,7 +4,7 @@ use ::h3_quinn::quinn::Endpoint;
 use xitca_http::date::DateTime;
 
 use crate::{
-    body::{Body, BodyError, Frame, ResponseBody, SizeHint},
+    body::{Body, BodyError, BodyExt, Frame, ResponseBody, SizeHint},
     bytes::Bytes,
     date::DateTimeHandle,
     h3::{Connection, Error},
@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::super::body::MapBody;
+use super::super::body::ResponseBody as H3ResponseBody;
 
 pub(crate) async fn send<B>(
     stream: &mut Connection,
@@ -64,7 +64,7 @@ where
 
     if !is_eof {
         let mut body = pin!(body);
-        while let Some(frame) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+        while let Some(frame) = body.as_mut().frame().await {
             let frame = frame.map_err(BodyError::from)?;
             match frame {
                 Frame::Data(bytes) => stream.send_data(bytes).await?,
@@ -83,8 +83,7 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
-        let body = Box::pin(MapBody { body: stream });
-        res.map(|_| ResponseBody::H3(body))
+        res.map(|_| ResponseBody::H3(H3ResponseBody::new(stream)))
     };
 
     Ok(res)
