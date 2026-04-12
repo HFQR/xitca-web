@@ -1,8 +1,11 @@
 use core::{future::poll_fn, net::SocketAddr, pin::pin};
 
+use ::h3_quinn::quinn::Endpoint;
+use xitca_http::date::DateTime;
+
 use crate::{
     body::{Body, BodyError, Frame, ResponseBody, SizeHint},
-    bytes::{Buf, Bytes},
+    bytes::Bytes,
     date::DateTimeHandle,
     h3::{Connection, Error},
     http::{
@@ -10,17 +13,17 @@ use crate::{
         header::{CONTENT_LENGTH, DATE, HOST, HeaderValue},
     },
 };
-use ::h3_quinn::quinn::Endpoint;
-use xitca_http::date::DateTime;
 
-pub(crate) async fn send<B, E>(
+use super::super::body::MapBody;
+
+pub(crate) async fn send<B>(
     stream: &mut Connection,
     date: DateTimeHandle<'_>,
     req: Request<B>,
 ) -> Result<Response<ResponseBody>, Error>
 where
-    B: Body<Data = Bytes, Error = E>,
-    BodyError: From<E>,
+    B: Body<Data = Bytes>,
+    BodyError: From<B::Error>,
 {
     let (parts, body) = req.into_parts();
     let mut req = Request::from_parts(parts, ());
@@ -65,7 +68,10 @@ where
             let frame = frame.map_err(BodyError::from)?;
             match frame {
                 Frame::Data(bytes) => stream.send_data(bytes).await?,
-                Frame::Trailers(trailers) => stream.send_trailers(trailers).await?,
+                Frame::Trailers(trailers) => {
+                    stream.send_trailers(trailers).await?;
+                    break;
+                }
             }
         }
     }
@@ -77,17 +83,7 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
-        use xitca_http::body::{Frame, StreamBody};
-        let body = async_stream::stream! {
-            while let Some(bytes) = stream.recv_data().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
-                yield Ok::<_, BodyError>(Frame::Data(Bytes::copy_from_slice(bytes.chunk())));
-            }
-            if let Some(trailers) = stream.recv_trailers().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)? {
-                yield Ok::<_, BodyError>(Frame::Trailers(trailers));
-            }
-        };
-        let body = crate::h3::body::ResponseBody(Box::pin(StreamBody::new(body)));
-
+        let body = Box::pin(MapBody { body: stream });
         res.map(|_| ResponseBody::H3(body))
     };
 

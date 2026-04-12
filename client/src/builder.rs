@@ -7,7 +7,8 @@ use crate::{
     connect::Connect,
     date::DateTimeService,
     error::Error,
-    middleware, pool,
+    middleware,
+    pool::service::{self as pool_service, PoolRequest, PoolService},
     resolver::{ResolverService, base_resolver},
     response::Response,
     service::{HttpService, Service, ServiceRequest, async_fn::AsyncFn, http::base_service},
@@ -22,6 +23,7 @@ use crate::{
 pub struct ClientBuilder {
     connector: Connector,
     resolver: ResolverService,
+    pool: Option<PoolService>,
     pool_capacity: usize,
     keep_alive_idle: Duration,
     keep_alive_born: Duration,
@@ -42,6 +44,7 @@ impl ClientBuilder {
         ClientBuilder {
             connector: connector::nop(),
             resolver: base_resolver(),
+            pool: None,
             pool_capacity: 2,
             keep_alive_idle: Duration::from_secs(60),
             keep_alive_born: Duration::from_secs(3600),
@@ -149,6 +152,46 @@ impl ClientBuilder {
         for<'s, 'r, 'c> <F as AsyncFn<(ServiceRequest<'r, 'c>, &'s HttpService)>>::Future: Send,
     {
         self.service = Box::new(middleware::AsyncFn::new(self.service, func));
+        self
+    }
+
+    /// Replace the connection pool with a custom [Service] implementation.
+    ///
+    /// A custom pool receives [PoolRequest] values and must produce a [Lease].
+    /// Connection-making primitives (dns resolve, tcp / tls connect, h2 / h3
+    /// handshake, returning a connection to the default caches) are exposed
+    /// through [PoolRequest::spawn] — a user pool calls it on cache-miss to
+    /// obtain a fresh `Lease` without needing access to crate internals.
+    ///
+    /// # Example
+    /// ```rust
+    /// use xitca_client::{error::Error, ClientBuilder, Lease, PoolRequest, Service};
+    ///
+    /// struct MyPool;
+    ///
+    /// impl<'a, 'c> Service<PoolRequest<'a, 'c>> for MyPool {
+    ///     type Response = Lease;
+    ///     type Error = Error;
+    ///
+    ///     async fn call(&self, mut req: PoolRequest<'a, 'c>) -> Result<Self::Response, Self::Error> {
+    ///         // consult user cache / emit metrics here.
+    ///         // on miss, fall through to the built-in spawner to create a connection.
+    ///         req.spawn().await
+    ///     }
+    /// }
+    ///
+    /// let _ = ClientBuilder::new().pool(MyPool);
+    /// ```
+    ///
+    /// [Lease]: crate::pool::service::Lease
+    pub fn pool<P>(mut self, pool: P) -> Self
+    where
+        P: for<'a, 'c> Service<PoolRequest<'a, 'c>, Response = pool_service::Lease, Error = Error>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.pool = Some(Box::new(pool));
         self
     }
 
@@ -481,9 +524,12 @@ impl ClientBuilder {
             endpoint
         };
 
+        let pool = self
+            .pool
+            .unwrap_or_else(|| pool_service::base_pool(self.pool_capacity, self.keep_alive_idle, self.keep_alive_born));
+
         Client {
-            exclusive_pool: pool::exclusive::Pool::new(self.pool_capacity, self.keep_alive_idle, self.keep_alive_born),
-            shared_pool: pool::shared::Pool::with_capacity(self.pool_capacity),
+            pool,
             connector: self.connector,
             resolver: self.resolver,
             timeout_config: self.timeout_config,

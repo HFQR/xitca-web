@@ -12,6 +12,8 @@ use std::{
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+use super::Ready;
+
 type Entries<K, C> = HashMap<K, (Arc<Semaphore>, VecDeque<PooledConn<C>>)>;
 
 #[doc(hidden)]
@@ -51,7 +53,10 @@ where
 
     // acquire a connection from pool. if a new connection needs to be made a spawner type
     // would be returned.
-    pub(crate) async fn acquire(&self, key: impl Into<K>) -> AcquireOutput<'_, K, C> {
+    pub(crate) async fn acquire(&self, key: impl Into<K>) -> AcquireOutput<'_, K, C>
+    where
+        C: Ready,
+    {
         let key = key.into();
 
         loop {
@@ -75,27 +80,32 @@ where
             };
 
             if let Ok(permit) = permits.acquire_owned().await {
-                let mut conns = self.conns.lock().unwrap();
-                let queue = match conns.get_mut(&key) {
-                    Some((_, queue)) => queue,
-                    // the entry is gone right after a permit is reserved.
-                    // in this case try again from the beginning.
-                    None => continue,
-                };
+                loop {
+                    let conn = {
+                        let mut conns = self.conns.lock().unwrap();
+                        match conns.get_mut(&key) {
+                            Some((_, queue)) => queue.pop_front(),
+                            None => break,
+                        }
+                    };
 
-                while let Some(conn) = queue.pop_front() {
-                    if !conn.state.is_expired() {
-                        return AcquireOutput::Conn(Conn {
-                            pool: self.clone(),
-                            key,
-                            conn: Some(conn),
-                            permit,
-                            destroy_on_drop: false,
-                        });
+                    match conn {
+                        Some(mut conn) => {
+                            if !conn.state.is_expired() && conn.conn.ready().await.is_ok() {
+                                return AcquireOutput::Conn(Conn {
+                                    pool: self.clone(),
+                                    key,
+                                    conn: Some(conn),
+                                    permit,
+                                    destroy_on_drop: false,
+                                });
+                            }
+                        }
+                        None => break,
                     }
                 }
 
-                // all connection in entry are expired. in this case spawn new connection.
+                // all connections in entry are expired or not ready. spawn new connection.
                 return AcquireOutput::Spawner(Spawner {
                     pool: self,
                     key,
@@ -198,12 +208,10 @@ impl<K, C> Conn<K, C>
 where
     K: Eq + Hash + Clone,
 {
-    #[cfg(feature = "http1")]
-    pub(crate) fn destroy_on_drop(&mut self) {
+    pub(crate) fn set_destroy_on_drop(&mut self) {
         self.destroy_on_drop = true;
     }
 
-    #[cfg(feature = "http1")]
     pub(crate) fn is_destroy_on_drop(&self) -> bool {
         self.destroy_on_drop
     }

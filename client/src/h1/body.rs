@@ -13,11 +13,10 @@ use xitca_io::io::Interest;
 
 use crate::{
     body::{Body, Frame, SizeHint},
-    connection::{ConnectionExclusive, ConnectionKey},
-    pool::exclusive::Conn,
+    pool::service::ExclusiveLease,
 };
 
-pub type Connection = Conn<ConnectionKey, ConnectionExclusive>;
+pub type Connection = ExclusiveLease;
 
 pub struct ResponseBody {
     conn: Connection,
@@ -74,11 +73,15 @@ impl Body for ResponseBody {
     }
 
     fn is_end_stream(&self) -> bool {
-        self.decoder.is_eof()
+        matches!(self.decoder, TransferCoding::Eof | TransferCoding::Corrupted)
     }
 
     fn size_hint(&self) -> SizeHint {
-        SizeHint::default()
+        match self.decoder {
+            TransferCoding::Length(size) => SizeHint::Exact(size),
+            TransferCoding::Corrupted | TransferCoding::Eof => SizeHint::None,
+            _ => SizeHint::Unknown,
+        }
     }
 }
 

@@ -93,6 +93,32 @@ impl Body for ResponseBody {
             Self::Unknown(body) => body.as_mut().poll_frame(cx),
         }
     }
+
+    fn is_end_stream(&self) -> bool {
+        match self {
+            #[cfg(feature = "http1")]
+            Self::H1(body) => body.is_end_stream(),
+            #[cfg(feature = "http2")]
+            Self::H2(body) => body.is_end_stream(),
+            #[cfg(feature = "http3")]
+            Self::H3(body) => body.is_end_stream(),
+            Self::Eof => true,
+            Self::Unknown(body) => body.is_end_stream(),
+        }
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        match self {
+            #[cfg(feature = "http1")]
+            Self::H1(body) => body.size_hint(),
+            #[cfg(feature = "http2")]
+            Self::H2(body) => body.size_hint(),
+            #[cfg(feature = "http3")]
+            Self::H3(body) => body.size_hint(),
+            Self::Eof => SizeHint::None,
+            Self::Unknown(body) => body.size_hint(),
+        }
+    }
 }
 
 // Stream impl kept for compatibility with http-ws crate's RequestStream.
@@ -107,6 +133,17 @@ impl Stream for ResponseBody {
                 Err(e) => Some(Err(e)),
             })
         })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match Body::size_hint(self) {
+            SizeHint::Exact(len) => {
+                let len = usize::try_from(len).unwrap();
+                (len, Some(len))
+            }
+            SizeHint::Unknown => (0, None),
+            SizeHint::None => SizeHint::NO_BODY_HINT,
+        }
     }
 }
 

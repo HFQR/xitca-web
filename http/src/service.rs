@@ -1,6 +1,5 @@
 use core::{fmt, marker::PhantomData, pin::pin};
 
-use crate::body::Body;
 use xitca_io::{
     io::{AsyncBufRead, AsyncBufWrite},
     net::{Stream, TcpStream},
@@ -8,7 +7,7 @@ use xitca_io::{
 use xitca_service::{Service, ready::ReadyService};
 
 use super::{
-    body::RequestBody,
+    body::{Body, RequestBody},
     builder::marker,
     bytes::{Bytes, BytesMut},
     config::HttpServiceConfig,
@@ -169,7 +168,7 @@ where
         &self,
         _tls_stream: impl AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
         _addr: core::net::SocketAddr,
-        mut timer: core::pin::Pin<&mut KeepAlive>,
+        mut _timer: core::pin::Pin<&mut KeepAlive>,
     ) -> Result<(), HttpServiceError<S::Error, B::Error>> {
         #[allow(unused_mut)]
         let mut version = _tls_stream.as_version();
@@ -179,7 +178,7 @@ where
         #[cfg(feature = "http2")]
         if self.config.peek_protocol {
             let (ver, buf) = super::h2::dispatcher::peek_version(&_tls_stream, BytesMut::new())
-                .timeout(timer.as_mut())
+                .timeout(_timer.as_mut())
                 .await
                 // TODO: more precise error handling
                 .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
@@ -194,7 +193,7 @@ where
                 _tls_stream,
                 _addr,
                 _read_buf,
-                timer.as_mut(),
+                _timer.as_mut(),
                 self.config,
                 &self.service,
                 self.date.get(),
@@ -204,13 +203,13 @@ where
             #[cfg(feature = "http2")]
             super::http::Version::HTTP_2 => {
                 // update timer to first request timeout.
-                self.update_first_request_deadline(timer.as_mut());
+                self.update_first_request_deadline(_timer.as_mut());
 
                 super::h2::dispatcher::run(
                     _tls_stream,
                     _addr,
                     _read_buf,
-                    timer.as_mut(),
+                    _timer.as_mut(),
                     &self.service,
                     self.date.get(),
                     &self.config,
