@@ -1,4 +1,4 @@
-use core::hash::{Hash, Hasher};
+use core::hash::Hash;
 
 use std::io;
 
@@ -82,27 +82,7 @@ impl From<crate::h3::Connection> for ConnectionShared {
 #[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub enum ConnectionKey {
     Regular { authority: Authority, is_tls: bool },
-    Unix(AuthorityWithPath),
-}
-
-#[doc(hidden)]
-#[derive(Eq, Debug, Clone)]
-pub struct AuthorityWithPath {
-    authority: Authority,
-    path_and_query: PathAndQuery,
-}
-
-impl PartialEq for AuthorityWithPath {
-    fn eq(&self, other: &Self) -> bool {
-        self.authority.eq(&other.authority) && self.path_and_query.eq(&other.path_and_query)
-    }
-}
-
-impl Hash for AuthorityWithPath {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.authority.hash(state);
-        self.path_and_query.as_str().hash(state);
-    }
+    Unix { authority: Authority, path: PathAndQuery },
 }
 
 impl From<&Uri<'_>> for ConnectionKey {
@@ -116,10 +96,10 @@ impl From<&Uri<'_>> for ConnectionKey {
                 authority: uri.authority().unwrap().clone(),
                 is_tls: true,
             },
-            Uri::Unix(uri) => ConnectionKey::Unix(AuthorityWithPath {
+            Uri::Unix(uri) => ConnectionKey::Unix {
                 authority: uri.authority().unwrap().clone(),
-                path_and_query: uri.path_and_query().unwrap().clone(),
-            }),
+                path: uri.path_and_query().unwrap().clone(),
+            },
         }
     }
 }

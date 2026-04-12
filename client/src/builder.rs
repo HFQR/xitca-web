@@ -165,7 +165,7 @@ impl ClientBuilder {
     ///
     /// # Example
     /// ```rust
-    /// use xitca_client::{error::Error, ClientBuilder, Lease, PoolRequest, Service};
+    /// use xitca_client::{error::Error, ClientBuilder, Lease, PoolRequest, Service, SpawnOutCome};
     ///
     /// struct MyPool;
     ///
@@ -176,7 +176,11 @@ impl ClientBuilder {
     ///     async fn call(&self, mut req: PoolRequest<'a, 'c>) -> Result<Self::Response, Self::Error> {
     ///         // consult user cache / emit metrics here.
     ///         // on miss, fall through to the built-in spawner to create a connection.
-    ///         req.spawn().await
+    ///         match req.spawn().await? {
+    ///             SpawnOutCome::Exclusive { .. } => todo!("exclusive connection for http1"),
+    ///             SpawnOutCome::Shared { .. } => todo!("shared connection for http2/http3"),
+    ///             SpawnOutCome::RetryLower { .. } => todo!("retry with a lower http version if desired")
+    ///         }
     ///     }
     /// }
     ///

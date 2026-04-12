@@ -142,7 +142,7 @@ where
         match self.get_mut().body {
             #[cfg(feature = "http1")]
             ResponseBody::H1(ref mut body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), cx).map_err(Into::into)
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(body.conn_mut().deref_mut()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => {
@@ -196,7 +196,7 @@ impl AsyncIo for HttpTunnel {
         let this = self.get_mut();
         match this.body {
             #[cfg(feature = "http1")]
-            ResponseBody::H1(ref mut body) => AsyncIo::poll_shutdown(Pin::new(&mut **body.conn_mut()), _cx),
+            ResponseBody::H1(ref mut body) => AsyncIo::poll_shutdown(Pin::new(body.conn_mut().deref_mut()), _cx),
             #[cfg(feature = "http2")]
             ResponseBody::H2(ref mut body) => this.io.poll_shutdown(body, _cx),
             _ => Poll::Ready(Ok(())),

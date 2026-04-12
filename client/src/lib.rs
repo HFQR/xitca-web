@@ -81,9 +81,7 @@ pub use self::service::{HttpService, Service, ServiceRequest};
 pub use self::timeout::TimeoutConfig;
 pub use self::tls::{TlsStream, connector::Connector};
 
-pub use self::pool::service::{
-    ExclusiveLease, ExclusiveLeaseInner, Lease, PoolRequest, PoolService, SharedLease, SharedLeaseInner,
-};
+pub use self::pool::service::{ExclusiveLease, Lease, Leaser, PoolRequest, PoolService, SharedLease, SpawnOutCome};
 
 // re-export http crate.
 pub use xitca_http::http;

@@ -54,7 +54,7 @@ pub(crate) fn base_service() -> HttpService {
                     let mut _timer = Box::pin(tokio::time::sleep(timeout));
                     *req.version_mut() = version;
                     #[allow(unreachable_patterns, unreachable_code)]
-                    match &mut *conn {
+                    match conn.deref_mut() {
                         #[cfg(feature = "http2")]
                         crate::connection::ConnectionShared::H2(c) => {
                             match crate::h2::proto::send(c, _date, core::mem::take(req))
@@ -66,11 +66,11 @@ pub(crate) fn base_service() -> HttpService {
                                     Ok(Response::new(res, _timer, timeout))
                                 }
                                 Ok(Err(e)) => {
-                                    conn.destroy_on_drop();
+                                    conn.mark_destroy();
                                     Err(e.into())
                                 }
                                 Err(_) => {
-                                    conn.destroy_on_drop();
+                                    conn.mark_destroy();
                                     Err(TimeoutError::Request.into())
                                 }
                             }
@@ -97,14 +97,14 @@ pub(crate) fn base_service() -> HttpService {
                     #[cfg(feature = "http1")]
                     {
                         let mut timer = Box::pin(tokio::time::sleep(timeout));
-                        let res = crate::h1::proto::send(&mut *_conn, _date, req)
+                        let res = crate::h1::proto::send(_conn.deref_mut(), _date, req)
                             .timeout(timer.as_mut())
                             .await;
 
                         match res {
                             Ok(Ok((res, buf, decoder, is_close))) => {
                                 if is_close {
-                                    _conn.destroy_on_drop();
+                                    _conn.mark_destroy();
                                 }
                                 let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
                                 let res = res.map(|_| crate::body::ResponseBody::H1(body));
@@ -112,11 +112,11 @@ pub(crate) fn base_service() -> HttpService {
                                 Ok(Response::new(res, timer, timeout))
                             }
                             Ok(Err(e)) => {
-                                _conn.destroy_on_drop();
+                                _conn.mark_destroy();
                                 Err(e.into())
                             }
                             Err(_) => {
-                                _conn.destroy_on_drop();
+                                _conn.mark_destroy();
                                 Err(TimeoutError::Request.into())
                             }
                         }

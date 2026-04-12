@@ -50,7 +50,7 @@ impl Body for ResponseBody {
                 ChunkResult::Ok(bytes) => return Poll::Ready(Some(Ok(Frame::Data(bytes)))),
                 ChunkResult::Trailers(trailers) => return Poll::Ready(Some(Ok(Frame::Trailers(trailers)))),
                 ChunkResult::InsufficientData => 'inner: loop {
-                    match xitca_unsafe_collection::bytes::read_buf(&mut *this.conn, &mut this.buf) {
+                    match xitca_unsafe_collection::bytes::read_buf(this.conn.deref_mut(), &mut this.buf) {
                         Ok(n) => {
                             if n == 0 {
                                 return Poll::Ready(Some(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())));
@@ -62,7 +62,7 @@ impl Body for ResponseBody {
                                 return Poll::Ready(Some(Err(e.into())));
                             }
 
-                            ready!(Pin::new(&mut **this.conn_mut()).poll_ready(Interest::READABLE, cx))?;
+                            ready!(Pin::new(this.conn_mut().deref_mut()).poll_ready(Interest::READABLE, cx))?;
                         }
                     }
                 },
@@ -88,7 +88,7 @@ impl Body for ResponseBody {
 impl Drop for ResponseBody {
     fn drop(&mut self) {
         if !self.decoder.is_eof() {
-            self.conn.destroy_on_drop()
+            self.conn.mark_destroy()
         }
     }
 }
