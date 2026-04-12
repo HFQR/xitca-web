@@ -1,4 +1,4 @@
-use core::{cmp, future::poll_fn, pin::pin};
+use core::{cmp, future::poll_fn, mem, pin::pin};
 
 use std::io;
 
@@ -102,7 +102,13 @@ where
         'out: loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
                 Some(Ok(Frame::Data(mut chunk))) => {
-                    while !chunk.is_empty() {
+                    let end_stream = body.is_end_stream();
+
+                    if chunk.is_empty() && !end_stream {
+                        continue;
+                    }
+
+                    loop {
                         let len = chunk.len();
 
                         stream.reserve_capacity(len);
@@ -111,15 +117,26 @@ where
                             .await
                             .ok_or_else(|| Error::Body(io::Error::from(io::ErrorKind::UnexpectedEof).into()))??;
 
-                        // Split chuck to writeable size and send to client.
-                        let bytes = chunk.split_to(cmp::min(cap, len));
+                        let aval = cmp::min(cap, len);
 
-                        let end_stream = chunk.is_empty() && body.is_end_stream();
+                        let full_comsumed = len == aval;
+
+                        let bytes = if full_comsumed {
+                            mem::take(&mut chunk)
+                        } else {
+                            chunk.split_to(aval)
+                        };
+
+                        let end_stream = full_comsumed && end_stream;
 
                         stream.send_data(bytes, end_stream)?;
 
                         if end_stream {
                             break 'out;
+                        }
+
+                        if full_comsumed {
+                            continue 'out;
                         }
                     }
                 }

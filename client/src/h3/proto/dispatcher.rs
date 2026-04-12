@@ -4,7 +4,7 @@ use ::h3_quinn::quinn::Endpoint;
 use xitca_http::date::DateTime;
 
 use crate::{
-    body::{Body, BodyError, Frame, ResponseBody, SizeHint},
+    body::{Body, BodyError, BodyExt, Frame, ResponseBody, SizeHint},
     bytes::Bytes,
     date::DateTimeHandle,
     h3::{Connection, Error},
@@ -64,7 +64,7 @@ where
 
     if !is_eof {
         let mut body = pin!(body);
-        while let Some(frame) = poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+        while let Some(frame) = body.as_mut().frame().await {
             let frame = frame.map_err(BodyError::from)?;
             match frame {
                 Frame::Data(bytes) => stream.send_data(bytes).await?,
