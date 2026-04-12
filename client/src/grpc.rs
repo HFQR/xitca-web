@@ -20,7 +20,7 @@ use super::{
     body::{Body, Frame, RequestBody},
     bytes::{Bytes, BytesMut},
     error::{Error, ErrorResponse},
-    http::{StatusCode, const_header_value::GRPC, header::CONTENT_TYPE},
+    http::{Request, StatusCode, const_header_value::GRPC, header::CONTENT_TYPE},
     request::RequestBuilder,
     response::Response,
     tunnel::{Tunnel, TunnelSink, TunnelStream},
@@ -35,7 +35,7 @@ pub use http_encoding::ContentEncoding;
 /// to HTTP/1.1: a gRPC request that can't complete an HTTP/2 handshake cannot succeed
 /// over HTTP/1.1 either, so surfacing the handshake error directly gives a better
 /// diagnostic than letting the response body fail to decode as gRPC framing.
-pub(crate) fn is_grpc_request<B>(req: &xitca_http::http::Request<B>) -> bool {
+pub(crate) fn is_grpc_request<B>(req: &Request<B>) -> bool {
     req.headers()
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())

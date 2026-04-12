@@ -320,8 +320,10 @@ impl Client {
     #[cfg(all(feature = "grpc", any(feature = "http2", feature = "http3")))]
     /// Start a new gRPC unary request.
     ///
-    /// gRPC is always carried over HTTP/2; the returned request builder is pinned to
-    /// [`Version::HTTP_2`] regardless of the client's `max_http_version`. The request
+    /// By default gRPC is carried over HTTP/2; the returned request builder is pinned to
+    /// [`Version::HTTP_2`] regardless of the client's `max_http_version`. When the
+    /// `http3` crate feature is enabled, HTTP/3 can be used instead by calling
+    /// [`RequestBuilder::version`] with [`Version::HTTP_3`]. The request
     /// is sent with a single [`prost::Message`] payload and the response body is
     /// decoded into another `prost::Message` via [`Response::grpc`].
     ///
@@ -379,8 +381,9 @@ impl Client {
     /// Unlike [`Client::grpc`], the returned request resolves to a [`Grpc`] tunnel that
     /// implements both [`Sink`] (for sending request messages) and [`Stream`] (for
     /// receiving response messages), and therefore supports client streaming, server
-    /// streaming and bidirectional streaming calls uniformly. The connection is always
-    /// HTTP/2.
+    /// streaming and bidirectional streaming calls uniformly. The connection defaults to
+    /// HTTP/2. When the `http3` crate feature is enabled, HTTP/3 can be used instead by
+    /// calling [`RequestBuilder::version`] with [`Version::HTTP_3`].
     ///
     /// [`Grpc`]: crate::grpc::Grpc
     /// [`Sink`]: futures::SinkExt

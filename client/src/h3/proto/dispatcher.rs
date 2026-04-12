@@ -58,7 +58,24 @@ where
         req.headers_mut().append(DATE, date);
     }
 
-    let is_head_method = *req.method() == Method::HEAD;
+    let mut is_head_method = false;
+    let mut should_finish = true;
+
+    match *req.method() {
+        Method::CONNECT => {
+            // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
+            let protocol = ::h3::ext::Protocol::CONNECT_UDP;
+            req.extensions_mut().insert(protocol);
+            should_finish = false;
+        }
+        #[cfg(feature = "grpc")]
+        Method::POST if crate::grpc::is_grpc_request(&req) && is_eof => {
+            // gRPC stream may start with zero body; keep the send side open.
+            should_finish = false;
+        }
+        Method::HEAD => is_head_method = true,
+        _ => {}
+    }
 
     let mut stream = stream.send_request(req).await?;
 
@@ -76,7 +93,9 @@ where
         }
     }
 
-    stream.finish().await?;
+    if should_finish {
+        stream.finish().await?;
+    }
 
     let res = stream.recv_response().await?;
 
@@ -107,7 +126,10 @@ pub(crate) async fn connect(
 async fn _connect(client: &Endpoint, addr: SocketAddr, hostname: &str) -> Result<Connection, Error> {
     let conn = client.connect(addr, hostname)?.await?;
 
-    let (mut task, conn) = h3::client::new(h3_quinn::Connection::new(conn)).await?;
+    let (mut task, conn) = h3::client::builder()
+        .enable_extended_connect(true)
+        .build(h3_quinn::Connection::new(conn))
+        .await?;
 
     tokio::spawn(async move {
         let _ = poll_fn(|cx| task.poll_close(cx)).await;
