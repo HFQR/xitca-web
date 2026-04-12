@@ -3,7 +3,7 @@ use core::{cmp, future::poll_fn, mem, pin::pin};
 use std::io;
 
 use ::h2::client;
-use xitca_http::{date::DateTime, http::header::CONTENT_TYPE};
+use xitca_http::date::DateTime;
 use xitca_io::io::{AsyncIo, PollIoAdapter};
 
 use crate::{
@@ -13,7 +13,6 @@ use crate::{
     h2::{Connection, Error, body::ResponseBody as H2ResponseBody},
     http::{
         self,
-        const_header_value::GRPC,
         header::{CONNECTION, CONTENT_LENGTH, DATE, HOST, HeaderValue, TRANSFER_ENCODING, UPGRADE},
         method::Method,
     },
@@ -86,7 +85,8 @@ where
             // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
             end_stream = false;
         }
-        Method::POST if req.headers().get(CONTENT_TYPE).is_some_and(|val| val == GRPC) && is_eof => {
+        #[cfg(feature = "grpc")]
+        Method::POST if crate::grpc::is_grpc_request(&req) && is_eof => {
             // grpc stream may start with zero body. in that case
             end_stream = false;
         }
