@@ -10,7 +10,7 @@ use super::{
     uri::Uri,
 };
 
-/// readiness probe used to evict dead cached entries before handing them to a caller. 
+/// readiness probe used to evict dead cached entries before handing them to a caller.
 /// implementations must return `Err` when the connection can no longer open new streams.
 pub trait Ready {
     fn ready(&mut self) -> impl Future<Output = Result<(), ()>> + Send;
