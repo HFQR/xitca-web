@@ -553,6 +553,135 @@ impl<'a, 'c> Service<PoolRequest<'a, 'c>> for DefaultPool {
 }
 
 #[cfg(test)]
+#[cfg(feature = "http1")]
+mod h1_tests {
+    use core::time::Duration;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use tokio::{io::AsyncWriteExt, net::TcpListener};
+
+    use crate::Client;
+
+    /// raw h1 server that replies with a well-formed Content-Length: 5 body
+    /// ("hello"), then after a short delay writes trailing garbage bytes into
+    /// the socket. the delay ensures the extra bytes arrive after the client
+    /// has consumed the body and returned the connection to the pool.
+    async fn serve_with_trailing_bytes(tcp: &mut tokio::net::TcpStream, extra_sent: Arc<tokio::sync::Notify>) {
+        use tokio::io::AsyncReadExt;
+
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let n = tcp.read(&mut buf).await.unwrap();
+            if n == 0 {
+                return;
+            }
+            if buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+
+        tcp.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+            .await
+            .unwrap();
+        tcp.flush().await.unwrap();
+
+        // wait for the client to consume the body and return the connection
+        // to the pool, then inject trailing garbage.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        tcp.write_all(b"EXTRA").await.unwrap();
+        tcp.flush().await.unwrap();
+        extra_sent.notify_one();
+    }
+
+    /// raw h1 server that replies with a well-formed response (no trailing garbage).
+    async fn serve_clean(tcp: &mut tokio::net::TcpStream) {
+        use tokio::io::AsyncReadExt;
+
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let n = tcp.read(&mut buf).await.unwrap();
+            if n == 0 {
+                return;
+            }
+            if buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+
+        let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+        tcp.write_all(response).await.unwrap();
+        tcp.flush().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn h1_leftover_bytes_evict_pool_entry() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/");
+
+        let accept_count = Arc::new(AtomicUsize::new(0));
+        let extra_sent = Arc::new(tokio::sync::Notify::new());
+
+        let server = {
+            let accept_count = accept_count.clone();
+            let extra_sent = extra_sent.clone();
+            tokio::spawn(async move {
+                // first connection: sends response then injects trailing garbage
+                let (mut tcp1, _) = listener.accept().await.unwrap();
+                accept_count.fetch_add(1, Ordering::SeqCst);
+                serve_with_trailing_bytes(&mut tcp1, extra_sent).await;
+
+                // second connection: the pool should have evicted the first
+                // connection due to leftover readable bytes, so the client
+                // opens a fresh TCP connection.
+                let (mut tcp2, _) = listener.accept().await.unwrap();
+                accept_count.fetch_add(1, Ordering::SeqCst);
+                serve_clean(&mut tcp2).await;
+
+                // keep sockets alive so the client can finish reading
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            })
+        };
+
+        let client = Client::builder().finish();
+
+        // first request: fully consume the 5-byte body
+        let res = client.get(&url).send().await.unwrap();
+        assert_eq!(res.status(), 200);
+        let body = res.body().await.unwrap();
+        assert_eq!(&body, b"hello");
+        // connection is returned to pool; server will inject trailing bytes shortly
+
+        // wait until the server has written the extra bytes into the socket
+        extra_sent.notified().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // second request: the Ready check should detect leftover readable
+        // data and discard the tainted connection, opening a fresh one.
+        let res = client.get(&url).send().await.unwrap();
+        assert_eq!(res.status(), 200);
+        let body = res.body().await.unwrap();
+        assert_eq!(&body, b"ok");
+
+        drop(client);
+
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("server task did not finish")
+            .unwrap();
+
+        assert_eq!(
+            accept_count.load(Ordering::SeqCst),
+            2,
+            "client should have opened a second TCP connection after detecting leftover bytes"
+        );
+    }
+}
+
+#[cfg(test)]
 #[cfg(feature = "http2")]
 mod tests {
     use core::time::Duration;

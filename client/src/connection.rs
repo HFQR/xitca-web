@@ -1,8 +1,30 @@
 use core::hash::{Hash, Hasher};
 
-use xitca_http::http::uri::{Authority, PathAndQuery};
+use std::io;
 
-use super::{pool::shared::Ready, tls::TlsStream, uri::Uri};
+use xitca_io::io::{AsyncIoDyn, Interest};
+
+use super::{
+    http::uri::{Authority, PathAndQuery},
+    pool::Ready,
+    tls::TlsStream,
+    uri::Uri,
+};
+
+impl<'a> Ready for Box<dyn AsyncIoDyn + Send + Sync + 'a> {
+    // an exclusive connect is considered ready if it's ready to be written(not closed)
+    // and have no left over bytes inside
+    async fn ready(&mut self) -> Result<(), ()> {
+        AsyncIoDyn::ready(self.as_mut(), Interest::WRITABLE)
+            .await
+            .map_err(|_| ())?;
+        match io::Read::read(self.as_mut(), &mut [0; 1]) {
+            Ok(_) => Err(()),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
+            Err(_) => Err(()),
+        }
+    }
+}
 
 /// exclusive connection for http1 and in certain case they can be upgraded to [ConnectionShared]
 pub type ConnectionExclusive = TlsStream;
@@ -44,6 +66,7 @@ impl Ready for ConnectionShared {
                 // stable poll_ready on SendRequest.
                 Ok(())
             }
+            _ => unreachable!(),
         }
     }
 }

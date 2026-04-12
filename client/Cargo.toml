@@ -89,4 +89,4 @@ http-multipart = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = "0.3"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }

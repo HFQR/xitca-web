@@ -1,5 +1,4 @@
 use core::{
-    future::Future,
     hash::Hash,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -10,6 +9,8 @@ use std::{
 };
 
 use tokio::sync::Notify;
+
+use super::Ready;
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
@@ -107,13 +108,6 @@ where
             }
         }
     }
-}
-
-/// readiness probe used by [Pool::acquire] to evict dead cached entries before
-/// handing them to a caller. implementations must return `Err` when the
-/// connection can no longer open new streams.
-pub(crate) trait Ready {
-    fn ready(&mut self) -> impl Future<Output = Result<(), ()>> + Send;
 }
 
 fn evict_if_generation_matches<K, C>(conns: &Mutex<HashMap<K, PooledConnection<C>>>, key: &K, generation: u64)
