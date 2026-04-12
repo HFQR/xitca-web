@@ -27,6 +27,12 @@ use crate::{
     service::{Service, ServiceDyn},
 };
 
+/// type alias for an object safe [Service] implementation for connection pools.
+///
+/// [Service]: crate::service::Service
+pub type PoolService =
+    Box<dyn for<'a, 'c> ServiceDyn<PoolRequest<'a, 'c>, Response = Lease, Error = Error> + Send + Sync>;
+
 // -----------------------------------------------------------------------------
 // public request / response types
 // -----------------------------------------------------------------------------
@@ -77,12 +83,6 @@ impl PoolRequest<'_, '_> {
         establish(self.client, &mut self.connect, self.version, self.allow_h2c_downgrade).await
     }
 }
-
-/// type alias for an object safe [Service] implementation for connection pools.
-///
-/// [Service]: crate::service::Service
-pub type PoolService =
-    Box<dyn for<'a, 'c> ServiceDyn<PoolRequest<'a, 'c>, Response = Lease, Error = Error> + Send + Sync>;
 
 /// a leased connection returned by a [PoolService].
 ///
@@ -299,18 +299,12 @@ pub(crate) struct DefaultPool {
     shared: shared::Pool<ConnectionKey, ConnectionShared>,
 }
 
-impl DefaultPool {
-    pub(crate) fn new(cap: usize, keep_alive_idle: Duration, keep_alive_born: Duration) -> Self {
-        Self {
-            exclusive: exclusive::Pool::new(cap, keep_alive_idle, keep_alive_born),
-            shared: shared::Pool::with_capacity(cap),
-        }
-    }
-}
-
 /// construct the default [PoolService] implementation.
 pub(crate) fn base_pool(cap: usize, keep_alive_idle: Duration, keep_alive_born: Duration) -> PoolService {
-    Box::new(DefaultPool::new(cap, keep_alive_idle, keep_alive_born))
+    Box::new(DefaultPool {
+        exclusive: exclusive::Pool::new(cap, keep_alive_idle, keep_alive_born),
+        shared: shared::Pool::with_capacity(cap),
+    })
 }
 
 impl<'a, 'c> Service<PoolRequest<'a, 'c>> for DefaultPool {
