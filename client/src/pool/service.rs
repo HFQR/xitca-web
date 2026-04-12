@@ -490,6 +490,9 @@ impl<'a, 'c> Service<PoolRequest<'a, 'c>> for DefaultPool {
             match req.version {
                 Version::HTTP_2 | Version::HTTP_3 => match self.shared.acquire(&req.connect.uri).await {
                     shared::AcquireOutput::Conn(c) => {
+                        // shared::Pool::acquire has already probed the cached
+                        // entry via the Ready trait — by this point the
+                        // connection is known to accept new streams.
                         return Ok(Lease::Shared {
                             conn: SharedLease::new(c),
                             version: req.version,
@@ -546,5 +549,88 @@ impl<'a, 'c> Service<PoolRequest<'a, 'c>> for DefaultPool {
                 },
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "http2")]
+mod tests {
+    use core::time::Duration;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use tokio::{net::TcpListener, sync::Notify};
+
+    use crate::{Client, http::Version};
+
+    /// drives a single h2 server connection: accepts one request, replies with
+    /// 200, optionally sends GOAWAY, then drains the connection until it closes.
+    async fn serve_one(tcp: tokio::net::TcpStream, send_goaway: bool) {
+        let mut conn = h2::server::handshake(tcp).await.unwrap();
+        if let Some(req) = conn.accept().await {
+            let (_req, mut respond) = req.unwrap();
+            let resp = crate::http::Response::builder().status(200).body(()).unwrap();
+            respond.send_response(resp, true).unwrap();
+        }
+        if send_goaway {
+            conn.graceful_shutdown();
+        }
+        while conn.accept().await.is_some() {}
+    }
+
+    #[tokio::test]
+    async fn h2_goaway_evicts_pool_entry() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/");
+
+        let accept_count = Arc::new(AtomicUsize::new(0));
+        let goaway_drained = Arc::new(Notify::new());
+
+        let server = {
+            let accept_count = accept_count.clone();
+            let goaway_drained = goaway_drained.clone();
+            tokio::spawn(async move {
+                let (tcp, _) = listener.accept().await.unwrap();
+                accept_count.fetch_add(1, Ordering::SeqCst);
+                serve_one(tcp, true).await;
+                goaway_drained.notify_one();
+
+                let (tcp, _) = listener.accept().await.unwrap();
+                accept_count.fetch_add(1, Ordering::SeqCst);
+                serve_one(tcp, false).await;
+            })
+        };
+
+        let client = Client::builder().finish();
+
+        let res = client.get(&url).version(Version::HTTP_2).send().await.unwrap();
+        assert_eq!(res.status(), 200);
+        drop(res);
+
+        // wait for the server side to send GOAWAY and the client connection task
+        // to drain it, so the cached SendRequest reports the connection unusable.
+        goaway_drained.notified().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let res = client.get(&url).version(Version::HTTP_2).send().await.unwrap();
+        assert_eq!(res.status(), 200);
+        drop(res);
+        // dropping the client releases the cached SendRequest, letting the
+        // server's second connection drain to completion.
+        drop(client);
+
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("server task did not finish")
+            .unwrap();
+
+        assert_eq!(
+            accept_count.load(Ordering::SeqCst),
+            2,
+            "client should have established a fresh tcp connection after GOAWAY"
+        );
     }
 }

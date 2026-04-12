@@ -157,7 +157,7 @@ where
         .await?;
 
     tokio::spawn(async {
-        task.await.expect("http2 connection failed");
+        let _ = task.await;
     });
 
     Ok(conn)

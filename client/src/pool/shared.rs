@@ -1,4 +1,8 @@
-use core::hash::Hash;
+use core::{
+    future::Future,
+    hash::Hash,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use std::{
     collections::HashMap,
@@ -9,13 +13,22 @@ use tokio::sync::Notify;
 
 #[doc(hidden)]
 pub struct Pool<K, C> {
-    conns: Arc<Mutex<HashMap<K, PooledConnection<C>>>>,
+    inner: Arc<Inner<K, C>>,
+}
+
+struct Inner<K, C> {
+    conns: Mutex<HashMap<K, PooledConnection<C>>>,
+    /// monotonic generation counter. each successfully cached entry is tagged
+    /// with a unique generation so a stale acquirer (e.g. one whose probe
+    /// returned `Err` after a fresh entry was already inserted) can recognize
+    /// it must not evict the new entry.
+    next_gen: AtomicU64,
 }
 
 impl<K, C> Clone for Pool<K, C> {
     fn clone(&self) -> Self {
         Self {
-            conns: self.conns.clone(),
+            inner: self.inner.clone(),
         }
     }
 }
@@ -27,47 +40,98 @@ where
 {
     pub(crate) fn with_capacity(_: usize) -> Self {
         Self {
-            conns: Arc::new(Mutex::new(HashMap::new())),
+            inner: Arc::new(Inner {
+                conns: Mutex::new(HashMap::new()),
+                next_gen: AtomicU64::new(0),
+            }),
         }
     }
 
     pub(crate) async fn acquire(&self, key: impl Into<K>) -> AcquireOutput<'_, K, C>
     where
-        C: Clone,
+        C: Ready,
     {
         let key = key.into();
         loop {
-            let notify = {
-                let mut conns = self.conns.lock().unwrap();
+            enum Step<C> {
+                Cached { conn: C, generation: u64 },
+                Wait(Arc<Notify>),
+                Spawn(Arc<Notify>),
+            }
+
+            let step = {
+                let mut conns = self.inner.conns.lock().unwrap();
                 match conns.get(&key) {
-                    Some(PooledConnection::Conn(c)) => {
-                        return AcquireOutput::Conn(Conn {
-                            pool: self.clone(),
-                            key,
-                            conn: c.clone(),
-                            destroy_on_drop: false,
-                        });
-                    }
-                    Some(PooledConnection::Spawning(notify)) => notify.clone(),
+                    Some(PooledConnection::Conn { conn, generation }) => Step::Cached {
+                        conn: conn.clone(),
+                        generation: *generation,
+                    },
+                    Some(PooledConnection::Spawning(notify)) => Step::Wait(notify.clone()),
                     None => {
                         let notify = Arc::new(Notify::new());
                         conns.insert(key.clone(), PooledConnection::Spawning(notify.clone()));
-                        return AcquireOutput::Spawner(Spawner {
-                            pool: self,
-                            key,
-                            notify,
-                            fulfilled: false,
-                        });
+                        Step::Spawn(notify)
                     }
                 }
             };
-            notify.notified().await;
+
+            match step {
+                Step::Cached { mut conn, generation } => {
+                    // probe the cached entry. when the underlying connection is no
+                    // longer accepting new streams (e.g. peer sent GOAWAY) drop the
+                    // entry from the cache and re-enter the loop to spawn or wait
+                    // on a fresh one. the generation check makes sure we never
+                    // evict a fresh entry that another acquirer installed while
+                    // our probe was awaiting.
+                    if conn.ready().await.is_err() {
+                        evict_if_generation_matches(&self.inner.conns, &key, generation);
+                        continue;
+                    }
+                    return AcquireOutput::Conn(Conn {
+                        pool: self.clone(),
+                        key,
+                        conn,
+                        generation,
+                        destroy_on_drop: false,
+                    });
+                }
+                Step::Wait(notify) => notify.notified().await,
+                Step::Spawn(notify) => {
+                    return AcquireOutput::Spawner(Spawner {
+                        pool: self,
+                        key,
+                        notify,
+                        fulfilled: false,
+                    });
+                }
+            }
         }
     }
 }
 
+/// readiness probe used by [Pool::acquire] to evict dead cached entries before
+/// handing them to a caller. implementations must return `Err` when the
+/// connection can no longer open new streams.
+pub(crate) trait Ready {
+    fn ready(&mut self) -> impl Future<Output = Result<(), ()>> + Send;
+}
+
+fn evict_if_generation_matches<K, C>(conns: &Mutex<HashMap<K, PooledConnection<C>>>, key: &K, generation: u64)
+where
+    K: Eq + Hash,
+{
+    let mut conns = conns.lock().unwrap();
+    if let Some(PooledConnection::Conn {
+        generation: current, ..
+    }) = conns.get(key)
+        && *current == generation
+    {
+        conns.remove(key);
+    }
+}
+
 enum PooledConnection<C> {
-    Conn(C),
+    Conn { conn: C, generation: u64 },
     Spawning(Arc<Notify>),
 }
 
@@ -86,6 +150,10 @@ where
     pool: Pool<K, C>,
     key: K,
     pub(crate) conn: C,
+    /// generation of the cached entry this lease was cloned from. used to
+    /// guard the destroy-on-drop eviction so a stale lease cannot remove a
+    /// freshly spawned replacement.
+    generation: u64,
     destroy_on_drop: bool,
 }
 
@@ -105,10 +173,7 @@ where
 {
     fn drop(&mut self) {
         if self.destroy_on_drop {
-            let mut conns = self.pool.conns.lock().unwrap();
-            if matches!(conns.get(&self.key), Some(PooledConnection::Conn(_))) {
-                conns.remove(&self.key);
-            }
+            evict_if_generation_matches(&self.pool.inner.conns, &self.key, self.generation);
         }
     }
 }
@@ -119,7 +184,7 @@ where
 {
     fn drop(&mut self) {
         if !self.fulfilled {
-            self.pool.conns.lock().unwrap().remove(&self.key);
+            self.pool.inner.conns.lock().unwrap().remove(&self.key);
         }
 
         self.notify.notify_waiters();
@@ -132,12 +197,14 @@ where
 {
     pub(crate) fn spawned(mut self, conn: C) {
         self.fulfilled = true;
+        let generation = self.pool.inner.next_gen.fetch_add(1, Ordering::Relaxed);
         if let Some(PooledConnection::Spawning(notify)) = self
             .pool
+            .inner
             .conns
             .lock()
             .unwrap()
-            .insert(self.key.clone(), PooledConnection::Conn(conn))
+            .insert(self.key.clone(), PooledConnection::Conn { conn, generation })
         {
             notify.notify_waiters();
         }
