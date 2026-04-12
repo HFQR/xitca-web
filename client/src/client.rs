@@ -164,7 +164,7 @@ impl Client {
     /// // write part can operate with Sink trait implement.
     /// write.send(b"996").await?;
     ///
-    /// let mut http_tunnel = client.connect("http://localhost:8080").send().await?;    
+    /// let mut http_tunnel = client.connect("http://localhost:8080").send().await?;
     ///
     /// // import AsyncIo trait and use http tunnel as io type directly.
     /// use xitca_io::io::{Interest, AsyncIo};
@@ -214,11 +214,11 @@ impl Client {
     /// let mut upgrade_response = client
     ///     .upgrade("http://localhost:8080", Method::GET)
     ///     .protocol(["protocol1", "protocol2"])
-    ///     .send().await?
-    /// ;
+    ///     .send()
+    ///     .await?;
     ///
     /// if let Some(upgrade) = upgrade_response.headers.get(xitca_client::http::header::UPGRADE) {
-    ///    // check which protocol it was upgraded to
+    ///     // check which protocol it was upgraded to
     /// }
     ///
     /// // upgrade_response is a response that contains the http request head and tunnel connection.
