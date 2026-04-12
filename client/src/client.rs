@@ -317,7 +317,7 @@ impl Client {
         self.get(url).version(Version::HTTP_2).mutate_marker()
     }
 
-    #[cfg(all(feature = "grpc", feature = "http2"))]
+    #[cfg(all(feature = "grpc", any(feature = "http2", feature = "http3")))]
     /// Start a new gRPC unary request.
     ///
     /// gRPC is always carried over HTTP/2; the returned request builder is pinned to
@@ -373,7 +373,7 @@ impl Client {
         crate::grpc::GrpcUnaryRequest::new(req)
     }
 
-    #[cfg(all(feature = "grpc", feature = "http2"))]
+    #[cfg(all(feature = "grpc", any(feature = "http2", feature = "http3")))]
     /// Start a new streaming gRPC request.
     ///
     /// Unlike [`Client::grpc`], the returned request resolves to a [`Grpc`] tunnel that

@@ -33,9 +33,9 @@ pub(crate) fn base_service() -> HttpService {
 
             // determine whether the pool is permitted to transparently downgrade
             // a failed h2c handshake to http/1. gRPC callers must disable this.
-            #[cfg(all(feature = "grpc", feature = "http2"))]
+            #[cfg(all(feature = "grpc", any(feature = "http2", feature = "http3")))]
             let allow_h2c_downgrade = !crate::grpc::is_grpc_request(&*req);
-            #[cfg(not(all(feature = "grpc", feature = "http2")))]
+            #[cfg(not(all(feature = "grpc", any(feature = "http2", feature = "http3"))))]
             let allow_h2c_downgrade = true;
 
             let lease = Service::call(

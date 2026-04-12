@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::super::body::MapBody;
+use super::super::body::ResponseBody as H3ResponseBody;
 
 pub(crate) async fn send<B>(
     stream: &mut Connection,
@@ -83,8 +83,7 @@ where
     let res = if is_head_method {
         res.map(|_| ResponseBody::Eof)
     } else {
-        let body = Box::pin(MapBody { body: stream });
-        res.map(|_| ResponseBody::H3(body))
+        res.map(|_| ResponseBody::H3(H3ResponseBody::new(stream)))
     };
 
     Ok(res)
