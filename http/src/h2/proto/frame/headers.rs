@@ -545,8 +545,6 @@ where
             return Err(e.into());
         }
 
-        self.pseudo.validate(&mut malformed);
-
         if malformed {
             tracing::trace!("malformed message");
             return Err(Error::MalformedMessage);
@@ -598,9 +596,6 @@ pub trait _Pseudo {
     );
 
     fn as_header_size(&self) -> usize;
-
-    /// Called after HPACK decoding completes to validate pseudo-header constraints.
-    fn validate(&self, _malformed: &mut bool) {}
 }
 
 impl _Pseudo for Pseudo {
@@ -688,28 +683,6 @@ impl _Pseudo for Pseudo {
                 *malformed = true;
             }
             _ => unreachable!(),
-        }
-    }
-
-    fn validate(&self, malformed: &mut bool) {
-        // RFC 7540 §8.1.2.3: :path MUST NOT be empty.
-        if self.path.as_deref().is_some_and(|p| p.is_empty()) {
-            tracing::trace!("pseudo validation; empty :path");
-            *malformed = true;
-            return;
-        }
-        // CONNECT method (§8.3) MUST NOT include :scheme or :path.
-        // All other methods MUST include both :scheme and :path.
-        let is_connect = self.method.as_ref().is_some_and(|m| m == crate::http::Method::CONNECT);
-        if !is_connect {
-            if self.scheme.is_none() {
-                tracing::trace!("pseudo validation; missing :scheme");
-                *malformed = true;
-            }
-            if self.path.is_none() {
-                tracing::trace!("pseudo validation; missing :path");
-                *malformed = true;
-            }
         }
     }
 

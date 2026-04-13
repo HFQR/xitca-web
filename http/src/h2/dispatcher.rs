@@ -33,7 +33,7 @@ use crate::{
     date::{DateTime, DateTimeHandle},
     error::BodyError,
     http::{
-        Extension, HeaderMap, Protocol, Request, RequestExt, Response, Uri, Version,
+        Extension, HeaderMap, Method, Protocol, Request, RequestExt, Response, Uri, Version,
         header::{CONTENT_LENGTH, DATE},
         uri,
     },
@@ -1091,6 +1091,47 @@ impl<'a, S> DecodeContext<'a, S> {
         let method = pseudo.method.ok_or(Error::Reset(id, Reason::PROTOCOL_ERROR))?;
 
         let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
+
+        // RFC 8441 §4: extended CONNECT follows normal request rules.
+        let is_strict_connect = method == Method::CONNECT && protocol.is_none();
+
+        // Validate and build URI from pseudo-headers in one pass.
+        // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme or :path.
+        // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme and non-empty :path.
+        let mut uri_parts = uri::Parts::default();
+
+        if let Some(authority) = pseudo.authority {
+            if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
+                uri_parts.authority = Some(a);
+            }
+        }
+
+        match (is_strict_connect, pseudo.scheme) {
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme.
+            // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme.
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(id, Reason::PROTOCOL_ERROR)),
+            (false, Some(scheme)) if uri_parts.authority.is_some() => {
+                if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
+                    uri_parts.scheme = Some(s);
+                }
+            }
+            _ => {}
+        }
+
+        match (is_strict_connect, pseudo.path) {
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :path.
+            // RFC 7540 §8.3: regular CONNECT MUST NOT include :path.
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(id, Reason::PROTOCOL_ERROR)),
+            (_, Some(path)) if !path.is_empty() => {
+                if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
+                    uri_parts.path_and_query = Some(pq);
+                }
+            }
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include non empty :path.
+            (false, _) => return Err(Error::Reset(id, Reason::PROTOCOL_ERROR)), // empty :path
+            _ => {}
+        }
+
         let ext = Extension::with_protocol(self.addr, protocol);
 
         let mut req = Request::new(RequestExt::from_parts((), ext));
@@ -1098,33 +1139,8 @@ impl<'a, S> DecodeContext<'a, S> {
         *req.headers_mut() = headers;
         *req.method_mut() = method;
 
-        // TODO: make this fallible
-        {
-            let mut uri_parts = uri::Parts::default();
-
-            if let Some(authority) = pseudo.authority {
-                if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
-                    uri_parts.authority = Some(a);
-                }
-            }
-
-            if let Some(scheme) = pseudo.scheme {
-                if uri_parts.authority.is_some() {
-                    if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
-                        uri_parts.scheme = Some(s);
-                    }
-                }
-            }
-
-            if let Some(path) = pseudo.path {
-                if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
-                    uri_parts.path_and_query = Some(pq);
-                }
-            }
-
-            if let Ok(uri) = Uri::from_parts(uri_parts) {
-                *req.uri_mut() = uri;
-            }
+        if let Ok(uri) = Uri::from_parts(uri_parts) {
+            *req.uri_mut() = uri;
         }
 
         let body = RequestBody::new(id, content_length, Rc::clone(self.ctx));

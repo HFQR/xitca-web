@@ -5,7 +5,7 @@ use xitca_http::{
     body::{BodyExt, Frame, ResponseBody},
     bytes::{Bytes, BytesMut},
     h2,
-    http::{Method, Request, RequestExt, Response, Version, header},
+    http::{HeaderMap, Method, Request, RequestExt, Response, Version, header},
 };
 use xitca_service::fn_service;
 use xitca_test::{Error, test_h2_server};
@@ -72,7 +72,13 @@ async fn h2_post() -> Result<(), Error> {
         for _ in 0..1024 * 1024 {
             body.extend_from_slice(b"Hello,World!");
         }
-        let mut res = c.post(&server_url).version(Version::HTTP_2).text(body).send().await?;
+        let mut res = c
+            .post(&server_url)
+            .version(Version::HTTP_2)
+            .text(body)
+            .trailers(HeaderMap::new())
+            .send()
+            .await?;
         assert_eq!(res.status().as_u16(), 200);
         assert!(!res.can_close_connection());
         let _ = res.body().await;
