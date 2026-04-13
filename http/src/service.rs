@@ -215,7 +215,7 @@ where
                     &self.config,
                 )
                 .await
-                .unwrap();
+                .map_err(super::h2::Error::Io)?;
 
                 Ok(())
             }

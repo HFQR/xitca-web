@@ -1,4 +1,7 @@
-# unreleased
+# 0.9.1
+## Fix 
+- fix HTTP/2 connect method handling
+- fix HTTP/2 pseudo header parsing for empty trailers
 
 # 0.9.0
 ## Add
