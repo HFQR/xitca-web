@@ -26,9 +26,10 @@ mod inner {
     use xitca_web::body::BodyExt;
 
     async fn handler(
-        body: Request<RequestExt<RequestBody>>,
+        req: Request<RequestExt<RequestBody>>,
     ) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
-        while let Some(frame) = body.into_body().frame().await {
+        let (_, body) = req.into_body().replace_body(|_| ());
+        while let Some(frame) = body.frame().await {
             frame?;
         }
 
