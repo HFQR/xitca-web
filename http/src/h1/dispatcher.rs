@@ -12,6 +12,7 @@ use std::net::Shutdown;
 use tracing::trace;
 use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
 use xitca_service::Service;
+use xitca_service::shutdown::{ShutdownFutureExt, ShutdownToken};
 use xitca_unsafe_collection::futures::SelectOutput;
 
 use crate::{
@@ -58,6 +59,7 @@ where
         config: HttpServiceConfig<H_LIMIT, R_LIMIT, W_LIMIT>,
         service: &'a S,
         date: &'a D,
+        shutdown_token: &ShutdownToken,
     ) -> Result<(), Error<S::Error, BE>> {
         let mut dispatcher = Dispatcher::<_, _, _, _, H_LIMIT, R_LIMIT, W_LIMIT> {
             io: SharedIo::new(io),
@@ -90,15 +92,23 @@ where
 
             dispatcher.timer.update(dispatcher.ctx.date().now());
 
-            match read_buf.read(dispatcher.io.io()).timeout(dispatcher.timer.get()).await {
-                Ok((res, r_buf)) => {
+            let is_read_buf_empty = read_buf.is_empty();
+
+            match read_buf
+                .read(dispatcher.io.io())
+                .timeout(dispatcher.timer.get())
+                .with_shutdown(shutdown_token, is_read_buf_empty)
+                .await
+            {
+                Some(Ok((res, r_buf))) => {
                     read_buf = r_buf;
 
                     if res? == 0 {
                         break Ok(());
                     }
                 }
-                Err(_) => break Err(dispatcher.timer.map_to_err()),
+                Some(Err(_)) => break Err(dispatcher.timer.map_to_err()),
+                None => break Ok(()),
             }
         };
 

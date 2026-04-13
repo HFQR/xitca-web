@@ -5,6 +5,7 @@ use std::{
     net::SocketAddr,
     net::TcpListener,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -18,7 +19,7 @@ use xitca_http::{
 };
 use xitca_io::{bytes::Bytes, net::Stream as NetStream};
 use xitca_server::{Builder, ServerFuture, ServerHandle};
-use xitca_service::{Service, ServiceExt, ready::ReadyService};
+use xitca_service::{Service, ServiceExt, ready::ReadyService, shutdown::ShutdownToken};
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -29,7 +30,7 @@ type HResponse<B> = Response<B>;
 pub fn test_server<T, Req>(service: T) -> Result<TestServerHandle, Error>
 where
     T: Service + Send + Sync + 'static,
-    T::Response: ReadyService + Service<Req>,
+    T::Response: ReadyService + Service<(Req, Arc<ShutdownToken>)>,
     Req: TryFrom<NetStream> + 'static,
 {
     let lst = TcpListener::bind("127.0.0.1:0")?;

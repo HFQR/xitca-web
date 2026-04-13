@@ -1,10 +1,12 @@
 use core::{fmt, marker::PhantomData, pin::pin};
 
+use std::sync::Arc;
+
 use xitca_io::{
     io::{AsyncBufRead, AsyncBufWrite},
     net::{Stream, TcpStream},
 };
-use xitca_service::{Service, ready::ReadyService};
+use xitca_service::{Service, ready::ReadyService, shutdown::ShutdownToken};
 
 use super::{
     body::{Body, RequestBody},
@@ -169,6 +171,7 @@ where
         _tls_stream: impl AsVersion + AsyncBufRead + AsyncBufWrite + 'static,
         _addr: core::net::SocketAddr,
         mut _timer: core::pin::Pin<&mut KeepAlive>,
+        shutdown_token: &ShutdownToken,
     ) -> Result<(), HttpServiceError<S::Error, B::Error>> {
         #[allow(unused_mut)]
         let mut version = _tls_stream.as_version();
@@ -197,6 +200,7 @@ where
                 self.config,
                 &self.service,
                 self.date.get(),
+                shutdown_token,
             )
             .await
             .map_err(From::from),
@@ -213,6 +217,7 @@ where
                     &self.service,
                     self.date.get(),
                     &self.config,
+                    shutdown_token,
                 )
                 .await
                 .unwrap();
@@ -225,7 +230,7 @@ where
 }
 
 #[cfg(feature = "io-uring")]
-impl<S, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<Stream>
+impl<S, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<(Stream, Arc<ShutdownToken>)>
     for HttpService<marker::Http, marker::Uring, Stream, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
@@ -237,7 +242,7 @@ where
     type Response = ();
     type Error = HttpServiceError<S::Error, B::Error>;
 
-    async fn call(&self, io: Stream) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, (io, st): (Stream, Arc<ShutdownToken>)) -> Result<Self::Response, Self::Error> {
         // tls accept timer.
         let timer = self.keep_alive();
         let mut timer = pin!(timer);
@@ -245,7 +250,7 @@ where
         match io {
             #[cfg(feature = "http3")]
             Stream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service)
-                .run()
+                .run(st.as_ref())
                 .await
                 .map_err(From::from),
             Stream::Tcp(io, _addr) => {
@@ -258,7 +263,7 @@ where
                     .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
                     .map_err(Into::into)?;
 
-                self.dispatch(_tls_stream, _addr, timer.as_mut()).await
+                self.dispatch(_tls_stream, _addr, timer.as_mut(), st.as_ref()).await
             }
             #[cfg(unix)]
             Stream::Unix(_io, _) => {
@@ -271,14 +276,15 @@ where
                     .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
                     .map_err(Into::into)?;
 
-                self.dispatch(_tls_stream, crate::unspecified_socket_addr(), timer.as_mut())
+                self.dispatch(_tls_stream, crate::unspecified_socket_addr(), timer.as_mut(), st.as_ref())
                     .await
             }
         }
     }
 }
 
-impl<S, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize> Service<Stream>
+impl<S, B, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
+    Service<(Stream, Arc<ShutdownToken>)>
     for HttpService<marker::Http, marker::Poll, Stream, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
@@ -290,7 +296,7 @@ where
     type Response = ();
     type Error = HttpServiceError<S::Error, B::Error>;
 
-    async fn call(&self, io: Stream) -> Result<Self::Response, Self::Error> {
+    async fn call(&self, (io, st): (Stream, Arc<ShutdownToken>)) -> Result<Self::Response, Self::Error> {
         // tls accept timer.
         let timer = self.keep_alive();
         let mut timer = pin!(timer);
@@ -298,7 +304,7 @@ where
         match io {
             #[cfg(feature = "http3")]
             Stream::Udp(io, addr) => super::h3::Dispatcher::new(io, addr, &self.service)
-                .run()
+                .run(st.as_ref())
                 .await
                 .map_err(From::from),
             Stream::Tcp(io, _addr) => {
@@ -311,7 +317,7 @@ where
                     .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
                     .map_err(Into::into)?;
 
-                self.dispatch(_tls_stream, _addr, timer.as_mut()).await
+                self.dispatch(_tls_stream, _addr, timer.as_mut(), st.as_ref()).await
             }
             #[cfg(unix)]
             Stream::Unix(_io, _) => {
@@ -324,8 +330,13 @@ where
                     .map_err(|_| HttpServiceError::Timeout(TimeoutError::TlsAccept))?
                     .map_err(Into::into)?;
 
-                self.dispatch(_tls_stream, crate::unspecified_socket_addr(), timer.as_mut())
-                    .await
+                self.dispatch(
+                    _tls_stream,
+                    crate::unspecified_socket_addr(),
+                    timer.as_mut(),
+                    st.as_ref(),
+                )
+                .await
             }
         }
     }

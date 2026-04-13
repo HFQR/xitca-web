@@ -52,9 +52,11 @@ impl ServerFuture {
         match *self {
             Self::Init { ref server, .. } => Ok(ServerHandle {
                 tx: server.tx_cmd.clone(),
+                shutdown_token: server.shutdown_token.clone(),
             }),
             Self::Running(ref inner) => Ok(ServerHandle {
                 tx: inner.server.tx_cmd.clone(),
+                shutdown_token: inner.server.shutdown_token.clone(),
             }),
             Self::Error(_) => match mem::take(self) {
                 Self::Error(e) => Err(e),

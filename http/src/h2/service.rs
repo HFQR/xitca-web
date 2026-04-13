@@ -1,7 +1,9 @@
 use core::{fmt, net::SocketAddr, pin::pin};
 
+use std::sync::Arc;
+
 use xitca_io::io::{AsyncBufRead, AsyncBufWrite};
-use xitca_service::Service;
+use xitca_service::{Service, shutdown::ShutdownToken};
 
 use crate::{
     body::Body,
@@ -19,7 +21,8 @@ pub type H2Service<St, Io, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT
     HttpService<marker::Http2, Io, St, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>;
 
 impl<St, Io, S, B, A, TlsSt, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIMIT: usize>
-    Service<(St, SocketAddr)> for H2Service<St, Io, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
+    Service<((St, SocketAddr), Arc<ShutdownToken>)>
+    for H2Service<St, Io, S, A, HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<B>>,
     S::Error: fmt::Debug,
@@ -32,7 +35,10 @@ where
     type Response = ();
     type Error = HttpServiceError<S::Error, B::Error>;
 
-    async fn call(&self, (io, addr): (St, SocketAddr)) -> Result<Self::Response, Self::Error> {
+    async fn call(
+        &self,
+        ((io, addr), st): ((St, SocketAddr), Arc<ShutdownToken>),
+    ) -> Result<Self::Response, Self::Error> {
         // tls accept timer.
         let timer = self.keep_alive();
         let mut timer = pin!(timer);
@@ -55,6 +61,7 @@ where
             &self.service,
             self.date.get(),
             &self.config,
+            st.as_ref(),
         )
         .await
         .unwrap();
