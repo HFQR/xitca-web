@@ -28,7 +28,7 @@ mod inner {
     async fn handler(
         req: Request<RequestExt<RequestBody>>,
     ) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
-        let (_, body) = req.into_body().replace_body(());
+        let (_, mut body) = req.into_body().replace_body(());
         while let Some(frame) = body.frame().await {
             frame?;
         }
