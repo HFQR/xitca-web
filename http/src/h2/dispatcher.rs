@@ -31,7 +31,6 @@ use crate::{
     bytes::Bytes,
     config::HttpServiceConfig,
     date::{DateTime, DateTimeHandle},
-    error::BodyError,
     http::{
         Extension, HeaderMap, Method, Protocol, Request, RequestExt, Response, Uri, Version,
         header::{CONTENT_LENGTH, DATE},
@@ -60,6 +59,8 @@ use super::{
             window_update::WindowUpdate,
         },
         hpack,
+        size::BodySize,
+        stream::Stream,
     },
     util::Deque,
 };
@@ -76,189 +77,8 @@ struct DecodeContext<'a, S> {
     date: &'a DateTimeHandle,
 }
 
-type Frame = crate::body::Frame<Bytes>;
-type FrameBuffer = super::util::FrameBuffer<Frame>;
-
-trait BodySize {
-    /// Parse content-length from headers.
-    /// Returns `Err(())` if the header is present but malformed (RFC 7540 §8.1.2.6).
-    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()>
-    where
-        Self: Sized;
-
-    /// Subtract `len` bytes received in a DATA frame.
-    /// Returns `Err(())` if this would underflow (overflow: more data than declared).
-    fn dec(&mut self, len: usize) -> io::Result<()>;
-
-    /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
-    fn ensure_zero(&self) -> io::Result<()>;
-}
-
-impl BodySize for SizeHint {
-    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()> {
-        if is_end_stream {
-            Ok(Self::None)
-        } else {
-            match headers.get(CONTENT_LENGTH) {
-                Some(v) => {
-                    let s = v.to_str().map_err(|_| ())?;
-                    let len = headers::parse_u64(s.as_bytes())?;
-                    Ok(Self::Exact(len))
-                }
-                None => Ok(Self::Unknown),
-            }
-        }
-    }
-
-    /// Subtract `len` bytes received in a DATA frame.
-    /// Returns `Err(())` if this would underflow (overflow: more data than declared).
-    fn dec(&mut self, len: usize) -> io::Result<()> {
-        match self {
-            Self::Unknown => Ok(()),
-            Self::None => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded")),
-            Self::Exact(rem) => {
-                *rem = rem
-                    .checked_sub(len as u64)
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded"))?;
-                Ok(())
-            }
-        }
-    }
-
-    /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
-    fn ensure_zero(&self) -> io::Result<()> {
-        match self {
-            Self::Unknown | Self::None | Self::Exact(0) => Ok(()),
-            Self::Exact(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length underflow")),
-        }
-    }
-}
-
-pub(super) struct StreamState {
-    pub(super) recv_state: RecvState,
-    send_state: SendState,
-    /// Bitfield tracking closure state for both directions. See the associated
-    /// constants below for the individual bit meanings.
-    flag: u8,
-}
-
-impl StreamState {
-    /// Stream is open in both receive and send direction
-    const OPEN: u8 = 0;
-    /// Peer sent END_STREAM or RST_STREAM: no more inbound DATA will arrive.
-    /// `is_empty` uses this bit so the stream stays in the map until the peer
-    /// is truly done, even if the service dropped `RequestBody` early.
-    /// Also signals `poll_next` EOF on the graceful close path.
-    const RECV_CLOSED: u8 = 1 << 0;
-    /// Service dropped `RequestBody` without consuming it to EOF. The body
-    /// consumer is gone but the peer may still be sending DATA frames that
-    /// must be accounted for (content-length enforcement, window management).
-    /// Also signals `poll_next` EOF on the early-cancel path.
-    pub(super) const RECV_CANCELED: u8 = 1 << 1;
-    /// Response task finished (half-closed local). Stream stays in the map
-    /// until `RECV_CLOSED` is also set so WINDOW_UPDATE overflow can still
-    /// be detected (RFC §6.9.1).
-    const SEND_CLOSED: u8 = 1 << 2;
-
-    #[allow(dead_code)]
-    // TODO: strip response body for HEAD method request.
-    const HEAD_METHOD: u8 = 1 << 3;
-
-    fn recv_canceled(&self) -> bool {
-        self.flag & Self::RECV_CANCELED == Self::RECV_CANCELED
-    }
-
-    pub(super) fn recv_closed(&self) -> bool {
-        self.flag & Self::RECV_CLOSED == Self::RECV_CLOSED
-    }
-
-    fn send_closed(&self) -> bool {
-        self.flag & Self::SEND_CLOSED == Self::SEND_CLOSED
-    }
-
-    pub(super) fn add_flag(&mut self, flag: u8) {
-        self.flag |= flag;
-    }
-
-    fn closed(&self) -> bool {
-        const CLOSED: u8 = StreamState::RECV_CLOSED | StreamState::SEND_CLOSED;
-        self.flag & CLOSED == CLOSED
-    }
-
-    pub(super) fn is_empty(&self) -> bool {
-        // Both directions must be closed at the protocol level before the
-        // entry can be removed. RECV_CANCELED is a consumer-side signal and
-        // does not gate removal.
-        self.closed() && self.recv_state.queue.is_empty() && self.recv_state.error.is_none()
-    }
-
-    /// Push a frame to the recv queue, waking the body reader. If the service
-    /// already dropped `RequestBody` (RECV_CANCELED), DATA frames are discarded
-    /// and their flow-control bytes are replenished on the connection window.
-    /// Callers must ensure the recv side is not already closed.
-    fn push_frame(&mut self, buf: &mut FrameBuffer, queue: &mut WriterQueue, frame: Frame) {
-        debug_assert!(!self.recv_closed(), "try_push_frame called on recv-closed stream");
-        if !self.recv_canceled() {
-            self.recv_state.queue.push_back(buf, frame);
-            self.recv_state.wake();
-        } else if let Frame::Data(data) = frame {
-            // Data discarded (RECV_CANCELED): replenish connection
-            // window so other streams don't stall.
-            queue.push_window_update(data.len());
-        }
-    }
-
-    /// Set a recv-side error for the body reader. No-op if the service already
-    /// dropped `RequestBody` (RECV_CANCELED) or the recv side is already closed.
-    fn try_set_err(&mut self, err: io::Error) {
-        if !self.recv_closed() && !self.recv_canceled() {
-            self.recv_state.error = Some(Box::new(err));
-        }
-    }
-}
-
-pub(super) struct RecvState {
-    /// Buffered DATA / Trailers frames for the request body, pushed by the
-    /// decode path and drained by `RequestBody::poll_next`. Indices into
-    /// the shared `ConnectionInner::frame_buf` slab.
-    pub(super) queue: Deque,
-    /// Waker stored by `RequestBody::poll_next` when the queue is empty;
-    /// woken by the decode path after pushing new data.
-    pub(super) waker: Option<Waker>,
-    /// Remaining bytes the client may send on this stream (RFC 7540 §6.9).
-    pub(super) window: usize,
-    /// Terminal error set when the stream is reset by the peer (RST_STREAM)
-    /// while `RequestBody` is still alive. Delivered as `Err` on the next
-    /// `poll_next` call so the caller knows the body was truncated.
-    pub(super) error: Option<BodyError>,
-    /// RFC 7540 §8.1.2.6: tracks remaining expected DATA bytes.
-    content_length: SizeHint,
-}
-
-impl RecvState {
-    fn wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
-}
-
-struct SendState {
-    /// Remaining send window for this stream. Signed because a SETTINGS change
-    /// reducing INITIAL_WINDOW_SIZE can drive it negative; the stream must not
-    /// send until WINDOW_UPDATE brings it back above zero (RFC 7540 §6.9.2).
-    window: i64,
-    frame_size: usize,
-    waker: Option<Waker>,
-}
-
-impl SendState {
-    fn wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
-}
+pub(super) type Frame = crate::body::Frame<Bytes>;
+pub(super) type FrameBuffer = super::util::FrameBuffer<Frame>;
 
 /// State machine for the server-initiated keepalive PING (CVE-2019-9512,
 /// CVE-2019-9517).
@@ -349,7 +169,7 @@ pub(super) struct FlowControl {
     recv_connection_window: usize,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
-    pub(super) stream_map: HashMap<StreamId, StreamState, NoHashBuilder>,
+    pub(super) stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
     /// Net count of premature resets: incremented when RST_STREAM arrives for
     /// an active response task, decremented when a stream completes normally.
     /// Stays near zero for well-behaved clients; climbs toward
@@ -361,7 +181,104 @@ pub(super) struct FlowControl {
     /// causes new-stream HEADERS to be silently dropped (RFC 7540 §6.8)
     /// and signals the dispatcher's main loop that the graceful drain
     /// can terminate when the in-flight queue empties.
-    pub(super) last_stream_id: LastStreamId,
+    last_stream_id: LastStreamId,
+}
+
+impl FlowControl {
+    fn insert_stream(&mut self, id: StreamId, end_stream: bool, content_length: SizeHint) {
+        let stream = Stream::new(self.stream_window, self.max_frame_size, content_length, end_stream);
+
+        self.stream_map.insert(id, stream);
+    }
+
+    fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
+        if id > self.last_stream_id.get() {
+            Err(Error::GoAway(Reason::PROTOCOL_ERROR))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn recv_window_dec(&mut self, len: usize) -> Result<(), Error> {
+        self.recv_connection_window = self
+            .recv_connection_window
+            .checked_sub(len)
+            .ok_or(Error::GoAway(Reason::FLOW_CONTROL_ERROR))?;
+        Ok(())
+    }
+
+    fn try_get_stream_recv(&mut self, id: &StreamId) -> Result<&mut Stream, Error> {
+        let stream = self.stream_map.get_mut(id).ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
+        stream.try_get_stream_recv()
+    }
+
+    /// Close both sides and remove the stream unconditionally.
+    fn remove_stream(&mut self, id: StreamId) {
+        if let Some(mut state) = self.stream_map.remove(&id) {
+            state.recv.set_close();
+            state.recv.wake();
+            state.send.set_close();
+            state.send.wake();
+        }
+    }
+
+    /// Close the send side of a stream. Wakes any parked response task,
+    /// then removes the stream if both sides are done.
+    /// Returns `true` if the stream was present in the map (used by
+    /// `StreamGuard::drop` to decide whether to credit back a premature reset).
+    fn remove_send(&mut self, id: StreamId) -> bool {
+        if let Some(state) = self.stream_map.get_mut(&id) {
+            state.send.set_close();
+            state.send.wake();
+            if state.is_empty() {
+                self.stream_map.remove(&id);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Apply `delta` to every active send stream's window and wake any that
+    /// now have a positive window. Use `delta = 0` to wake without changing
+    /// windows (e.g. after a connection-level WINDOW_UPDATE).
+    fn update_and_wake_send_streams(&mut self, delta: i64) {
+        for state in self.stream_map.values_mut() {
+            let sf = &mut state.send;
+            sf.window += delta;
+            if sf.window > 0 {
+                sf.wake();
+            }
+        }
+    }
+
+    // A RST_STREAM is "premature" if the stream is still tracked — either
+    // the response task is running or the request body is still being
+    // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
+    fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
+        let Some(state) = self.stream_map.get_mut(&id) else {
+            return Ok(());
+        };
+
+        state.try_set_err(io::Error::new(
+            io::ErrorKind::ConnectionReset,
+            "h2 stream reset by peer",
+        ));
+
+        self.premature_reset_count += 1;
+
+        if self.premature_reset_count > PREMATURE_RESET_LIMIT {
+            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
+        }
+
+        if state.recv.recv_closed() {
+            self.remove_stream(id);
+        } else {
+            self.remove_send(id);
+        }
+
+        Ok(())
+    }
 }
 
 /// The peer's remote settings and their ACK state.
@@ -397,115 +314,6 @@ impl RemoteSettings {
             }
             Settings::ack().encode(buf);
         }
-    }
-}
-
-impl FlowControl {
-    fn insert_stream(&mut self, id: StreamId, is_end_stream: bool, content_length: SizeHint) {
-        let (flag, window) = if is_end_stream {
-            (StreamState::RECV_CLOSED, 0)
-        } else {
-            (StreamState::OPEN, settings::DEFAULT_INITIAL_WINDOW_SIZE as usize)
-        };
-
-        let state = StreamState {
-            recv_state: RecvState {
-                queue: Deque::new(),
-                waker: None,
-                window,
-                error: None,
-                content_length,
-            },
-            send_state: SendState {
-                window: self.stream_window,
-                frame_size: self.max_frame_size,
-                waker: None,
-            },
-            flag,
-        };
-
-        self.stream_map.insert(id, state);
-    }
-
-    fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
-        if id > self.last_stream_id.get() {
-            Err(Error::GoAway(Reason::PROTOCOL_ERROR))
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Close both sides of a stream. Shortcut for calling `remove_recv` +
-    /// `remove_send` together on unrecoverable protocol errors.
-    fn remove_stream(&mut self, id: StreamId) {
-        self.remove_recv(id);
-        self.remove_send(id);
-    }
-
-    /// Close the receive side of a stream. Sets `RECV_CLOSED`, wakes any
-    /// parked `RequestBody`, then removes the stream if both sides are done.
-    fn remove_recv(&mut self, id: StreamId) {
-        if let Some(state) = self.stream_map.get_mut(&id) {
-            state.add_flag(StreamState::RECV_CLOSED);
-            state.recv_state.wake();
-            if state.is_empty() {
-                self.stream_map.remove(&id);
-            }
-        }
-    }
-
-    /// Close the send side of a stream. Sets `SEND_CLOSED`, wakes any parked
-    /// response task, then removes the stream if both sides are done.
-    /// Returns `true` if the stream was present in the map (used by
-    /// `StreamGuard::drop` to decide whether to credit back a premature reset).
-    fn remove_send(&mut self, id: StreamId) -> bool {
-        if let Some(state) = self.stream_map.get_mut(&id) {
-            state.add_flag(StreamState::SEND_CLOSED);
-            state.send_state.wake();
-            if state.is_empty() {
-                self.stream_map.remove(&id);
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Apply `delta` to every active send stream's window and wake any that
-    /// now have a positive window. Use `delta = 0` to wake without changing
-    /// windows (e.g. after a connection-level WINDOW_UPDATE).
-    fn update_and_wake_send_streams(&mut self, delta: i64) {
-        for state in self.stream_map.values_mut() {
-            let sf = &mut state.send_state;
-            sf.window += delta;
-            if sf.window > 0 {
-                sf.wake();
-            }
-        }
-    }
-
-    // A RST_STREAM is "premature" if the stream is still tracked — either
-    // the response task is running or the request body is still being
-    // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
-    fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
-        let Some(state) = self.stream_map.get_mut(&id) else {
-            return Ok(());
-        };
-
-        state.try_set_err(io::Error::new(
-            io::ErrorKind::ConnectionReset,
-            "h2 stream reset by peer",
-        ));
-
-        self.premature_reset_count += 1;
-
-        if self.premature_reset_count > PREMATURE_RESET_LIMIT {
-            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
-        }
-
-        self.remove_stream(id);
-
-        Ok(())
     }
 }
 
@@ -558,74 +366,48 @@ pub(super) struct ConnectionState {
 }
 
 impl ConnectionState {
-    fn handle_data(&mut self, id: StreamId, payload: Bytes, is_end: bool) -> Result<(), Error> {
-        let payload_len = payload.len();
+    pub(super) fn request_body_drop(&mut self, id: &StreamId) {
+        let flow = &mut self.flow;
+        let state = flow
+            .stream_map
+            .get_mut(id)
+            .expect("RequestBody is the owner of Recv type and stream MUST NOT be removed when it's still alive");
 
-        // A zero-length DATA frame without END_STREAM carries no
-        // payload and signals nothing — it has no legitimate purpose.
-        // The only valid use of empty DATA is to set END_STREAM on a
-        // stream with no body (RFC 7540 §6.1).
-        if payload_len == 0 && !is_end {
-            return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+        state.recv.close_recv();
+
+        state.recv.queue.clear(&mut self.frame_buf);
+
+        if state.send.send_closed() {
+            flow.stream_map.remove(id);
         }
+    }
 
-        if payload_len > self.flow.recv_connection_window {
-            return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
-        }
+    fn handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
+        let len = payload.len();
 
-        self.flow.recv_connection_window -= payload_len;
+        self.flow.recv_window_dec(len)?;
 
-        // Three cases (RFC 7540 §5.1 / §6.1):
-        //   body_tx open  → active stream; forward payload, restore window on success.
-        //   body_tx closed → half-closed (remote); DATA after END_STREAM → STREAM_CLOSED.
-        //   Ok(None)       → fully closed stream → STREAM_CLOSED.
-        // For the error cases the window is restored via the Reset handler in try_decode.
-        let reason = match self.flow.stream_map.get_mut(&id) {
-            Some(state) if !state.recv_closed() => {
-                // RFC 7540 §8.1.2.6: overflow — more data received than content-length declared.
-                let reason = if let Err(err) = state.recv_state.content_length.dec(payload_len) {
-                    state.try_set_err(err);
-                    Reason::PROTOCOL_ERROR
-                } else if payload_len > state.recv_state.window {
-                    state.try_set_err(io::Error::new(io::ErrorKind::InvalidData, "flow control error"));
-                    Reason::FLOW_CONTROL_ERROR
-                } else {
-                    state.recv_state.window -= payload_len;
+        let stream = self.flow.try_get_stream_recv(&id).inspect_err(|_| {
+            self.queue.push_window_update(len);
+        })?;
 
-                    // Service may have dropped RequestBody early (RECV_CANCELED).
-                    // Still track content-length above, but discard the payload.
-                    state.push_frame(&mut self.frame_buf, &mut self.queue, Frame::Data(payload));
+        stream.length_check(len, end_stream).inspect_err(|_| {
+            self.queue.push_window_update(len);
+        })?;
 
-                    if is_end {
-                        match state.recv_state.content_length.ensure_zero() {
-                            Ok(_) => {
-                                self.flow.remove_recv(id);
-                                return Ok(());
-                            }
-                            // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-                            Err(err) => {
-                                state.try_set_err(err);
-                                Reason::PROTOCOL_ERROR
-                            }
-                        }
-                    } else {
-                        return Ok(());
-                    }
-                };
+        let body_gone = stream.push_frame(
+            &mut self.frame_buf,
+            &mut self.queue,
+            Frame::Data(payload),
+            end_stream,
+            id,
+        );
 
-                self.flow.remove_stream(id);
-
-                reason
-            }
-            // RECV_CLOSED: half-closed (remote); any further DATA is STREAM_CLOSED.
-            // stream not in map: fully closed; same error.
-            _ => Reason::STREAM_CLOSED,
+        if body_gone && end_stream {
+            self.flow.remove_stream(id);
         };
 
-        // Replenish connection-level window for the rejected DATA payload; the
-        // bytes were already subtracted above and the stream is being reset.
-        self.queue.push_window_update(payload_len);
-        Err(Error::Reset(id, reason))
+        Ok(())
     }
 }
 
@@ -751,11 +533,7 @@ impl<'a, S> DecodeContext<'a, S> {
             match self.try_decode(buf) {
                 Ok(Some(res)) => on_msg(self, res),
                 Ok(None) => return Ok(()),
-                Err(Error::Reset(id, reason)) => match self.handle_stream_reset(id, reason) {
-                    Ok(()) => {}
-                    Err(Error::GoAway(reason)) => break reason,
-                    Err(_) => unreachable!(),
-                },
+                Err(Error::Reset(_)) => unreachable!(),
                 Err(Error::GoAway(reason)) => break reason,
                 Err(Error::Hpack(_)) => break Reason::COMPRESSION_ERROR,
                 Err(Error::MalformedMessage) => break Reason::PROTOCOL_ERROR,
@@ -816,6 +594,16 @@ impl<'a, S> DecodeContext<'a, S> {
     }
 
     fn decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
+        match self._decode_frame(head, frame) {
+            Err(Error::Reset(reason)) => {
+                self.handle_stream_reset(head.stream_id(), reason)?;
+                Ok(None)
+            }
+            res => res,
+        }
+    }
+
+    fn _decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
         match (head.kind(), &self.continuation) {
             (head::Kind::Continuation, _) => return self.handle_continuation(head, frame),
             // RFC 7540 §6.10: while a header block is in progress, the peer
@@ -845,8 +633,13 @@ impl<'a, S> DecodeContext<'a, S> {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
                         flow.check_not_idle(id)?;
-                        flow.remove_stream(id);
-                        return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+                        if let Some(state) = flow.stream_map.get_mut(&id) {
+                            state.try_set_err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "WINDOW_UPDATE with zero increment",
+                            ));
+                        }
+                        return Err(Error::Reset(Reason::PROTOCOL_ERROR));
                     }
                     (incr, StreamId::ZERO) => {
                         let incr = incr as usize;
@@ -869,10 +662,10 @@ impl<'a, S> DecodeContext<'a, S> {
                         let incr = incr as i64;
                         let window = flow.send_connection_window;
                         if let Some(state) = flow.stream_map.get_mut(&id) {
-                            let sf = &mut state.send_state;
+                            let sf = &mut state.send;
                             if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                flow.remove_stream(id);
-                                return Err(Error::Reset(id, Reason::FLOW_CONTROL_ERROR));
+                                state.try_set_err(io::Error::new(io::ErrorKind::InvalidData, "WINDOW_UPDATE overflow"));
+                                return Err(Error::Reset(Reason::FLOW_CONTROL_ERROR));
                             } else {
                                 sf.window += incr;
                                 if window > 0 {
@@ -973,7 +766,7 @@ impl<'a, S> DecodeContext<'a, S> {
                 let overflow = flow
                     .stream_map
                     .values()
-                    .any(|s| s.send_state.window + delta > settings::MAX_INITIAL_WINDOW_SIZE as i64);
+                    .any(|s| s.send.window + delta > settings::MAX_INITIAL_WINDOW_SIZE as i64);
                 if overflow {
                     return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
                 }
@@ -988,7 +781,7 @@ impl<'a, S> DecodeContext<'a, S> {
             let frame_size = frame_size as usize;
             flow.max_frame_size = frame_size;
             for state in flow.stream_map.values_mut() {
-                state.send_state.frame_size = frame_size;
+                state.send.frame_size = frame_size;
             }
         }
 
@@ -1016,7 +809,7 @@ impl<'a, S> DecodeContext<'a, S> {
                 Error::MalformedMessage => {
                     let id = headers.stream_id();
                     let _ = self.ctx.borrow_mut().flow.last_stream_id.try_set(id);
-                    Err(Error::Reset(id, Reason::PROTOCOL_ERROR))
+                    Err(Error::Reset(Reason::PROTOCOL_ERROR))
                 }
                 _ => Err(Error::GoAway(Reason::COMPRESSION_ERROR)),
             };
@@ -1041,26 +834,36 @@ impl<'a, S> DecodeContext<'a, S> {
 
         if ci.flow.last_stream_id.get() >= id {
             if let Some(state) = ci.flow.stream_map.get_mut(&id) {
+                // HEADERS after END_STREAM: determined malicious (RFC 7540 §5.1).
+                if state.recv.is_eof() {
+                    return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+                }
+                if !state.recv.is_open() {
+                    if state.recv_closed() {
+                        return Err(Error::Reset(Reason::STREAM_CLOSED));
+                    }
+                    // Error state: silently discard.
+                    // TODO: count violations, escalate to GOAWAY above threshold.
+                    return Ok(None);
+                }
+                // Open state: trailer processing.
                 // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
                 if !is_end_stream {
                     state.try_set_err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "trailer HEADERS without END_STREAM",
                     ));
-                    ci.flow.remove_stream(id);
-                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
-                }
-                if state.recv_closed() {
-                    return Err(Error::Reset(id, Reason::STREAM_CLOSED));
+                    return Err(Error::Reset(Reason::PROTOCOL_ERROR));
                 }
                 // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-                if let Err(err) = state.recv_state.content_length.ensure_zero() {
+                if let Err(err) = state.recv.content_length.ensure_zero() {
                     state.try_set_err(err);
-                    ci.flow.remove_stream(id);
-                    return Err(Error::Reset(id, Reason::PROTOCOL_ERROR));
+                    return Err(Error::Reset(Reason::PROTOCOL_ERROR));
                 }
-                state.push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers));
-                ci.flow.remove_recv(id);
+                let body_gone = state.push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers), true, id);
+                if body_gone {
+                    ci.flow.remove_stream(id);
+                }
                 return Ok(None);
             }
         }
@@ -1071,7 +874,7 @@ impl<'a, S> DecodeContext<'a, S> {
         // Do NOT update last_stream_id: REFUSED_STREAM means no application
         // processing occurred and the client should retry (RFC 7540 §8.1.4).
         if ci.flow.stream_map.len() >= self.max_concurrent_streams {
-            return Err(Error::Reset(id, Reason::REFUSED_STREAM));
+            return Err(Error::Reset(Reason::REFUSED_STREAM));
         }
 
         // last stream id is already saturated. throw away the header frame and keep going
@@ -1083,12 +886,12 @@ impl<'a, S> DecodeContext<'a, S> {
         // Only meaningful when there will be DATA frames (not end_stream).
         // Malformed content-length → RST_STREAM PROTOCOL_ERROR per §8.1.2.6.
         let content_length =
-            BodySize::from_header(&headers, is_end_stream).map_err(|_| Error::Reset(id, Reason::PROTOCOL_ERROR))?;
+            BodySize::from_header(&headers, is_end_stream).map_err(|_| Error::Reset(Reason::PROTOCOL_ERROR))?;
 
         // :method is required; stream was seen so the boundary must
         // advance (no-op once saturated, but the saturation gate
         // above already returned in that case).
-        let method = pseudo.method.ok_or(Error::Reset(id, Reason::PROTOCOL_ERROR))?;
+        let method = pseudo.method.ok_or(Error::Reset(Reason::PROTOCOL_ERROR))?;
 
         let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
 
@@ -1109,7 +912,7 @@ impl<'a, S> DecodeContext<'a, S> {
         match (is_strict_connect, pseudo.scheme) {
             // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme.
             // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme.
-            (true, Some(_)) | (false, None) => return Err(Error::Reset(id, Reason::PROTOCOL_ERROR)),
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
             (false, Some(scheme)) if uri_parts.authority.is_some() => {
                 if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
                     uri_parts.scheme = Some(s);
@@ -1121,14 +924,14 @@ impl<'a, S> DecodeContext<'a, S> {
         match (is_strict_connect, pseudo.path) {
             // RFC 7540 §8.1.2.3: non-CONNECT MUST include :path.
             // RFC 7540 §8.3: regular CONNECT MUST NOT include :path.
-            (true, Some(_)) | (false, None) => return Err(Error::Reset(id, Reason::PROTOCOL_ERROR)),
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
             (_, Some(path)) if !path.is_empty() => {
                 if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
                     uri_parts.path_and_query = Some(pq);
                 }
             }
             // RFC 7540 §8.1.2.3: non-CONNECT MUST include non empty :path.
-            (false, _) => return Err(Error::Reset(id, Reason::PROTOCOL_ERROR)), // empty :path
+            (false, _) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)), // empty :path
             _ => {}
         }
 
@@ -1280,10 +1083,17 @@ async fn response_task<S, ReqB, ResB, ResBE>(
         Ok(res) => res,
         Err(e) => {
             error!("service error: {:?}", e);
-            ctx.borrow_mut().queue.push(Message::Reset {
-                stream_id,
-                reason: Reason::PROTOCOL_ERROR,
-            });
+            // Only send RST_STREAM if the stream is still active. If the peer
+            // already reset it (or the dispatcher removed it for another reason),
+            // the error may have originated from try_set_err and sending a
+            // redundant reset is unnecessary.
+            let mut inner = ctx.borrow_mut();
+            if inner.flow.stream_map.contains_key(&stream_id) {
+                inner.queue.push(Message::Reset {
+                    stream_id,
+                    reason: Reason::PROTOCOL_ERROR,
+                });
+            }
             return;
         }
     };
@@ -1377,7 +1187,7 @@ impl StreamGuard<'_> {
                     return Poll::Ready(None);
                 }
 
-                let sf = &mut state.send_state;
+                let sf = &mut state.send;
                 if len > 0 && (flow.send_connection_window == 0 || sf.window <= 0) {
                     sf.waker = Some(cx.waker().clone());
                     return Poll::Pending;
@@ -1622,12 +1432,16 @@ where
                     {
                         let mut inner = shared.borrow_mut();
                         for state in inner.flow.stream_map.values_mut() {
-                            state.try_set_err(io::Error::new(
+                            // Open → Error + wake; Close stays Close.
+                            // Return value ignored: connection-level teardown,
+                            // streams drain via StreamGuard/RequestBody drops.
+                            let _ = state.try_set_err(io::Error::new(
                                 io::ErrorKind::ConnectionReset,
                                 "h2 connection closed by peer",
                             ));
-                            state.add_flag(StreamState::RECV_CLOSED);
-                            state.recv_state.wake();
+                            // No more data will arrive on any stream.
+                            // Close recv; Error left intact for delivery.
+                            state.recv.set_close();
                         }
                         inner.queue.close();
                     }
@@ -1673,9 +1487,9 @@ fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), Error> {
     if id.is_zero() {
         Err(Error::GoAway(Reason::PROTOCOL_ERROR))
     } else if payload.len() != 5 {
-        Err(Error::Reset(id, Reason::FRAME_SIZE_ERROR))
+        Err(Error::Reset(Reason::FRAME_SIZE_ERROR))
     } else if id == StreamId::parse(&payload[..4]).0 {
-        Err(Error::Reset(id, Reason::PROTOCOL_ERROR))
+        Err(Error::Reset(Reason::PROTOCOL_ERROR))
     } else {
         Ok(())
     }

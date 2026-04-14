@@ -1,7 +1,4 @@
-use super::{
-    frame::{reason::Reason, stream_id::StreamId},
-    hpack::DecoderError,
-};
+use super::{frame::reason::Reason, hpack::DecoderError};
 
 #[derive(Debug)]
 pub enum Error {
@@ -10,7 +7,7 @@ pub enum Error {
     Hpack(DecoderError),
     /// Stream-level error: send RST_STREAM(reason) to the peer. Does not close
     /// the connection.
-    Reset(StreamId, Reason),
+    Reset(Reason),
 }
 
 impl From<DecoderError> for Error {

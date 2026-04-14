@@ -1,0 +1,63 @@
+use std::io;
+
+use crate::{
+    body::SizeHint,
+    http::header::{CONTENT_LENGTH, HeaderMap},
+};
+
+use super::frame::headers;
+
+pub(crate) trait BodySize {
+    /// Parse content-length from headers.
+    /// Returns `Err(())` if the header is present but malformed (RFC 7540 §8.1.2.6).
+    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()>
+    where
+        Self: Sized;
+
+    /// Subtract `len` bytes received in a DATA frame.
+    /// Returns `Err(())` if this would underflow (overflow: more data than declared).
+    fn dec(&mut self, len: usize) -> io::Result<()>;
+
+    /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
+    fn ensure_zero(&self) -> io::Result<()>;
+}
+
+impl BodySize for SizeHint {
+    fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()> {
+        if is_end_stream {
+            Ok(Self::None)
+        } else {
+            match headers.get(CONTENT_LENGTH) {
+                Some(v) => {
+                    let s = v.to_str().map_err(|_| ())?;
+                    let len = headers::parse_u64(s.as_bytes())?;
+                    Ok(Self::Exact(len))
+                }
+                None => Ok(Self::Unknown),
+            }
+        }
+    }
+
+    /// Subtract `len` bytes received in a DATA frame.
+    /// Returns `Err(())` if this would underflow (overflow: more data than declared).
+    fn dec(&mut self, len: usize) -> io::Result<()> {
+        match self {
+            Self::Unknown => Ok(()),
+            Self::None => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded")),
+            Self::Exact(rem) => {
+                *rem = rem
+                    .checked_sub(len as u64)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded"))?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
+    fn ensure_zero(&self) -> io::Result<()> {
+        match self {
+            Self::Unknown | Self::None | Self::Exact(0) => Ok(()),
+            Self::Exact(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length underflow")),
+        }
+    }
+}
