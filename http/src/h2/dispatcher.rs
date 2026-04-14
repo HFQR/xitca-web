@@ -356,9 +356,17 @@ pub(super) struct WriterQueue {
 }
 
 impl FlowControl {
-    fn try_get_stream_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
+    fn try_get_data_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
         let stream = self.stream_map.get_mut(id).ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
-        stream.try_get_recv(&mut self.frame_buf, &mut self.queue)
+        stream.try_get_recv(&mut self.frame_buf)
+    }
+
+    fn try_get_trailers_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
+        let stream = self
+            .stream_map
+            .get_mut(id)
+            .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
+        stream.try_get_recv(&mut self.frame_buf)
     }
 
     pub(super) fn request_body_drop(&mut self, id: &StreamId) {
@@ -381,7 +389,7 @@ impl FlowControl {
 
         self.recv_window_dec(len)?;
 
-        let stream = match self.try_get_stream_recv(&id) {
+        let stream = match self.try_get_data_recv(&id) {
             Ok(stream) => stream,
             Err(err) => {
                 self.queue.push_window_update(len);
@@ -389,7 +397,19 @@ impl FlowControl {
             }
         };
 
-        stream.try_recv_data(id, payload, end_stream)?;
+        let opt_data = stream.try_recv_data(payload, end_stream).inspect_err(|_| {
+            self.queue.push_window_update(len);
+        })?;
+
+        if let Some(data) = opt_data {
+            // // Body dropped: discard frame. For DATA, replenish both connection
+            // // and stream windows so the peer can reach END_STREAM without stalling.
+            self.queue.push_window_update(data.len());
+            self.queue.messages.push_back(Message::WindowUpdate {
+                stream_id: id,
+                size: len,
+            });
+        }
 
         if end_stream {
             self.remove_stream(id);
@@ -818,8 +838,8 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let mut flow = self.ctx.borrow_mut();
         if flow.last_stream_id.get() >= id {
-            let stream = flow.try_get_stream_recv(&id)?;
-            stream.try_recv_trailers(id, headers, end_stream)?;
+            flow.try_get_trailers_recv(&id)?
+                .try_recv_trailers(headers, end_stream)?;
 
             if end_stream {
                 flow.remove_stream(id);

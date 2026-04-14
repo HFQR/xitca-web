@@ -6,7 +6,7 @@ use crate::{
     body::SizeHint,
     bytes::Bytes,
     h2::{
-        dispatcher::{Frame, FrameBuffer, Message, WriterQueue},
+        dispatcher::{Frame, FrameBuffer},
         util::Deque,
     },
     http::HeaderMap,
@@ -14,7 +14,7 @@ use crate::{
 
 use super::{
     error::Error,
-    frame::{reason::Reason, settings, stream_id::StreamId},
+    frame::{reason::Reason, settings},
     size::BodySize,
 };
 
@@ -52,12 +52,8 @@ impl Stream {
         }
     }
 
-    pub(crate) fn try_get_recv<'a>(
-        &'a mut self,
-        buffer: &'a mut FrameBuffer,
-        queue: &'a mut WriterQueue,
-    ) -> Result<RecvStream<'a>, Error> {
-        RecvStream::try_new(&mut self.recv, buffer, queue)
+    pub(crate) fn try_get_recv<'a>(&'a mut self, buffer: &'a mut FrameBuffer) -> Result<RecvStream<'a>, Error> {
+        RecvStream::try_new(&mut self.recv, buffer)
     }
 
     pub(crate) fn recv_closed(&self) -> bool {
@@ -89,29 +85,44 @@ impl Stream {
 pub(crate) struct RecvStream<'a> {
     recv: &'a mut Recv,
     buffer: &'a mut FrameBuffer,
-    queue: &'a mut WriterQueue,
 }
 
 impl<'a> RecvStream<'a> {
-    fn try_new(recv: &'a mut Recv, buffer: &'a mut FrameBuffer, queue: &'a mut WriterQueue) -> Result<Self, Error> {
+    fn try_new(recv: &'a mut Recv, buffer: &'a mut FrameBuffer) -> Result<Self, Error> {
         match recv.state {
             // RecvState::Close can be arbitrary triggered at any time. eg:  before Stream received all frames
             // Therefore treat it the same as RecvState::Open
-            RecvState::Open | RecvState::Close => Ok(Self { recv, buffer, queue }),
+            RecvState::Open | RecvState::Close => Ok(Self { recv, buffer }),
             RecvState::Eof => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
             RecvState::Error(_) => todo!("debate what to do with frame after error"),
         }
     }
 
-    pub(crate) fn try_recv_data(mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
-        let len = payload.len();
-        self.length_check(len, end_stream)
-            .inspect_err(|_| self.queue.push_window_update(len))?;
-        self.push_frame(id, Frame::Data(payload), end_stream);
-        Ok(())
+    /// Try to receive a DATA frame. Returns `Ok(None)` when the body is alive
+    /// and the data was queued. Returns `Ok(Some(data))` when the body has been
+    /// dropped (recv closed) — the caller must replenish both connection and
+    /// stream WINDOW_UPDATEs for the returned bytes so the peer can reach
+    /// END_STREAM without stalling.
+    pub(crate) fn try_recv_data(mut self, data: Bytes, end_stream: bool) -> Result<Option<Bytes>, Error> {
+        let len = data.len();
+        self.length_check(len, end_stream)?;
+
+        if self.recv.is_open() {
+            self.recv.queue.push_back(self.buffer, Frame::Data(data));
+            if end_stream {
+                self.recv.state = RecvState::Eof;
+            }
+            self.recv.wake();
+            Ok(None)
+        } else {
+            // RecvState::Close is set before recv stream finished.
+            debug_assert!(self.recv.recv_closed());
+            self.recv.window += data.len();
+            Ok(Some(data))
+        }
     }
 
-    pub(crate) fn try_recv_trailers(mut self, id: StreamId, headers: HeaderMap, end_stream: bool) -> Result<(), Error> {
+    pub(crate) fn try_recv_trailers(mut self, trailers: HeaderMap, end_stream: bool) -> Result<(), Error> {
         if !end_stream {
             // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
             self.recv.try_set_error(io::Error::new(
@@ -121,13 +132,14 @@ impl<'a> RecvStream<'a> {
             return Err(Error::Reset(Reason::PROTOCOL_ERROR));
         }
 
-        // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-        if let Err(err) = self.recv.content_length.ensure_zero() {
-            self.recv.try_set_error(err);
-            return Err(Error::Reset(Reason::PROTOCOL_ERROR));
+        self.ensure_zero()?;
+
+        if self.recv.is_open() {
+            self.recv.queue.push_back(self.buffer, Frame::Trailers(trailers));
+            self.recv.state = RecvState::Eof;
+            self.recv.wake();
         }
 
-        self.push_frame(id, Frame::Trailers(headers), true);
         Ok(())
     }
 
@@ -146,10 +158,7 @@ impl<'a> RecvStream<'a> {
         }
 
         if end_stream {
-            if let Err(err) = self.recv.content_length.ensure_zero() {
-                self.recv.try_set_error(err);
-                return Err(Error::Reset(Reason::PROTOCOL_ERROR));
-            }
+            self.ensure_zero()?;
         }
 
         self.recv.window = self.recv.window.checked_sub(len).ok_or_else(|| {
@@ -161,28 +170,11 @@ impl<'a> RecvStream<'a> {
         Ok(())
     }
 
-    fn push_frame(&mut self, stream_id: StreamId, frame: Frame, end_stream: bool) {
-        if self.recv.is_open() {
-            self.recv.queue.push_back(self.buffer, frame);
-            if end_stream {
-                self.recv.state = RecvState::Eof;
-            }
-            self.recv.wake();
-        } else {
-            // RecvState::Close is set before recv stream finished.
-            // keep tracking the window update and discard frame data in place
-            debug_assert!(self.recv.recv_closed());
-            // Body dropped: discard frame. For DATA, replenish both connection
-            // and stream windows so the peer can reach END_STREAM without stalling.
-            if let Frame::Data(data) = frame {
-                let len = data.len();
-                self.recv.window += len;
-                self.queue.push_window_update(len);
-                self.queue
-                    .messages
-                    .push_back(Message::WindowUpdate { stream_id, size: len });
-            }
-        }
+    fn ensure_zero(&mut self) -> Result<(), Error> {
+        self.recv.content_length.ensure_zero().map_err(|err| {
+            self.recv.try_set_error(err);
+            Error::Reset(Reason::PROTOCOL_ERROR)
+        })
     }
 }
 
