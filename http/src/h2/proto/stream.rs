@@ -30,7 +30,7 @@ impl Stream {
 
     pub(crate) fn new(send_window: i64, send_frame_size: usize, content_length: SizeHint, end_stream: bool) -> Self {
         let (window, state) = if end_stream {
-            (0, RecvState::Close)
+            (0, RecvState::Eof)
         } else {
             (settings::DEFAULT_INITIAL_WINDOW_SIZE as usize, RecvState::Open)
         };

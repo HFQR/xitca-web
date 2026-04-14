@@ -58,9 +58,9 @@ impl Body for RequestBody {
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, BodyError>>> {
         let this = self.get_mut();
 
-        let inner = &mut *this.ctx.borrow_mut();
-        let stream = inner.flow.stream_map.get_mut(&this.stream_id).unwrap();
-        if let Some(frame) = stream.recv.queue.pop_front(&mut inner.frame_buf) {
+        let flow = &mut *this.ctx.borrow_mut();
+        let stream = flow.stream_map.get_mut(&this.stream_id).unwrap();
+        if let Some(frame) = stream.recv.queue.pop_front(&mut flow.frame_buf) {
             if let Some(bytes) = frame.data_ref() {
                 this.pending_window += bytes.len();
 
@@ -73,8 +73,8 @@ impl Body for RequestBody {
                 if this.pending_window >= settings::DEFAULT_INITIAL_WINDOW_SIZE as usize * 3 / 4 {
                     let window = mem::replace(&mut this.pending_window, 0);
                     stream.recv.window += window;
-                    inner.queue.push_window_update(window);
-                    inner.queue.messages.push_back(Message::WindowUpdate {
+                    flow.queue.push_window_update(window);
+                    flow.queue.messages.push_back(Message::WindowUpdate {
                         stream_id: this.stream_id,
                         size: window,
                     });
@@ -95,8 +95,8 @@ impl Body for RequestBody {
     }
 
     fn is_end_stream(&self) -> bool {
-        let state = self.ctx.borrow();
-        let stream = state.flow.stream_map.get(&self.stream_id).unwrap();
+        let flow = self.ctx.borrow();
+        let stream = flow.stream_map.get(&self.stream_id).unwrap();
         stream.recv.is_eof() && stream.recv.queue.is_empty()
     }
 
