@@ -15,11 +15,12 @@ use xitca_io::net::{QuicListener, QuicListenerBuilder};
 ///
 /// # Examples
 /// ```rust
-/// use std::io;
+/// use std::{io, sync::Arc};
 ///
 /// use xitca_io::net::Stream;
 /// use xitca_server::net::{IntoListener, Listen};
 /// use xitca_service::fn_service;
+/// use xitca_service::shutdown::ShutdownToken;
 ///
 /// // arbitrary socket type
 /// struct MySocket;
@@ -45,7 +46,7 @@ use xitca_io::net::{QuicListener, QuicListenerBuilder};
 /// }
 ///
 /// // service function receive connection stream from MySocket's Listen::accept method
-/// let service = fn_service(async |stream: Stream| {
+/// let service = fn_service(async |(stream, st): (Stream, Arc<ShutdownToken>)| {
 ///     Ok::<_, io::Error>(())
 /// });
 ///

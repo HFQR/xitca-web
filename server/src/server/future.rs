@@ -28,13 +28,15 @@ impl ServerFuture {
     /// # Examples:
     ///
     /// ```rust
+    /// # use std::sync::Arc;
     /// # use xitca_io::net::{TcpStream};
     /// # use xitca_server::Builder;
     /// # use xitca_service::fn_service;
+    /// # use xitca_service::shutdown::ShutdownToken;
     /// # #[tokio::main]
     /// # async fn main() {
     /// let mut server = Builder::new()
-    ///     .bind("test", "127.0.0.1:0", fn_service(|_io: TcpStream| async { Ok::<_, ()>(())}))
+    ///     .bind("test", "127.0.0.1:0", fn_service(|(_io, _st): (TcpStream, Arc<ShutdownToken>)| async { Ok::<_, ()>(())}))
     ///     .unwrap()
     ///     .build();
     ///
