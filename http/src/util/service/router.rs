@@ -1,8 +1,6 @@
 pub use xitca_router::{MatchError, params::Params};
 
-use core::{fmt, marker::PhantomData};
-
-use std::{collections::HashMap, error};
+use core::{error, fmt, marker::PhantomData};
 
 use xitca_service::{BoxFuture, FnService, Service, object::BoxedServiceObject, pipeline::PipelineT};
 
@@ -22,7 +20,7 @@ pub use self::object::RouteObject;
 pub struct Router<Obj> {
     // record for last time PathGen is called with certain route string prefix.
     prefix: usize,
-    routes: HashMap<String, Obj>,
+    routes: xitca_router::Router<Obj>,
 }
 
 impl<Obj> Default for Router<Obj> {
@@ -35,7 +33,7 @@ impl<Obj> Router<Obj> {
     pub fn new() -> Self {
         Router {
             prefix: 0,
-            routes: HashMap::new(),
+            routes: xitca_router::Router::new(),
         }
     }
 }
@@ -48,18 +46,26 @@ impl<Obj> Router<Obj> {
     /// # Panic:
     ///
     /// When multiple services inserted to the same path.
-    pub fn insert<F, Arg, Req>(mut self, path: &'static str, mut builder: F) -> Self
+    pub fn insert<F, Arg, Req>(mut self, path: &str, mut builder: F) -> Self
     where
         F: Service<Arg> + RouteGen + Send + Sync,
         F::Response: Service<Req>,
         Req: IntoObject<F::Route<F>, Arg, Object = Obj>,
     {
         let path = builder.path_gen(path);
-        assert!(
-            self.routes
-                .insert(path, Req::into_object(F::route_gen(builder)))
-                .is_none()
-        );
+        self.routes
+            .insert(path, Req::into_object(F::route_gen(builder)))
+            .unwrap();
+        self
+    }
+
+    /// Merge another router into this one. All routes from `other` are moved into `self`.
+    ///
+    /// # Panic:
+    ///
+    /// When routes from `other` conflict with existing routes in `self`.
+    pub fn merge(mut self, other: Router<Obj>) -> Self {
+        self.routes.merge(other.routes).unwrap();
         self
     }
 
@@ -71,7 +77,7 @@ impl<Obj> Router<Obj> {
     {
         let path = T::path();
         let route = T::route();
-        assert!(self.routes.insert(String::from(path), route).is_none());
+        self.routes.insert(path, route).unwrap();
         self
     }
 }
@@ -87,9 +93,9 @@ where
     async fn call(&self, arg: Arg) -> Result<Self::Response, Self::Error> {
         let mut router = xitca_router::Router::new();
 
-        for (path, service) in self.routes.iter() {
+        for (path, service) in self.routes.entries() {
             let service = service.call(arg.clone()).await?;
-            router.insert(path.to_string(), service).unwrap();
+            router.insert(path, service).unwrap();
         }
 
         Ok(service::RouterService {
@@ -186,7 +192,7 @@ where
 
         self.prefix += path.len();
 
-        self.routes.iter_mut().for_each(|(_, v)| {
+        self.routes.for_each_mut(|_, v| {
             v.path_gen(path.as_str());
         });
 

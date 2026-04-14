@@ -1,4 +1,7 @@
-# unreleased
+# unreleased 0.4.3
+## Add
+- `Router::for_each_mut`
+- `Router::entries`
 
 # 0.4.2
 ## Change

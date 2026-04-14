@@ -1,4 +1,14 @@
-# unreleased
+# 0.9.1
+## Add
+- `util::router::Router::merge` for merging two `Router`
+
+## Change
+- `util::router::Router` accept relaxed lifetime `&str` as route identifier
+- `util::router::Router` would panic at rule conflict on `Router::insert` callsite
+
+## Fix 
+- fix HTTP/2 connect method handling
+- fix HTTP/2 pseudo header parsing for empty trailers
 
 # 0.9.0
 ## Add

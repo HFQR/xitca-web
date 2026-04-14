@@ -1,6 +1,6 @@
 [package]
 name = "http-grpc-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "grpc for http crate type"
@@ -15,7 +15,7 @@ workspace = true
 
 [features]
 default = []
-stream = ["__body_impl", "pin-project-lite", "tokio/sync"]
+stream = ["__body_impl", "tokio/sync"]
 compress-br = ["__compress", "http-encoding/br"]
 compress-gz = ["__compress", "http-encoding/gz"]
 compress-de = ["__compress", "http-encoding/de"]
@@ -23,7 +23,7 @@ compress-zs = ["__compress", "http-encoding/zs"]
 
 # private features
 __body_impl = ["dep:http-body-alt"]
-__compress = ["__body_impl", "http-encoding"]
+__compress = ["__body_impl", "dep:http-encoding"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -32,7 +32,6 @@ percent-encoding = { workspace = true }
 prost = { workspace = true }
 
 # stream feature
-pin-project-lite = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
 # compress feature

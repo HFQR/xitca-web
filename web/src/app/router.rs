@@ -14,7 +14,7 @@ impl<Obj> AppRouter<Obj> {
         Self(Router::new())
     }
 
-    pub(super) fn insert<F, Arg, Req>(mut self, path: &'static str, builder: F) -> Self
+    pub(super) fn insert<F, Arg, Req>(mut self, path: &str, builder: F) -> Self
     where
         F: Service<Arg> + RouteGen + Send + Sync,
         F::Response: Service<Req>,

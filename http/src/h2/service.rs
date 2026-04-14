@@ -57,7 +57,7 @@ where
             &self.config,
         )
         .await
-        .unwrap();
+        .map_err(super::error::Error::Io)?;
 
         Ok(())
     }

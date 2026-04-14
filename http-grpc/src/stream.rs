@@ -9,7 +9,6 @@ use http::{
     HeaderValue, Request, Response,
     header::{CONTENT_TYPE, HeaderMap, HeaderName},
 };
-use pin_project_lite::pin_project;
 use prost::Message;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 
@@ -30,33 +29,27 @@ const GRPC_ENCODING: HeaderName = HeaderName::from_static("grpc-encoding");
 
 const GRPC_STATUS: HeaderName = HeaderName::from_static("grpc-status");
 
-pin_project! {
-    /// Decode a `Body` into a stream of gRPC messages.
-    ///
-    /// Polls the body for data frames, feeds them into the gRPC codec, and yields
-    /// decoded protobuf messages via the [`message`](Self::message) method.
-    ///
-    /// # Termination
-    ///
-    /// - `Ok(None)`: The body has ended cleanly with no partial frame remaining.
-    /// - `Err(GrpcError)`: A protocol error occurred (incomplete frame, size limit,
-    ///   decode error, or body read failure).
-    pub struct RequestStream<B> {
-        #[pin]
-        body: B,
-        codec: Codec,
-        buf: BytesMut,
-    }
+/// Decode a `Body` into a stream of gRPC messages.
+///
+/// Polls the body for data frames, feeds them into the gRPC codec, and yields
+/// decoded protobuf messages via the [`message`](Self::message) method.
+///
+/// # Termination
+///
+/// - `Ok(None)`: The body has ended cleanly with no partial frame remaining.
+/// - `Err(GrpcError)`: A protocol error occurred (incomplete frame, size limit,
+///   decode error, or body read failure).
+pub struct RequestStream<B> {
+    body: B,
+    codec: Codec,
+    buf: BytesMut,
+    trailers: Option<HeaderMap>,
 }
 
 impl<B> RequestStream<B> {
     pub fn new(headers: &HeaderMap, body: B) -> Self {
         let codec = Codec::from_headers(headers);
-        Self {
-            body,
-            codec,
-            buf: BytesMut::new(),
-        }
+        Self::with_codec(body, codec)
     }
 
     pub fn with_codec(body: B, codec: Codec) -> Self {
@@ -64,6 +57,7 @@ impl<B> RequestStream<B> {
             body,
             codec,
             buf: BytesMut::new(),
+            trailers: None,
         }
     }
 
@@ -85,8 +79,11 @@ where
 {
     /// Read the next gRPC message from the body.
     ///
-    /// Returns `Ok(None)` when the body has ended cleanly.
-    pub async fn message<T: Message + Default>(&mut self) -> Result<Option<T>, GrpcError> {
+    /// Returns `Ok(None)` when the data has ended cleanly.
+    pub async fn message<T>(&mut self) -> Result<Option<T>, GrpcError>
+    where
+        T: Message + Default,
+    {
         loop {
             match self.codec.decode::<T>(&mut self.buf) {
                 Ok(Some(msg)) => return Ok(Some(msg)),
@@ -94,8 +91,12 @@ where
                 Err(e) => return Err(GrpcError::new(GrpcStatus::Internal, e.to_string())),
             }
 
-            match self.body.data().await {
-                Some(Ok(data)) => self.buf.extend_from_slice(data.as_ref()),
+            match self.body.frame().await {
+                Some(Ok(Frame::Data(data))) => self.buf.extend_from_slice(data.as_ref()),
+                Some(Ok(Frame::Trailers(trailers))) => {
+                    self.trailers = Some(trailers);
+                    return Ok(None);
+                }
                 Some(Err(_)) => {
                     return Err(GrpcError::new(GrpcStatus::Internal, "body read error"));
                 }
@@ -108,6 +109,12 @@ where
                 }
             }
         }
+    }
+
+    /// collect trailers from Stream
+    /// This method should be called after [`RequestStream::message`] yields None
+    pub fn trailers(&mut self) -> Option<HeaderMap> {
+        self.trailers.take()
     }
 }
 

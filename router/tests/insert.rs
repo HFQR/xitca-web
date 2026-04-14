@@ -233,6 +233,10 @@ fn prefix_suffix_conflict() {
         ("/x16/prefix{a}suffix", Ok(())),
         ("/x17/prefix{a}/z", Ok(())),
         ("/x18/prefix{a}/z", Ok(())),
+        ("/x19/f{a}o", Ok(())),
+        ("/x19/f{a}o/{*path}", Ok(())),
+        ("/x20/f{a}o/{*path}", Ok(())),
+        ("/x20/f{a}o", Ok(())),
     ])
     .run()
 }

@@ -23,10 +23,18 @@ mod inner {
         http::{Request, RequestExt, Response},
     };
     use xitca_service::{ServiceExt, fn_service};
+    use xitca_web::body::BodyExt;
 
     async fn handler(
-        _: Request<RequestExt<RequestBody>>,
+        req: Request<RequestExt<RequestBody>>,
     ) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
+        let (_, mut body) = req.into_body().replace_body(());
+        while let Some(frame) = body.frame().await {
+            frame?;
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
         Ok(Response::new(Full::new(Bytes::new())))
     }
 
