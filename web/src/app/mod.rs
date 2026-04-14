@@ -312,7 +312,7 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
     ///
     /// The one exception to the above set of rules is that catch-all parameters are always considered to conflict with suffixed route parameters, i.e. that `/{*rest}`
     /// and `/{x}suffix` are overlapping. This is due to an implementation detail of the routing tree that may be relaxed in the future.
-    pub fn at<F, C, B>(mut self, path: &'static str, builder: F) -> Self
+    pub fn at<F, C, B>(mut self, path: &str, builder: F) -> Self
     where
         F: RouteGen + Service + Send + Sync,
         F::Response: for<'r> Service<WebContext<'r, C, B>>,

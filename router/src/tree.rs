@@ -223,6 +223,11 @@ impl<T> Node<T> {
                         if *common == *child.prefix && remaining == *b"/" {
                             extra_trailing_slash = true;
                         }
+                    } else {
+                        let (common, remaining) = child.prefix.split_at(suffix.len());
+                        if *common == *suffix && remaining == *b"/" {
+                            extra_trailing_slash = true;
+                        }
                     }
                 }
 

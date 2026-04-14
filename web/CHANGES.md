@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.8.1
+## Change
+- `App::at` relax route string identifier lifetime
 
 # 0.8.0
 ## Add
