@@ -37,7 +37,7 @@ where
 
     async fn call(
         &self,
-        ((io, addr), st): ((St, SocketAddr), Arc<ShutdownToken>),
+        ((io, addr), _st): ((St, SocketAddr), Arc<ShutdownToken>),
     ) -> Result<Self::Response, Self::Error> {
         // tls accept timer.
         let timer = self.keep_alive();
@@ -61,7 +61,6 @@ where
             &self.service,
             self.date.get(),
             &self.config,
-            st.as_ref(),
         )
         .await
         .unwrap();

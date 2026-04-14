@@ -20,10 +20,7 @@ use xitca_io::{
     bytes::{Buf, BufMut, BytesMut},
     io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
 };
-use xitca_service::{
-    Service,
-    shutdown::{ShutdownFutureExt, ShutdownToken},
-};
+use xitca_service::Service;
 use xitca_unsafe_collection::{
     futures::{Select, SelectOutput},
     no_hash::NoHashBuilder,
@@ -1485,7 +1482,6 @@ pub(crate) async fn run<
     service: &S,
     date: &DateTimeHandle,
     config: &HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT>,
-    shutdown_token: &ShutdownToken,
 ) -> io::Result<()>
 where
     Io: AsyncBufRead + AsyncBufWrite,
@@ -1534,7 +1530,6 @@ where
     let mut ping_pong = PingPong::new(ka, &shared, date, config.keep_alive_timeout);
 
     let res = {
-        let mut is_read_empty = read_buf.is_empty();
         let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
 
         let mut write_task = pin!(async {
@@ -1573,10 +1568,9 @@ where
                 })
                 .select(write_task.as_mut())
                 .select(ping_pong.tick())
-                .with_shutdown(shutdown_token, is_read_empty)
                 .await
             {
-                Some(SelectOutput::A(SelectOutput::A(SelectOutput::A((res, buf))))) => {
+                SelectOutput::A(SelectOutput::A(SelectOutput::A((res, buf)))) => {
                     read_buf = buf;
 
                     match res {
@@ -1590,17 +1584,15 @@ where
                         res => break ShutDown::ReadClosed(res.map(|_| ())),
                     };
 
-                    is_read_empty = read_buf.is_empty();
                     read_task.set(read_io(read_buf, &io));
                 }
                 // The inner future returns only when the graceful drain is
                 // complete (queue empty and a GOAWAY has been sent). Falls
                 // through to the write-only drain path with empty state.
-                Some(SelectOutput::A(SelectOutput::A(SelectOutput::B(_)))) => break ShutDown::DrainWrite,
-                Some(SelectOutput::A(SelectOutput::B(res))) => break ShutDown::WriteClosed(res),
-                Some(SelectOutput::B(Ok(_))) => {}
-                Some(SelectOutput::B(Err(e))) => break ShutDown::Timeout(e),
-                None => break ShutDown::AppShutdown,
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break ShutDown::DrainWrite,
+                SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
+                SelectOutput::B(Ok(_)) => {}
+                SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
             }
         };
 
@@ -1627,9 +1619,6 @@ where
                     read_res = res;
                 }
                 ShutDown::DrainWrite => queue.clear(),
-                ShutDown::AppShutdown => {
-                    let _ = ctx.go_away(Reason::NO_ERROR);
-                },
             }
 
             loop {
@@ -1657,7 +1646,6 @@ enum ShutDown {
     WriteClosed(io::Result<()>),
     Timeout(io::Error),
     DrainWrite,
-    AppShutdown,
 }
 
 /// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).

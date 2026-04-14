@@ -217,7 +217,6 @@ where
                     &self.service,
                     self.date.get(),
                     &self.config,
-                    shutdown_token,
                 )
                 .await
                 .unwrap();
