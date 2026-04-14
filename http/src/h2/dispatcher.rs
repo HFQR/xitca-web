@@ -318,17 +318,19 @@ impl FlowControl {
 
         if let Some(data) = opt_data {
             let size = data.len();
-            // // Body dropped: discard frame. For DATA, replenish both connection
-            // // and stream windows so the peer can reach END_STREAM without stalling.
+            // Body dropped: discard data, and take responsibilty of RequestBody:
+            // - replenish both connection and stream windows so the peer can reach END_STREAM without stalling.
+            // - track end_stream state and remove stream
             self.queue.push_window_update(size);
+
             self.queue
                 .messages
                 .push_back(Message::WindowUpdate { stream_id: id, size });
-        }
 
-        if end_stream {
-            self.remove_stream(id);
-        };
+            if end_stream {
+                self.remove_stream(id);
+            };
+        }
 
         Ok(())
     }
