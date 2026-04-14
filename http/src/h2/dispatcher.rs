@@ -213,7 +213,7 @@ impl FlowControl {
     /// Only actually removes if both recv and send sides are closed.
     fn remove_stream(&mut self, id: StreamId) {
         if let Some(state) = self.stream_map.get_mut(&id) {
-            if state.is_empty() {
+            if state.is_close() {
                 self.stream_map.remove(&id);
             }
         }
@@ -227,7 +227,7 @@ impl FlowControl {
         if let Some(state) = self.stream_map.get_mut(&id) {
             state.send.set_close();
             state.send.wake();
-            if state.is_empty() {
+            if state.is_close() {
                 self.stream_map.remove(&id);
             }
             true
@@ -268,7 +268,7 @@ impl FlowControl {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
 
-        if state.recv.recv_closed() {
+        if state.is_recv_close() {
             // Body already dropped — close send side and remove entirely.
             state.send.set_close();
             state.send.wake();
@@ -276,6 +276,59 @@ impl FlowControl {
         } else {
             self.remove_send(id);
         }
+
+        Ok(())
+    }
+
+    fn try_get_data_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
+        let stream = self.stream_map.get_mut(id).ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
+        stream.try_get_recv(&mut self.frame_buf)
+    }
+
+    fn try_get_trailers_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
+        let stream = self
+            .stream_map
+            .get_mut(id)
+            .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
+        stream.try_get_recv(&mut self.frame_buf)
+    }
+
+    pub(super) fn request_body_drop(&mut self, id: &StreamId) {
+        let stream = self
+            .stream_map
+            .get_mut(id)
+            .expect("RequestBody is the owner of Recv type and stream MUST NOT be removed when it's still alive");
+
+        stream.close_recv(&mut self.frame_buf);
+
+        if stream.is_send_close() {
+            self.stream_map.remove(id);
+        }
+    }
+
+    fn handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
+        let len = payload.len();
+        self.recv_window_dec(len)?;
+        self._handle_data(id, payload, end_stream)
+            .inspect_err(|_| self.queue.push_window_update(len))
+    }
+
+    fn _handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
+        let opt_data = self.try_get_data_recv(&id)?.try_recv_data(payload, end_stream)?;
+
+        if let Some(data) = opt_data {
+            let size = data.len();
+            // // Body dropped: discard frame. For DATA, replenish both connection
+            // // and stream windows so the peer can reach END_STREAM without stalling.
+            self.queue.push_window_update(size);
+            self.queue
+                .messages
+                .push_back(Message::WindowUpdate { stream_id: id, size });
+        }
+
+        if end_stream {
+            self.remove_stream(id);
+        };
 
         Ok(())
     }
@@ -353,70 +406,6 @@ pub(super) struct WriterQueue {
     /// Always overwritten by the latest client PING; poll_encode takes and
     /// clears it after encoding the ACK.
     pending_client_ping: Option<[u8; 8]>,
-}
-
-impl FlowControl {
-    fn try_get_data_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
-        let stream = self.stream_map.get_mut(id).ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
-        stream.try_get_recv(&mut self.frame_buf)
-    }
-
-    fn try_get_trailers_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
-        let stream = self
-            .stream_map
-            .get_mut(id)
-            .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
-        stream.try_get_recv(&mut self.frame_buf)
-    }
-
-    pub(super) fn request_body_drop(&mut self, id: &StreamId) {
-        let state = self
-            .stream_map
-            .get_mut(id)
-            .expect("RequestBody is the owner of Recv type and stream MUST NOT be removed when it's still alive");
-
-        state.recv.close_recv();
-
-        state.recv.queue.clear(&mut self.frame_buf);
-
-        if state.send.send_closed() {
-            self.stream_map.remove(id);
-        }
-    }
-
-    fn handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
-        let len = payload.len();
-
-        self.recv_window_dec(len)?;
-
-        let stream = match self.try_get_data_recv(&id) {
-            Ok(stream) => stream,
-            Err(err) => {
-                self.queue.push_window_update(len);
-                return Err(err);
-            }
-        };
-
-        let opt_data = stream.try_recv_data(payload, end_stream).inspect_err(|_| {
-            self.queue.push_window_update(len);
-        })?;
-
-        if let Some(data) = opt_data {
-            // // Body dropped: discard frame. For DATA, replenish both connection
-            // // and stream windows so the peer can reach END_STREAM without stalling.
-            self.queue.push_window_update(data.len());
-            self.queue.messages.push_back(Message::WindowUpdate {
-                stream_id: id,
-                size: len,
-            });
-        }
-
-        if end_stream {
-            self.remove_stream(id);
-        };
-
-        Ok(())
-    }
 }
 
 pub(super) type Shared = Rc<RefCell<FlowControl>>;
@@ -1160,7 +1149,7 @@ impl StreamGuard<'_> {
                     return Poll::Ready(None);
                 };
 
-                if state.send_closed() {
+                if state.is_send_close() {
                     return Poll::Ready(None);
                 }
 
@@ -1416,7 +1405,7 @@ where
                             ));
                             // No more data will arrive on any stream.
                             // Close recv; Error left intact for delivery.
-                            state.recv.set_close();
+                            state.recv.set_close_2();
                         }
                         flow.queue.close();
                     }

@@ -56,19 +56,24 @@ impl Stream {
         RecvStream::try_new(&mut self.recv, buffer)
     }
 
-    pub(crate) fn recv_closed(&self) -> bool {
-        self.recv.recv_closed()
+    pub(crate) fn close_recv(&mut self, buffer: &mut FrameBuffer) {
+        self.recv.set_close();
+        self.recv.queue.clear(buffer);
     }
 
-    pub(crate) fn send_closed(&self) -> bool {
-        self.send.send_closed()
+    pub(crate) fn is_recv_close(&self) -> bool {
+        self.recv.is_close()
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub(crate) fn is_send_close(&self) -> bool {
+        self.send.is_close()
+    }
+
+    pub(crate) fn is_close(&self) -> bool {
         // Both directions must be closed before the entry can be removed.
         // Streams with a pending Error stay in the map until the body
         // reader takes the error.
-        self.send_closed() && self.recv_closed()
+        self.is_send_close() && self.is_recv_close()
     }
 
     /// Set a recv-side error for the body reader.
@@ -108,21 +113,17 @@ impl<'a> RecvStream<'a> {
         self.length_check(len, end_stream)?;
 
         if self.recv.is_open() {
-            self.recv.queue.push_back(self.buffer, Frame::Data(data));
-            if end_stream {
-                self.recv.state = RecvState::Eof;
-            }
-            self.recv.wake();
+            self.recv.push_frame(self.buffer, Frame::Data(data), end_stream);
             Ok(None)
         } else {
             // RecvState::Close is set before recv stream finished.
-            debug_assert!(self.recv.recv_closed());
+            debug_assert!(self.recv.is_close());
             self.recv.window += data.len();
             Ok(Some(data))
         }
     }
 
-    pub(crate) fn try_recv_trailers(mut self, trailers: HeaderMap, end_stream: bool) -> Result<(), Error> {
+    pub(crate) fn try_recv_trailers(self, trailers: HeaderMap, end_stream: bool) -> Result<(), Error> {
         if !end_stream {
             // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
             self.recv.try_set_error(io::Error::new(
@@ -132,12 +133,10 @@ impl<'a> RecvStream<'a> {
             return Err(Error::Reset(Reason::PROTOCOL_ERROR));
         }
 
-        self.ensure_zero()?;
+        self.recv.ensure_zero()?;
 
         if self.recv.is_open() {
-            self.recv.queue.push_back(self.buffer, Frame::Trailers(trailers));
-            self.recv.state = RecvState::Eof;
-            self.recv.wake();
+            self.recv.push_frame(self.buffer, Frame::Trailers(trailers), true);
         }
 
         Ok(())
@@ -158,7 +157,7 @@ impl<'a> RecvStream<'a> {
         }
 
         if end_stream {
-            self.ensure_zero()?;
+            self.recv.ensure_zero()?;
         }
 
         self.recv.window = self.recv.window.checked_sub(len).ok_or_else(|| {
@@ -168,13 +167,6 @@ impl<'a> RecvStream<'a> {
         })?;
 
         Ok(())
-    }
-
-    fn ensure_zero(&mut self) -> Result<(), Error> {
-        self.recv.content_length.ensure_zero().map_err(|err| {
-            self.recv.try_set_error(err);
-            Error::Reset(Reason::PROTOCOL_ERROR)
-        })
     }
 }
 
@@ -211,11 +203,26 @@ impl Recv {
         }
     }
 
-    pub(crate) fn close_recv(&mut self) {
+    fn ensure_zero(&mut self) -> Result<(), Error> {
+        self.content_length.ensure_zero().map_err(|err| {
+            self.try_set_error(err);
+            Error::Reset(Reason::PROTOCOL_ERROR)
+        })
+    }
+
+    fn push_frame(&mut self, buffer: &mut FrameBuffer, frame: Frame, end_stream: bool) {
+        self.queue.push_back(buffer, frame);
+        if end_stream {
+            self.state = RecvState::Eof;
+        }
+        self.wake();
+    }
+
+    fn set_close(&mut self) {
         self.state = RecvState::Close;
     }
 
-    pub(crate) fn recv_closed(&self) -> bool {
+    fn is_close(&self) -> bool {
         matches!(self.state, RecvState::Close)
     }
 
@@ -225,14 +232,14 @@ impl Recv {
         matches!(self.state, RecvState::Eof)
     }
 
-    pub(crate) fn is_open(&self) -> bool {
+    fn is_open(&self) -> bool {
         matches!(self.state, RecvState::Open)
     }
 
     /// Force recv to `Close`. Used on connection-level teardown.
     /// Does not overwrite `Error` — the error must be delivered to
     /// the body reader first.
-    pub(crate) fn set_close(&mut self) {
+    pub(crate) fn set_close_2(&mut self) {
         match self.state {
             RecvState::Error(_) => {}
             _ => self.state = RecvState::Close,
@@ -273,7 +280,7 @@ enum SendState {
 }
 
 impl Send {
-    pub(crate) fn send_closed(&self) -> bool {
+    fn is_close(&self) -> bool {
         matches!(self.state, SendState::Closed)
     }
 

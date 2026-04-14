@@ -33,7 +33,7 @@ mod inner {
             frame?;
         }
 
-        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         Ok(Response::new(Full::new(Bytes::new())))
     }
