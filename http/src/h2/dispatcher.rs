@@ -1627,11 +1627,9 @@ where
                     read_res = res;
                 }
                 ShutDown::DrainWrite => queue.clear(),
-                ShutDown::AppShutdown => (),
-            }
-
-            if queue.is_empty() {
-                return read_res;
+                ShutDown::AppShutdown => {
+                    let _ = ctx.go_away(Reason::NO_ERROR);
+                },
             }
 
             loop {
