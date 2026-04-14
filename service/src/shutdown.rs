@@ -250,13 +250,12 @@ mod tests {
     fn pollster_block_on<F: Future>(fut: F) -> F::Output {
         let mut fut = core::pin::pin!(fut);
         let waker = core::task::Waker::noop();
-        let mut cx = Context::from_waker(&waker);
-        loop {
-            match fut.as_mut().poll(&mut cx) {
-                Poll::Ready(val) => return val,
-                Poll::Pending => {
-                    panic!("future returned Pending in a synchronous test");
-                }
+        let mut cx = Context::from_waker(waker);
+
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(val) => return val,
+            Poll::Pending => {
+                panic!("future returned Pending in a synchronous test");
             }
         }
     }
