@@ -101,6 +101,15 @@ impl<T> Router<T> {
         self.root.check_priorities()
     }
 
+    pub fn for_each_mut<V: FnMut(String, &mut T)>(&mut self, visitor: V) {
+        self.root.for_each_mut(visitor);
+    }
+
+    /// Collects all route entries as `(path, &value)` pairs.
+    pub fn entries(&self) -> Vec<(String, &T)> {
+        self.root.entries()
+    }
+
     /// Merge a given router into current one.
     ///
     /// Returns a list of [`InsertError`] for every failed insertion.
@@ -123,6 +132,8 @@ impl<T> Router<T> {
     /// # Ok(())
     /// # }
     /// ```
+    /// Iterates over the router by mutable reference and calls the given visitor function
+    /// with each route's path and a mutable reference to its value.
     pub fn merge(&mut self, other: Self) -> Result<(), MergeError> {
         let mut errors = Vec::new();
         other.root.for_each(|path, value| {

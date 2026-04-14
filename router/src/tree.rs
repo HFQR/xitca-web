@@ -761,6 +761,50 @@ impl<T> Node<T> {
             }
         }
     }
+
+    /// Iterates over the tree by mutable reference and calls the given visitor function
+    /// with fully resolved path and a mutable reference to its value.
+    pub fn for_each_mut<V: FnMut(String, &mut T)>(&mut self, mut visitor: V) {
+        let mut queue = crate::VecDeque::from([(self.prefix.clone(), self as &mut Node<T>)]);
+
+        while let Some((mut prefix, node)) = queue.pop_front() {
+            denormalize_params(&mut prefix, &node.remapping);
+
+            if let Some(ref mut value) = node.value {
+                let path = String::from(prefix.unescaped());
+                visitor(path, value);
+            }
+
+            for child in &mut node.children {
+                let mut prefix = prefix.clone();
+                prefix.append(&child.prefix);
+                queue.push_back((prefix, child));
+            }
+        }
+    }
+
+    /// Collects all entries as `(path, &value)` pairs.
+    pub fn entries(&self) -> Vec<(String, &T)> {
+        let mut entries = Vec::new();
+        let mut queue = crate::VecDeque::from([(self.prefix.clone(), self)]);
+
+        while let Some((mut prefix, node)) = queue.pop_front() {
+            denormalize_params(&mut prefix, &node.remapping);
+
+            if let Some(ref value) = node.value {
+                let path = String::from(prefix.unescaped());
+                entries.push((path, value));
+            }
+
+            for child in &node.children {
+                let mut prefix = prefix.clone();
+                prefix.append(&child.prefix);
+                queue.push_back((prefix, child));
+            }
+        }
+
+        entries
+    }
 }
 
 /// A wildcard node that was skipped during a tree search.

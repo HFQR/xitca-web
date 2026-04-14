@@ -4,7 +4,7 @@ use core::{
     future::poll_fn,
     mem,
     pin::{Pin, pin},
-    task::{Poll, Waker},
+    task::Poll,
 };
 
 use std::{
@@ -60,9 +60,8 @@ use super::{
         },
         hpack,
         size::BodySize,
-        stream::Stream,
+        stream::{RecvStream, Stream},
     },
-    util::Deque,
 };
 
 struct DecodeContext<'a, S> {
@@ -206,19 +205,13 @@ impl FlowControl {
             .ok_or(Error::GoAway(Reason::FLOW_CONTROL_ERROR))?;
         Ok(())
     }
-
-    fn try_get_stream_recv(&mut self, id: &StreamId) -> Result<&mut Stream, Error> {
-        let stream = self.stream_map.get_mut(id).ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
-        stream.try_get_stream_recv()
-    }
-
-    /// Close both sides and remove the stream unconditionally.
+    /// Try to remove a stream after END_STREAM is received.
+    /// Only actually removes if both recv and send sides are closed.
     fn remove_stream(&mut self, id: StreamId) {
-        if let Some(mut state) = self.stream_map.remove(&id) {
-            state.recv.set_close();
-            state.recv.wake();
-            state.send.set_close();
-            state.send.wake();
+        if let Some(state) = self.stream_map.get_mut(&id) {
+            if state.is_empty() {
+                self.stream_map.remove(&id);
+            }
         }
     }
 
@@ -272,7 +265,10 @@ impl FlowControl {
         }
 
         if state.recv.recv_closed() {
-            self.remove_stream(id);
+            // Body already dropped — close send side and remove entirely.
+            state.send.set_close();
+            state.send.wake();
+            self.stream_map.remove(&id);
         } else {
             self.remove_send(id);
         }
@@ -366,6 +362,15 @@ pub(super) struct ConnectionState {
 }
 
 impl ConnectionState {
+    fn try_get_stream_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
+        let stream = self
+            .flow
+            .stream_map
+            .get_mut(id)
+            .ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
+        stream.try_get_recv(&mut self.frame_buf, &mut self.queue)
+    }
+
     pub(super) fn request_body_drop(&mut self, id: &StreamId) {
         let flow = &mut self.flow;
         let state = flow
@@ -387,23 +392,17 @@ impl ConnectionState {
 
         self.flow.recv_window_dec(len)?;
 
-        let stream = self.flow.try_get_stream_recv(&id).inspect_err(|_| {
-            self.queue.push_window_update(len);
-        })?;
+        let stream = match self.try_get_stream_recv(&id) {
+            Ok(stream) => stream,
+            Err(err) => {
+                self.queue.push_window_update(len);
+                return Err(err);
+            }
+        };
 
-        stream.length_check(len, end_stream).inspect_err(|_| {
-            self.queue.push_window_update(len);
-        })?;
+        stream.try_recv_data(id, payload, end_stream)?;
 
-        let body_gone = stream.push_frame(
-            &mut self.frame_buf,
-            &mut self.queue,
-            Frame::Data(payload),
-            end_stream,
-            id,
-        );
-
-        if body_gone && end_stream {
+        if end_stream {
             self.flow.remove_stream(id);
         };
 
@@ -825,7 +824,7 @@ impl<'a, S> DecodeContext<'a, S> {
     }
 
     fn handle_header_frame(&mut self, id: StreamId, headers: headers::Headers) -> Result<Option<Decoded>, Error> {
-        let is_end_stream = headers.is_end_stream();
+        let end_stream = headers.is_end_stream();
 
         let (pseudo, headers) = headers.into_parts();
 
@@ -833,39 +832,13 @@ impl<'a, S> DecodeContext<'a, S> {
         let ci = &mut *inner;
 
         if ci.flow.last_stream_id.get() >= id {
-            if let Some(state) = ci.flow.stream_map.get_mut(&id) {
-                // HEADERS after END_STREAM: determined malicious (RFC 7540 §5.1).
-                if state.recv.is_eof() {
-                    return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
-                }
-                if !state.recv.is_open() {
-                    if state.recv_closed() {
-                        return Err(Error::Reset(Reason::STREAM_CLOSED));
-                    }
-                    // Error state: silently discard.
-                    // TODO: count violations, escalate to GOAWAY above threshold.
-                    return Ok(None);
-                }
-                // Open state: trailer processing.
-                // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
-                if !is_end_stream {
-                    state.try_set_err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "trailer HEADERS without END_STREAM",
-                    ));
-                    return Err(Error::Reset(Reason::PROTOCOL_ERROR));
-                }
-                // RFC 7540 §8.1.2.6: underflow — END_STREAM with bytes still expected.
-                if let Err(err) = state.recv.content_length.ensure_zero() {
-                    state.try_set_err(err);
-                    return Err(Error::Reset(Reason::PROTOCOL_ERROR));
-                }
-                let body_gone = state.push_frame(&mut ci.frame_buf, &mut ci.queue, Frame::Trailers(headers), true, id);
-                if body_gone {
-                    ci.flow.remove_stream(id);
-                }
-                return Ok(None);
+            let stream = ci.try_get_stream_recv(&id)?;
+            stream.try_recv_trailers(id, headers, end_stream)?;
+
+            if end_stream {
+                ci.flow.remove_stream(id);
             }
+            return Ok(None);
         }
 
         // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
@@ -886,7 +859,7 @@ impl<'a, S> DecodeContext<'a, S> {
         // Only meaningful when there will be DATA frames (not end_stream).
         // Malformed content-length → RST_STREAM PROTOCOL_ERROR per §8.1.2.6.
         let content_length =
-            BodySize::from_header(&headers, is_end_stream).map_err(|_| Error::Reset(Reason::PROTOCOL_ERROR))?;
+            BodySize::from_header(&headers, end_stream).map_err(|_| Error::Reset(Reason::PROTOCOL_ERROR))?;
 
         // :method is required; stream was seen so the boundary must
         // advance (no-op once saturated, but the saturation gate
@@ -948,7 +921,7 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let body = RequestBody::new(id, content_length, Rc::clone(self.ctx));
 
-        ci.flow.insert_stream(id, is_end_stream, content_length);
+        ci.flow.insert_stream(id, end_stream, content_length);
 
         let req = req.map(|ext| ext.map_body(|_| body));
 
@@ -1435,7 +1408,7 @@ where
                             // Open → Error + wake; Close stays Close.
                             // Return value ignored: connection-level teardown,
                             // streams drain via StreamGuard/RequestBody drops.
-                            let _ = state.try_set_err(io::Error::new(
+                            state.try_set_err(io::Error::new(
                                 io::ErrorKind::ConnectionReset,
                                 "h2 connection closed by peer",
                             ));

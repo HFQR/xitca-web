@@ -1,6 +1,6 @@
 [package]
 name = "xitca-router"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 license = "MIT"
 description = "router for xitca"
