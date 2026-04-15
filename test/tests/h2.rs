@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use xitca_client::Client;
 use xitca_http::{
-    body::{BodyExt, Frame, ResponseBody},
+    body::{Body, BodyExt, ResponseBody, SizeHint},
     bytes::{Bytes, BytesMut},
     h2,
     http::{HeaderMap, Method, Request, RequestExt, Response, Version, header},
@@ -208,22 +208,32 @@ async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<Re
         (&Method::POST, "/") => {
             let (parts, mut body) = req.into_parts();
 
-            let length = parts
-                .headers
-                .get(header::CONTENT_LENGTH)
-                .unwrap()
-                .to_str()?
-                .parse::<usize>()?;
+            let length = parts.headers.get(header::CONTENT_LENGTH).unwrap().to_str()?.parse()?;
+
+            let size = body.size_hint();
+
+            assert_eq!(size, SizeHint::Exact(length));
 
             let mut buf = BytesMut::new();
 
-            while let Some(bytes) = body.frame().await {
-                if let Frame::Data(bytes) = bytes? {
-                    buf.extend_from_slice(&bytes);
-                }
+            while let Some(bytes) = body.data().await {
+                buf.extend_from_slice(&bytes?);
             }
 
-            assert_eq!(buf.len(), length);
+            assert_eq!(buf.len(), length as _);
+
+            Ok(Response::new(Bytes::new().into()))
+        }
+        (&Method::POST, "/spawn") => {
+            let mut body = req.into_body();
+
+            tokio::task::spawn_local(async move {
+                let mut buf = BytesMut::new();
+
+                while let Some(Ok(bytes)) = body.data().await {
+                    buf.extend_from_slice(&bytes);
+                }
+            });
 
             Ok(Response::new(Bytes::new().into()))
         }

@@ -60,7 +60,7 @@ use super::{
         },
         hpack,
         size::BodySize,
-        stream::{RecvStream, Stream},
+        stream::{RecvData, RecvStream, Stream},
     },
 };
 
@@ -314,22 +314,26 @@ impl FlowControl {
     }
 
     fn _handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
-        let opt_data = self.try_get_data_recv(&id)?.try_recv_data(payload, end_stream)?;
+        let recv = self.try_get_data_recv(&id)?.try_recv_data(payload, end_stream);
 
-        if let Some(data) = opt_data {
-            let size = data.len();
-            // Body dropped: discard data, and take responsibilty of RequestBody:
-            // - replenish both connection and stream windows so the peer can reach END_STREAM without stalling.
-            // - track end_stream state and remove stream
-            self.queue.push_window_update(size);
+        match recv {
+            RecvData::Discard(size) | RecvData::StreamReset(size) => {
+                // RequestBody dropped or stream is about to be reset. replenish connection window
+                self.queue.push_window_update(size);
 
-            self.queue
-                .messages
-                .push_back(Message::WindowUpdate { stream_id: id, size });
+                // replenish stream window if not reset
+                if matches!(recv, RecvData::Discard(_)) {
+                    self.queue
+                        .messages
+                        .push_back(Message::WindowUpdate { stream_id: id, size });
 
-            if end_stream {
-                self.remove_stream(id);
-            };
+                    // try remove stream when RequestBody is dropped
+                    if end_stream {
+                        self.remove_stream(id);
+                    };
+                }
+            }
+            RecvData::Queued => {}
         }
 
         Ok(())
@@ -833,8 +837,7 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let mut flow = self.ctx.borrow_mut();
         if flow.last_stream_id.get() >= id {
-            flow.try_get_trailers_recv(&id)?
-                .try_recv_trailers(headers, end_stream)?;
+            flow.try_get_trailers_recv(&id)?.try_recv_trailers(headers, end_stream);
 
             if end_stream {
                 flow.remove_stream(id);
