@@ -1,4 +1,4 @@
-use core::{mem, task::Waker};
+use core::task::Waker;
 
 use std::io;
 
@@ -82,24 +82,34 @@ impl Stream {
         // Recv: Close (body dropped before EOF) or Eof (natural completion)
         //       both count as done. Error does NOT — the body reader must
         //       take the error first.
-        self.is_send_close() && (self.is_recv_close() || self.recv.is_eof())
+        self.is_send_close() && self.is_recv_close()
     }
 
     /// Record a reset caused by a protocol error or server error.
     /// Sets recv error (so RequestBody sees it), send error (so StreamGuard's
     /// send_data exits), and pending_reset (so the lifecycle sends RST_STREAM).
     /// First reason wins via `get_or_insert`.
-    pub(crate) fn set_reset(&mut self, err: io::Error, reason: Reason) {
-        self.pending_reset.get_or_insert(reason);
+    pub(crate) fn set_reset(&mut self, err: StreamError) {
+        self.pending_reset.get_or_insert(err.reason());
         self.recv.try_set_error(err);
-        self.send.set_error();
+        self.send.try_set_error(err);
     }
 
-    /// Set a recv-side error for the body reader without scheduling
-    /// an outgoing RST_STREAM. Used for peer-initiated RST_STREAM where
-    /// we need to notify RequestBody but must not echo back a reset.
-    pub(crate) fn try_set_err(&mut self, err: io::Error) {
-        self.recv.try_set_error(err)
+    /// Set an error on both sides without scheduling an outgoing RST_STREAM.
+    /// Used for peer-initiated RST_STREAM where both RequestBody and
+    /// StreamGuard must observe the error and exit, but we must not echo
+    /// back a RST_STREAM.
+    pub(crate) fn try_set_err(&mut self, err: StreamError) {
+        self.recv.try_set_error(err);
+        self.send.try_set_error(err);
+    }
+
+    pub(crate) fn take_recv_err(&self) -> Option<io::Error> {
+        self.recv.take_error()
+    }
+
+    pub(crate) fn take_send_err(&self) -> Option<io::Error> {
+        self.send.take_error()
     }
 }
 
@@ -130,12 +140,7 @@ impl<'a> RecvStream<'a> {
         let len = data.len();
 
         if let Err(err) = self.data_check(len, end_stream) {
-            self.stream.set_reset(err, Reason::PROTOCOL_ERROR);
-            return RecvData::StreamReset(len);
-        }
-
-        if let Err(err) = self.try_window_dec(len) {
-            self.stream.set_reset(err, Reason::FLOW_CONTROL_ERROR);
+            self.stream.set_reset(err);
             return RecvData::StreamReset(len);
         }
 
@@ -153,7 +158,7 @@ impl<'a> RecvStream<'a> {
 
     pub(crate) fn try_recv_trailers(self, trailers: HeaderMap, end_stream: bool) {
         if let Err(err) = self.trailers_check(end_stream) {
-            self.stream.set_reset(err, Reason::PROTOCOL_ERROR);
+            self.stream.set_reset(err);
         }
 
         if self.stream.recv.is_open() {
@@ -163,42 +168,48 @@ impl<'a> RecvStream<'a> {
         }
     }
 
-    fn data_check(&mut self, len: usize, end_stream: bool) -> io::Result<()> {
+    fn data_check(&mut self, len: usize, end_stream: bool) -> Result<(), StreamError> {
         if len == 0 && !end_stream {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "empty DATA without END_STREAM",
-            ));
+            return Err(StreamError::EmptyDataNoEndStream);
         }
 
-        self.stream.recv.content_length.dec(len)?;
+        self.stream
+            .recv
+            .content_length
+            .dec(len)
+            .map_err(|_| StreamError::ContentLengthOverflow)?;
 
         if end_stream {
-            self.stream.recv.content_length.ensure_zero()?;
+            self.ensure_zero()?;
         }
 
-        Ok(())
+        self.try_window_dec(len)
     }
 
-    fn trailers_check(&self, end_stream: bool) -> io::Result<()> {
+    fn trailers_check(&self, end_stream: bool) -> Result<(), StreamError> {
         if !end_stream {
             // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "trailer HEADERS without END_STREAM",
-            ));
+            return Err(StreamError::TrailersNoEndStream);
         }
-        self.stream.recv.content_length.ensure_zero()
+        self.ensure_zero()
     }
 
-    fn try_window_dec(&mut self, len: usize) -> io::Result<()> {
+    fn try_window_dec(&mut self, len: usize) -> Result<(), StreamError> {
         match self.stream.recv.window.checked_sub(len) {
             Some(window) => {
                 self.stream.recv.window = window;
                 Ok(())
             }
-            None => Err(io::Error::new(io::ErrorKind::InvalidData, "flow control error")),
+            None => Err(StreamError::FlowControlOverflow),
         }
+    }
+
+    fn ensure_zero(&self) -> Result<(), StreamError> {
+        self.stream
+            .recv
+            .content_length
+            .ensure_zero()
+            .map_err(|_| StreamError::ContentLengthUnderflow)
     }
 }
 
@@ -248,12 +259,13 @@ pub(crate) struct Recv {
 enum RecvState {
     Open,
     Eof,
+    Error(StreamError),
+    // ready to be removed from stream_map
     Close,
-    Error(io::Error),
 }
 
 impl Recv {
-    fn try_set_error(&mut self, err: io::Error) {
+    fn try_set_error(&mut self, err: StreamError) {
         if self.is_open() {
             self.state = RecvState::Error(err);
             self.wake();
@@ -301,14 +313,10 @@ impl Recv {
         }
     }
 
-    pub(crate) fn take_error(&mut self) -> Option<io::Error> {
-        if matches!(self.state, RecvState::Error(_)) {
-            let RecvState::Error(err) = mem::replace(&mut self.state, RecvState::Eof) else {
-                unreachable!()
-            };
-            Some(err)
-        } else {
-            None
+    fn take_error(&self) -> Option<io::Error> {
+        match self.state {
+            RecvState::Error(err) => Some(err.into()),
+            _ => None,
         }
     }
 
@@ -333,33 +341,87 @@ enum SendState {
     Open,
     /// Stream was killed — peer RST_STREAM, client protocol error, or
     /// server error. StreamGuard's send_data observes this via
-    /// `is_close()` and exits the body loop.
-    Error,
+    /// `is_close()` and exits the body loop. Carries the error for a
+    /// future `poll_capacity`-style API.
+    Error(StreamError),
     /// Send completed normally (END_STREAM sent or response task finished).
-    Closed,
+    /// ready to be removed from stream_map
+    Close,
 }
 
 impl Send {
     pub(crate) fn is_close(&self) -> bool {
-        !matches!(self.state, SendState::Open)
+        matches!(self.state, SendState::Close)
     }
 
     /// Signal that the stream was killed by an error. Wakes the send
     /// waker so StreamGuard's send_data poll exits promptly.
-    pub(crate) fn set_error(&mut self) {
+    pub(crate) fn try_set_error(&mut self, err: StreamError) {
         if matches!(self.state, SendState::Open) {
-            self.state = SendState::Error;
+            self.state = SendState::Error(err);
             self.wake();
         }
     }
 
+    fn take_error(&self) -> Option<io::Error> {
+        match self.state {
+            SendState::Error(err) => Some(err.into()),
+            _ => None,
+        }
+    }
+
     pub(crate) fn set_close(&mut self) {
-        self.state = SendState::Closed;
+        self.state = SendState::Close;
     }
 
     pub(crate) fn wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum StreamError {
+    EmptyDataNoEndStream,
+    TrailersNoEndStream,
+    ContentLengthOverflow,
+    ContentLengthUnderflow,
+    FlowControlOverflow,
+    /// Peer sent RST_STREAM.
+    PeerReset,
+    /// WINDOW_UPDATE with zero increment (RFC 7540 §6.9.1).
+    WindowUpdateZeroIncrement,
+    /// WINDOW_UPDATE caused stream window overflow.
+    WindowUpdateOverflow,
+    /// Server-side error (service error, response body error, etc.).
+    ServerError,
+}
+
+impl StreamError {
+    pub(crate) fn reason(&self) -> Reason {
+        match self {
+            Self::FlowControlOverflow | Self::WindowUpdateOverflow => Reason::FLOW_CONTROL_ERROR,
+            Self::PeerReset => Reason::NO_ERROR,
+            Self::ServerError => Reason::INTERNAL_ERROR,
+            _ => Reason::PROTOCOL_ERROR,
+        }
+    }
+}
+
+impl From<StreamError> for io::Error {
+    fn from(err: StreamError) -> Self {
+        let msg = match err {
+            StreamError::EmptyDataNoEndStream => "empty DATA without END_STREAM",
+            StreamError::TrailersNoEndStream => "trailer HEADERS without END_STREAM",
+            StreamError::ContentLengthOverflow => "content-length exceeded",
+            StreamError::ContentLengthUnderflow => "content-length underflow at END_STREAM",
+            StreamError::FlowControlOverflow => "stream flow control overflow",
+            StreamError::PeerReset => "h2 stream reset by peer",
+            StreamError::WindowUpdateZeroIncrement => "WINDOW_UPDATE with zero increment",
+            StreamError::WindowUpdateOverflow => "WINDOW_UPDATE caused window overflow",
+            StreamError::ServerError => "server error",
+        };
+        io::Error::new(io::ErrorKind::InvalidData, msg)
     }
 }

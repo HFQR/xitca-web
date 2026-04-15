@@ -82,7 +82,7 @@ impl Body for RequestBody {
             }
 
             Poll::Ready(Some(Ok(frame)))
-        } else if let Some(e) = stream.recv.take_error() {
+        } else if let Some(e) = stream.take_recv_err() {
             // Peer reset the stream while body was in progress.
             Poll::Ready(Some(Err(e.into())))
         } else if stream.recv.is_eof() {

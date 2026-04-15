@@ -60,7 +60,7 @@ use super::{
         },
         hpack,
         size::BodySize,
-        stream::{RecvData, RecvStream, Stream},
+        stream::{RecvData, RecvStream, Stream, StreamError},
     },
 };
 
@@ -257,24 +257,12 @@ impl FlowControl {
             return Ok(());
         };
 
-        state.try_set_err(io::Error::new(
-            io::ErrorKind::ConnectionReset,
-            "h2 stream reset by peer",
-        ));
+        state.try_set_err(StreamError::PeerReset);
 
         self.premature_reset_count += 1;
 
         if self.premature_reset_count > PREMATURE_RESET_LIMIT {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
-        }
-
-        if state.is_recv_close() {
-            // Body already dropped — close send side and remove entirely.
-            state.send.set_close();
-            state.send.wake();
-            self.stream_map.remove(&id);
-        } else {
-            self.remove_send(id);
         }
 
         Ok(())
@@ -309,31 +297,33 @@ impl FlowControl {
     fn handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
         let len = payload.len();
         self.recv_window_dec(len)?;
-        self._handle_data(id, payload, end_stream)
-            .inspect_err(|_| self.queue.push_window_update(len))
-    }
 
-    fn _handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
-        let recv = self.try_get_data_recv(&id)?.try_recv_data(payload, end_stream);
+        let stream = match self.try_get_data_recv(&id) {
+            Ok(stream) => stream,
+            Err(err) => {
+                self.queue.push_window_update(len);
+                return Err(err);
+            }
+        };
 
-        match recv {
-            RecvData::Discard(size) | RecvData::StreamReset(size) => {
-                // RequestBody dropped or stream is about to be reset. replenish connection window
+        match stream.try_recv_data(payload, end_stream) {
+            RecvData::Queued => {}
+            RecvData::Discard(size) => {
+                // Body dropped — replenish both connection and stream windows
+                // so the peer can reach END_STREAM without stalling.
                 self.queue.push_window_update(size);
+                self.queue
+                    .messages
+                    .push_back(Message::WindowUpdate { stream_id: id, size });
 
-                // replenish stream window if not reset
-                if matches!(recv, RecvData::Discard(_)) {
-                    self.queue
-                        .messages
-                        .push_back(Message::WindowUpdate { stream_id: id, size });
-
-                    // try remove stream when RequestBody is dropped
-                    if end_stream {
-                        self.remove_stream(id);
-                    };
+                if end_stream {
+                    self.remove_stream(id);
                 }
             }
-            RecvData::Queued => {}
+            RecvData::StreamReset(size) => {
+                // Protocol error — replenish connection window only.
+                self.queue.push_window_update(size);
+            }
         }
 
         Ok(())
@@ -640,12 +630,8 @@ impl<'a, S> DecodeContext<'a, S> {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
                         if let Some(state) = flow.stream_map.get_mut(&id) {
-                            state.try_set_err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "WINDOW_UPDATE with zero increment",
-                            ));
+                            state.set_reset(StreamError::WindowUpdateZeroIncrement);
                         }
-                        return Err(Error::Reset(Reason::PROTOCOL_ERROR));
                     }
                     (incr, StreamId::ZERO) => {
                         let incr = incr as usize;
@@ -667,14 +653,12 @@ impl<'a, S> DecodeContext<'a, S> {
                         let incr = incr as i64;
                         let window = flow.send_connection_window;
                         if let Some(state) = flow.stream_map.get_mut(&id) {
-                            let sf = &mut state.send;
-                            if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                state.try_set_err(io::Error::new(io::ErrorKind::InvalidData, "WINDOW_UPDATE overflow"));
-                                return Err(Error::Reset(Reason::FLOW_CONTROL_ERROR));
+                            if state.send.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
+                                state.set_reset(StreamError::WindowUpdateOverflow);
                             } else {
-                                sf.window += incr;
+                                state.send.window += incr;
                                 if window > 0 {
-                                    sf.wake();
+                                    state.send.wake();
                                 }
                             }
                         }
@@ -1062,16 +1046,9 @@ async fn response_task<S, ReqB, ResB, ResBE>(
         Ok(res) => res,
         Err(e) => {
             error!("service error: {:?}", e);
-            // Only send RST_STREAM if the stream is still active. If the peer
-            // already reset it (or the dispatcher removed it for another reason),
-            // the error may have originated from try_set_err and sending a
-            // redundant reset is unnecessary.
             let mut flow = ctx.borrow_mut();
-            if flow.stream_map.contains_key(&stream_id) {
-                flow.queue.push(Message::Reset {
-                    stream_id,
-                    reason: Reason::PROTOCOL_ERROR,
-                });
+            if let Some(state) = flow.stream_map.get_mut(&stream_id) {
+                state.set_reset(StreamError::ServerError);
             }
             return;
         }
@@ -1109,10 +1086,11 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                 None => break ctx.borrow_mut().queue.push_end_stream(guard.stream_id),
                 Some(Err(e)) => {
                     error!("body error: {:?}", e);
-                    break guard.ctx.borrow_mut().queue.push(Message::Reset {
-                        stream_id: guard.stream_id,
-                        reason: Reason::INTERNAL_ERROR,
-                    });
+                    let mut flow = guard.ctx.borrow_mut();
+                    if let Some(state) = flow.stream_map.get_mut(&guard.stream_id) {
+                        state.set_reset(StreamError::ServerError);
+                    }
+                    break;
                 }
                 Some(Ok(Frame::Data(bytes))) => {
                     if guard.send_data(bytes, body.is_end_stream()).await {
@@ -1156,9 +1134,11 @@ impl StreamGuard<'_> {
             let opt = poll_fn(|cx| {
                 let mut flow = self.ctx.borrow_mut();
                 let send_connection_window = flow.send_connection_window;
-                let Some(state) = flow.stream_map.get_mut(&self.stream_id) else {
-                    return Poll::Ready(None);
-                };
+                let state = flow.stream_map.get_mut(&self.stream_id).unwrap();
+
+                if let Some(err) = state.take_send_err() {
+                    return Poll::Ready(Some(Err(err)));
+                }
 
                 if state.is_send_close() {
                     return Poll::Ready(None);
@@ -1175,11 +1155,11 @@ impl StreamGuard<'_> {
                 let aval = cmp::min(aval, len);
                 sf.window -= aval as i64;
                 flow.send_connection_window -= aval;
-                Poll::Ready(Some((aval, flow)))
+                Poll::Ready(Some(Ok((aval, flow))))
             })
             .await;
 
-            let Some((aval, mut flow)) = opt else {
+            let Some(Ok((aval, mut flow))) = opt else {
                 return true;
             };
 
@@ -1410,10 +1390,7 @@ where
                             // Open → Error + wake; Close stays Close.
                             // Return value ignored: connection-level teardown,
                             // streams drain via StreamGuard/RequestBody drops.
-                            state.try_set_err(io::Error::new(
-                                io::ErrorKind::ConnectionReset,
-                                "h2 connection closed by peer",
-                            ));
+                            state.try_set_err(StreamError::PeerReset);
                             // No more data will arrive on any stream.
                             // Close recv; Error left intact for delivery.
                             state.recv.set_close_2();

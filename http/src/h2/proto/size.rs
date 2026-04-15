@@ -1,5 +1,3 @@
-use std::io;
-
 use crate::{
     body::SizeHint,
     http::header::{CONTENT_LENGTH, HeaderMap},
@@ -16,10 +14,10 @@ pub(crate) trait BodySize {
 
     /// Subtract `len` bytes received in a DATA frame.
     /// Returns `Err(())` if this would underflow (overflow: more data than declared).
-    fn dec(&mut self, len: usize) -> io::Result<()>;
+    fn dec(&mut self, len: usize) -> Result<(), ()>;
 
     /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
-    fn ensure_zero(&self) -> io::Result<()>;
+    fn ensure_zero(&self) -> Result<(), ()>;
 }
 
 impl BodySize for SizeHint {
@@ -40,24 +38,22 @@ impl BodySize for SizeHint {
 
     /// Subtract `len` bytes received in a DATA frame.
     /// Returns `Err(())` if this would underflow (overflow: more data than declared).
-    fn dec(&mut self, len: usize) -> io::Result<()> {
+    fn dec(&mut self, len: usize) -> Result<(), ()> {
         match self {
             Self::Unknown => Ok(()),
-            Self::None => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded")),
+            Self::None => Err(()),
             Self::Exact(rem) => {
-                *rem = rem
-                    .checked_sub(len as u64)
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "content-length exceeded"))?;
+                *rem = rem.checked_sub(len as u64).ok_or(())?;
                 Ok(())
             }
         }
     }
 
     /// Returns `Err` if remaining != 0 at END_STREAM (underflow: less data than declared).
-    fn ensure_zero(&self) -> io::Result<()> {
+    fn ensure_zero(&self) -> Result<(), ()> {
         match self {
             Self::Unknown | Self::None | Self::Exact(0) => Ok(()),
-            Self::Exact(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "content-length underflow")),
+            Self::Exact(_) => Err(()),
         }
     }
 }
