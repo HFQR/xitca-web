@@ -25,6 +25,7 @@ pub(crate) trait TlsAcceptTcp<E>:
     Service<TcpStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>
 {
 }
+
 impl<T, E> TlsAcceptTcp<E> for T where
     T: Service<TcpStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>
 {
@@ -35,6 +36,7 @@ pub(crate) trait TlsAcceptUnix<E>:
     Service<xitca_io::net::UnixStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>
 {
 }
+
 #[cfg(unix)]
 impl<T, E> TlsAcceptUnix<E> for T where
     T: Service<xitca_io::net::UnixStream, Response: AsVersion + AsyncBufRead + AsyncBufWrite + 'static, Error: Into<E>>

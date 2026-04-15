@@ -612,7 +612,7 @@ impl<'a, S> DecodeContext<'a, S> {
             (head::Kind::Headers, _) => {
                 let (headers, payload) = headers::Headers::load(head, frame)?;
                 let is_end_headers = headers.is_end_headers();
-                return self.decode_header_block(headers, payload, is_end_headers);
+                return self.handle_headers(headers, payload, is_end_headers);
             }
             (head::Kind::Data, _) => {
                 let data = data::Data::load(head, frame.freeze())?;
@@ -628,10 +628,13 @@ impl<'a, S> DecodeContext<'a, S> {
                 let window = WindowUpdate::load(head, frame.as_ref())?;
 
                 let flow = &mut self.ctx.borrow_mut();
-                match (window.size_increment(), window.stream_id()) {
+
+                let id = window.stream_id();
+                flow.check_not_idle(id)?;
+
+                match (window.size_increment(), id) {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
-                        flow.check_not_idle(id)?;
                         if let Some(state) = flow.stream_map.get_mut(&id) {
                             state.try_set_err(io::Error::new(
                                 io::ErrorKind::InvalidData,
@@ -657,7 +660,6 @@ impl<'a, S> DecodeContext<'a, S> {
                         }
                     }
                     (incr, id) => {
-                        flow.check_not_idle(id)?;
                         let incr = incr as i64;
                         let window = flow.send_connection_window;
                         if let Some(state) = flow.stream_map.get_mut(&id) {
@@ -732,16 +734,16 @@ impl<'a, S> DecodeContext<'a, S> {
     fn handle_continuation(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
         let is_end_headers = (head.flag() & 0x4) == 0x4;
 
-        // RFC 7540 §6.10: CONTINUATION without a preceding incomplete HEADERS
-        // is a connection error PROTOCOL_ERROR
         let (headers, mut payload) = self.continuation.take().ok_or(Error::GoAway(Reason::PROTOCOL_ERROR))?;
 
+        // RFC 7540 §6.10: CONTINUATION without a preceding incomplete HEADERS
+        // is a connection error PROTOCOL_ERROR
         if headers.stream_id() != head.stream_id() {
             return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
         }
 
         payload.extend_from_slice(&frame);
-        self.decode_header_block(headers, payload, is_end_headers)
+        self.handle_headers(headers, payload, is_end_headers)
     }
 
     #[cold]
@@ -788,7 +790,7 @@ impl<'a, S> DecodeContext<'a, S> {
         flow.queue.pending_settings.try_update(setting)
     }
 
-    fn decode_header_block(
+    fn handle_headers(
         &mut self,
         mut headers: headers::Headers,
         mut payload: BytesMut,
@@ -806,7 +808,9 @@ impl<'a, S> DecodeContext<'a, S> {
                 // The HPACK context was decoded successfully so no compression error.
                 Error::MalformedMessage => {
                     let id = headers.stream_id();
-                    let _ = self.ctx.borrow_mut().last_stream_id.try_set(id);
+                    if self.ctx.borrow_mut().last_stream_id.try_set(id)?.is_none() {
+                        return Ok(None);
+                    }
                     Err(Error::Reset(Reason::PROTOCOL_ERROR))
                 }
                 _ => Err(Error::GoAway(Reason::COMPRESSION_ERROR)),
@@ -838,19 +842,21 @@ impl<'a, S> DecodeContext<'a, S> {
             return Ok(None);
         }
 
+        // Validate and advance the stream-ID boundary before any
+        // application-level checks. This ensures protocol violations
+        // (non-client-initiated, non-monotonic) produce GOAWAY rather
+        // than being masked by REFUSED_STREAM.
+        // Saturated (post-GOAWAY): silently drop the frame.
+        if flow.last_stream_id.try_set(id)?.is_none() {
+            return Ok(None);
+        }
+
         // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
         // stream_map holds streams in open / half-closed states — exactly
         // those that count toward the concurrent-stream limit.
-        // Do NOT update last_stream_id: REFUSED_STREAM means no application
-        // processing occurred and the client should retry (RFC 7540 §8.1.4).
         if flow.stream_map.len() >= self.max_concurrent_streams {
             return Err(Error::Reset(Reason::REFUSED_STREAM));
         }
-
-        // last stream id is already saturated. throw away the header frame and keep going
-        if flow.last_stream_id.try_set(id)?.is_none() {
-            return Ok(None);
-        };
 
         // RFC 7540 §8.1.2.6: parse content-length before headers are moved into the request.
         // Only meaningful when there will be DATA frames (not end_stream).
