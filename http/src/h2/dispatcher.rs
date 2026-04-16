@@ -1,6 +1,6 @@
 use core::{
     cell::RefCell,
-    cmp, fmt,
+    fmt,
     future::poll_fn,
     mem,
     pin::{Pin, pin},
@@ -1127,29 +1127,16 @@ impl StreamGuard<'_> {
 
             let opt = poll_fn(|cx| {
                 let mut flow = self.ctx.borrow_mut();
-                let send_connection_window = flow.send_connection_window;
-                let state = flow.stream_map.get_mut(&self.stream_id).expect(STREAM_MUST_EXIST);
+                let window = flow.send_connection_window;
 
-                if let Some(err) = state.take_send_err() {
-                    return Poll::Ready(Some(Err(err)));
-                }
-
-                if state.is_send_close() {
-                    return Poll::Ready(None);
-                }
-
-                let sf = &mut state.send;
-                if len > 0 && (send_connection_window == 0 || sf.window <= 0) {
-                    sf.waker = Some(cx.waker().clone());
-                    return Poll::Pending;
-                }
-
-                let len = cmp::min(len, sf.frame_size);
-                let aval = cmp::min(sf.window as usize, send_connection_window);
-                let aval = cmp::min(aval, len);
-                sf.window -= aval as i64;
-                flow.send_connection_window -= aval;
-                Poll::Ready(Some(Ok((aval, flow))))
+                flow.stream_map
+                    .get_mut(&self.stream_id)
+                    .expect(STREAM_MUST_EXIST)
+                    .poll_send_window(len, window, cx)
+                    .map_ok(|aval| {
+                        flow.send_connection_window -= aval;
+                        (aval, flow)
+                    })
             })
             .await;
 

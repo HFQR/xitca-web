@@ -191,7 +191,15 @@ async fn h2_post_early_body_drop() -> Result<(), Error> {
         for _ in 0..1024 * 1024 {
             body.extend_from_slice(b"Hello,World!");
         }
-        let res = c.post(&server_url).version(Version::HTTP_2).text(body).send().await?;
+        let mut trailers = HeaderMap::new();
+        trailers.insert("foo", "bar".try_into().unwrap());
+        let res = c
+            .post(&server_url)
+            .version(Version::HTTP_2)
+            .text(body)
+            .trailers(trailers)
+            .send()
+            .await?;
         assert_eq!(res.status().as_u16(), 200);
     }
 

@@ -1,3 +1,7 @@
+# 0.9.2
+## Fix
+- fix HTTP/2 RST_STREAM lifecycle
+
 # 0.9.1
 ## Add
 - `util::router::Router::merge` for merging two `Router`

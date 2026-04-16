@@ -1,6 +1,9 @@
-use core::task::Waker;
+use core::{
+    cmp, mem,
+    task::{Context, Poll, Waker},
+};
 
-use std::{io, mem};
+use std::io;
 
 use crate::{
     body::SizeHint,
@@ -112,6 +115,15 @@ impl Stream {
         Ok(recv)
     }
 
+    pub(crate) fn poll_send_window(
+        &mut self,
+        len: usize,
+        window: usize,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<usize, StreamError>>> {
+        self.send.poll_send_window(len, window, cx)
+    }
+
     // may close or cancel the recv side of stream
     // behavior depend on current state of Recv.
     // State::Open -> State::Cancel. return with RecvClose::Cancel
@@ -169,10 +181,6 @@ impl Stream {
 
     pub(crate) fn take_recv_err(&self) -> Option<io::Error> {
         self.recv.state.take_error()
-    }
-
-    pub(crate) fn take_send_err(&self) -> Option<io::Error> {
-        self.send.state.take_error()
     }
 
     fn recvable(&self) -> Result<(), Error> {
@@ -333,6 +341,33 @@ pub(crate) struct Send {
 }
 
 impl Send {
+    fn poll_send_window(
+        &mut self,
+        len: usize,
+        window: usize,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<usize, StreamError>>> {
+        let opt = match self.state {
+            State::Error(err) => Some(Err(err)),
+            State::Close => None,
+            _ => {
+                if len > 0 && (window == 0 || self.window <= 0) {
+                    self.waker = Some(cx.waker().clone());
+                    return Poll::Pending;
+                }
+
+                let len = cmp::min(len, self.frame_size);
+                let aval = cmp::min(self.window as usize, window);
+                let aval = cmp::min(aval, len);
+                self.window -= aval as i64;
+
+                Some(Ok(aval))
+            }
+        };
+
+        Poll::Ready(opt)
+    }
+
     fn try_set_err(&mut self, err: StreamError) {
         if self.state.is_open() {
             self.state = State::Error(err);
