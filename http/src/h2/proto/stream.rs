@@ -1,6 +1,6 @@
 use core::task::Waker;
 
-use std::io;
+use std::{io, mem};
 
 use crate::{
     body::SizeHint,
@@ -26,7 +26,34 @@ pub(crate) struct Stream {
     /// path (client protocol errors) or the response task (server errors).
     /// First reason wins — `get_or_insert` ensures a second error doesn't
     /// overwrite the original cause.
-    pub(crate) pending_reset: Option<Reason>,
+    pending_reset: PendingReset,
+}
+
+enum PendingReset {
+    None,
+    Peer,
+    Local(Reason),
+}
+
+impl PendingReset {
+    fn try_set_peer(&mut self) {
+        if matches!(self, Self::None) {
+            *self = Self::Peer;
+        }
+    }
+
+    fn try_set_local(&mut self, reason: Reason) {
+        if matches!(self, Self::None) {
+            *self = Self::Local(reason);
+        }
+    }
+
+    fn take(&mut self) -> Option<Reason> {
+        match mem::replace(self, PendingReset::None) {
+            PendingReset::Local(reason) => Some(reason),
+            _ => None,
+        }
+    }
 }
 
 impl Stream {
@@ -55,7 +82,7 @@ impl Stream {
                 waker: None,
                 state: SendState::Open,
             },
-            pending_reset: None,
+            pending_reset: PendingReset::None,
         }
     }
 
@@ -111,7 +138,7 @@ impl Stream {
     /// send_data exits), and pending_reset (so the lifecycle sends RST_STREAM).
     /// First reason wins via `get_or_insert`.
     pub(crate) fn set_reset(&mut self, err: StreamError) {
-        self.pending_reset.get_or_insert(err.reason());
+        self.pending_reset.try_set_local(err.reason());
         self.recv.try_set_error(err);
         self.send.try_set_error(err);
     }
@@ -121,6 +148,7 @@ impl Stream {
     /// StreamGuard must observe the error and exit, but we must not echo
     /// back a RST_STREAM.
     pub(crate) fn try_set_err(&mut self, err: StreamError) {
+        self.pending_reset.try_set_peer();
         self.recv.try_set_error(err);
         self.send.try_set_error(err);
     }
@@ -154,14 +182,12 @@ pub(crate) struct RecvStream<'a> {
 
 impl<'a> RecvStream<'a> {
     fn try_new(stream: &'a mut Stream, buffer: &'a mut FrameBuffer) -> Result<Self, Error> {
-        match stream.recv.state {
-            // Open: normal receive path.
-            // Close: body dropped before recv finished — data will be discarded.
-            // Error: previous error pending for body reader — data will be discarded.
-            RecvState::Open | RecvState::Cancel | RecvState::Close | RecvState::Error(_) => Ok(Self { stream, buffer }),
+        match (&stream.pending_reset, &stream.recv.state) {
+            (PendingReset::Peer, _) => Err(Error::GoAway(Reason::STREAM_CLOSED)),
             // Eof: END_STREAM already received. Any further frames are a
             // protocol violation (RFC 7540 §5.1: "closed" state).
-            RecvState::Eof => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            (_, RecvState::Eof) => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            (_, _) => Ok(Self { stream, buffer }),
         }
     }
 
