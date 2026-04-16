@@ -60,7 +60,7 @@ use super::{
         },
         hpack,
         size::BodySize,
-        stream::{RecvData, RecvStream, Stream, StreamError},
+        stream::{RecvData, RecvStream, Remove, Stream, StreamError},
     },
 };
 
@@ -213,8 +213,9 @@ impl FlowControl {
     /// Only actually removes if both recv and send sides are closed.
     fn remove_stream(&mut self, id: StreamId) {
         if let Some(state) = self.stream_map.get_mut(&id) {
-            if state.is_close() {
+            if let Some(Remove::Reset(reason)) = state.try_remove() {
                 self.stream_map.remove(&id);
+                self.queue.push(Message::Reset { stream_id: id, reason });
             }
         }
     }
@@ -226,9 +227,9 @@ impl FlowControl {
     fn remove_send(&mut self, id: StreamId) -> bool {
         if let Some(state) = self.stream_map.get_mut(&id) {
             state.send.set_close();
-            state.send.wake();
-            if state.is_close() {
+            if let Some(Remove::Reset(reason)) = state.try_remove() {
                 self.stream_map.remove(&id);
+                self.queue.push(Message::Reset { stream_id: id, reason });
             }
             true
         } else {

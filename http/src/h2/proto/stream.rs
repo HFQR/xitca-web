@@ -76,13 +76,15 @@ impl Stream {
         self.send.is_close()
     }
 
-    pub(crate) fn is_close(&self) -> bool {
-        // Both directions must be done before the entry can be removed.
-        // Send: Closed or Error both count as done.
-        // Recv: Close (body dropped before EOF) or Eof (natural completion)
-        //       both count as done. Error does NOT — the body reader must
-        //       take the error first.
-        self.is_send_close() && self.is_recv_close()
+    pub(crate) fn try_remove(&mut self) -> Option<Remove> {
+        if self.is_send_close() && self.is_recv_close() {
+            Some(match self.pending_reset.take() {
+                Some(reason) => Remove::Reset(reason),
+                None => Remove::Graceful,
+            })
+        } else {
+            None
+        }
     }
 
     /// Record a reset caused by a protocol error or server error.
@@ -111,6 +113,11 @@ impl Stream {
     pub(crate) fn take_send_err(&self) -> Option<io::Error> {
         self.send.take_error()
     }
+}
+
+pub(crate) enum Remove {
+    Graceful,
+    Reset(Reason),
 }
 
 /// Guard type for receiving frames on a stream.
@@ -280,13 +287,8 @@ impl Recv {
         self.wake();
     }
 
-    /// Transition to Close. Only from Open — preserves Eof (natural
-    /// completion) and Error (pending for body reader) so the lifecycle
-    /// drops can distinguish why recv ended.
     fn set_close(&mut self) {
-        if self.is_open() {
-            self.state = RecvState::Close;
-        }
+        self.state = RecvState::Close;
     }
 
     pub(crate) fn is_close(&self) -> bool {
