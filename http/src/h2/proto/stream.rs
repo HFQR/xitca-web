@@ -21,39 +21,7 @@ use super::{
 pub(crate) struct Stream {
     pub(crate) recv: Recv,
     pub(crate) send: Send,
-    /// RST_STREAM reason to send when this stream is cleaned up by the
-    /// lifecycle (RequestBody::drop / StreamGuard::drop). Set by the decode
-    /// path (client protocol errors) or the response task (server errors).
-    /// First reason wins — `get_or_insert` ensures a second error doesn't
-    /// overwrite the original cause.
     pending_reset: PendingReset,
-}
-
-enum PendingReset {
-    None,
-    Peer,
-    Local(Reason),
-}
-
-impl PendingReset {
-    fn try_set_peer(&mut self) {
-        if matches!(self, Self::None) {
-            *self = Self::Peer;
-        }
-    }
-
-    fn try_set_local(&mut self, reason: Reason) {
-        if matches!(self, Self::None) {
-            *self = Self::Local(reason);
-        }
-    }
-
-    fn take(&mut self) -> Option<Reason> {
-        match mem::replace(self, PendingReset::None) {
-            PendingReset::Local(reason) => Some(reason),
-            _ => None,
-        }
-    }
 }
 
 impl Stream {
@@ -63,9 +31,9 @@ impl Stream {
 
     pub(crate) fn new(send_window: i64, send_frame_size: usize, content_length: SizeHint, end_stream: bool) -> Self {
         let (window, state) = if end_stream {
-            (0, RecvState::Eof)
+            (0, State::Eof)
         } else {
-            (settings::DEFAULT_INITIAL_WINDOW_SIZE as usize, RecvState::Open)
+            (settings::DEFAULT_INITIAL_WINDOW_SIZE as usize, State::Open)
         };
 
         Self {
@@ -80,7 +48,7 @@ impl Stream {
                 window: send_window,
                 frame_size: send_frame_size,
                 waker: None,
-                state: SendState::Open,
+                state: State::Open,
             },
             pending_reset: PendingReset::None,
         }
@@ -90,7 +58,11 @@ impl Stream {
         RecvStream::try_new(self, buffer)
     }
 
-    pub(crate) fn close_recv(&mut self, buffer: &mut FrameBuffer) -> RecvClose {
+    // may close or cancel the recv side of stream
+    // behavior depend on current state of Recv.
+    // State::Open -> State::Cancel. return with RecvClose::Cancel
+    // State::<non_OPEN> -> state::Close. return with RecvClose::Close
+    pub(crate) fn maybe_close_recv(&mut self, buffer: &mut FrameBuffer) -> RecvClose {
         self.recv.set_close();
 
         let mut window = 0;
@@ -103,34 +75,22 @@ impl Stream {
 
         self.recv.window += window;
 
-        if self.recv.is_close() {
+        if self.recv.state.is_close() {
             RecvClose::Close(window)
         } else {
             RecvClose::Cancel(window)
         }
     }
 
-    pub(crate) fn close_send(&mut self) {
-        self.send.set_close();
-    }
-
-    fn is_recv_close(&self) -> bool {
-        self.recv.is_close()
-    }
-
     pub(crate) fn is_send_close(&self) -> bool {
-        self.send.is_close()
+        self.send.state.is_close()
     }
 
     pub(crate) fn try_remove(&mut self) -> Option<Remove> {
-        if self.is_send_close() && self.is_recv_close() {
-            Some(match self.pending_reset.take() {
-                Some(reason) => Remove::Reset(reason),
-                None => Remove::Graceful,
-            })
-        } else {
-            None
-        }
+        (self.is_send_close() && self.recv.state.is_close()).then(|| match self.pending_reset.take() {
+            Some(reason) => Remove::Reset(reason),
+            None => Remove::Graceful,
+        })
     }
 
     /// Record a reset caused by a protocol error or server error.
@@ -139,42 +99,51 @@ impl Stream {
     /// First reason wins via `get_or_insert`.
     pub(crate) fn set_reset(&mut self, err: StreamError) {
         self.pending_reset.try_set_local(err.reason());
-        self.recv.try_set_error(err);
-        self.send.try_set_error(err);
+        self.recv.try_set_err(err);
+        self.send.try_set_err(err);
     }
 
     /// Set an error on both sides without scheduling an outgoing RST_STREAM.
     /// Used for peer-initiated RST_STREAM where both RequestBody and
     /// StreamGuard must observe the error and exit, but we must not echo
     /// back a RST_STREAM.
-    pub(crate) fn try_set_err(&mut self, err: StreamError) {
+    pub(crate) fn try_set_peer_reset(&mut self) {
         self.pending_reset.try_set_peer();
-        self.recv.try_set_error(err);
-        self.send.try_set_error(err);
+        self.recv.try_set_err(StreamError::PeerReset);
+        self.send.try_set_err(StreamError::PeerReset);
     }
 
     pub(crate) fn take_recv_err(&self) -> Option<io::Error> {
-        self.recv.take_error()
+        self.recv.state.take_error()
     }
 
     pub(crate) fn take_send_err(&self) -> Option<io::Error> {
-        self.send.take_error()
+        self.send.state.take_error()
     }
 }
 
+// outcome of Stream::maybe_close_recv
 pub(crate) enum RecvClose {
+    // Recv is locally canceled but peer still consider it's open
+    // observer must keep updating connection window and stream window to keep
+    // stream going
     Cancel(usize),
+    // Recv is locally closed
+    // observer must keep updating connection window
     Close(usize),
 }
 
+// outcome of Stream::try_remove
 pub(crate) enum Remove {
+    // graceful removal nothing should be done
     Graceful,
+    // observer must send Reason with Reset frame and send to peer
     Reset(Reason),
 }
 
-/// Guard type for receiving frames on a stream.
-/// Borrows the whole Stream so it can set pending_reset, recv error,
-/// and send error in a single operation on protocol violations.
+// Guard type for receiving frames on a stream.
+// Borrows the whole Stream so it can set pending_reset, recv error,
+// and send error in a single operation on protocol violations.
 pub(crate) struct RecvStream<'a> {
     stream: &'a mut Stream,
     buffer: &'a mut FrameBuffer,
@@ -184,9 +153,7 @@ impl<'a> RecvStream<'a> {
     fn try_new(stream: &'a mut Stream, buffer: &'a mut FrameBuffer) -> Result<Self, Error> {
         match (&stream.pending_reset, &stream.recv.state) {
             (PendingReset::Peer, _) => Err(Error::GoAway(Reason::STREAM_CLOSED)),
-            // Eof: END_STREAM already received. Any further frames are a
-            // protocol violation (RFC 7540 §5.1: "closed" state).
-            (_, RecvState::Eof) => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            (_, State::Eof) => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
             (_, _) => Ok(Self { stream, buffer }),
         }
     }
@@ -201,7 +168,7 @@ impl<'a> RecvStream<'a> {
             return RecvData::StreamReset(len);
         }
 
-        if self.stream.recv.is_open() {
+        if self.stream.recv.state.is_open() {
             self.stream.recv.push_frame(self.buffer, Frame::Data(data), end_stream);
             RecvData::Queued
         } else {
@@ -219,7 +186,7 @@ impl<'a> RecvStream<'a> {
             return RecvData::StreamReset(0);
         }
 
-        if self.stream.recv.is_open() {
+        if self.stream.recv.state.is_open() {
             self.stream
                 .recv
                 .push_frame(self.buffer, Frame::Trailers(trailers), true);
@@ -298,38 +265,17 @@ pub(crate) enum RecvData {
 }
 
 pub(crate) struct Recv {
-    /// Buffered DATA / Trailers frames for the request body, pushed by the
-    /// decode path and drained by `RequestBody::poll_next`. Indices into
-    /// the shared `ConnectionInner::frame_buf` slab.
     pub(crate) queue: Deque,
-    /// Waker stored by `RequestBody::poll_next` when the queue is empty;
-    /// woken by the decode path after pushing new data.
     pub(crate) waker: Option<Waker>,
-    /// Remaining bytes the client may send on this stream (RFC 7540 §6.9).
     pub(crate) window: usize,
-    /// Recv-side state machine for the body reader.
-    /// - Open:     body alive, accepting frames.
-    /// - Eof:      END_STREAM received, body will see None on next poll.
-    /// - Close:    body dropped before EOF (premature).
-    /// - Error:    protocol error or peer reset — body will see Err on next poll.
-    state: RecvState,
-    /// RFC 7540 §8.1.2.6: tracks remaining expected DATA bytes.
+    state: State,
     content_length: SizeHint,
 }
 
-enum RecvState {
-    Open,
-    Cancel,
-    Eof,
-    Error(StreamError),
-    // ready to be removed from stream_map
-    Close,
-}
-
 impl Recv {
-    fn try_set_error(&mut self, err: StreamError) {
-        if self.is_open() {
-            self.state = RecvState::Error(err);
+    fn try_set_err(&mut self, err: StreamError) {
+        if self.state.is_open() {
+            self.state = State::Error(err);
             self.wake();
         }
     }
@@ -337,30 +283,22 @@ impl Recv {
     fn push_frame(&mut self, buffer: &mut FrameBuffer, frame: Frame, end_stream: bool) {
         self.queue.push_back(buffer, frame);
         if end_stream {
-            self.state = RecvState::Eof;
+            self.state = State::Eof;
         }
         self.wake();
     }
 
     fn set_close(&mut self) {
         self.state = match self.state {
-            RecvState::Open => RecvState::Cancel,
-            _ => RecvState::Close,
+            State::Open => State::Cancel,
+            _ => State::Close,
         }
-    }
-
-    pub(crate) fn is_close(&self) -> bool {
-        matches!(self.state, RecvState::Close)
     }
 
     /// END_STREAM received or stream fully closed. Used by the body to
     /// detect EOF after draining the queue.
     pub(crate) fn is_eof(&self) -> bool {
-        matches!(self.state, RecvState::Eof)
-    }
-
-    fn is_open(&self) -> bool {
-        matches!(self.state, RecvState::Open)
+        matches!(self.state, State::Eof)
     }
 
     /// Force recv to `Close`. Used on connection-level teardown.
@@ -368,19 +306,12 @@ impl Recv {
     /// the body reader first.
     pub(crate) fn set_close_2(&mut self) {
         match self.state {
-            RecvState::Error(_) => {}
-            _ => self.state = RecvState::Close,
+            State::Error(_) => {}
+            _ => self.state = State::Close,
         }
     }
 
-    fn take_error(&self) -> Option<io::Error> {
-        match self.state {
-            RecvState::Error(err) => Some(err.into()),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn wake(&mut self) {
+    fn wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
@@ -394,49 +325,80 @@ pub(crate) struct Send {
     pub(crate) window: i64,
     pub(crate) frame_size: usize,
     pub(crate) waker: Option<Waker>,
-    state: SendState,
-}
-
-enum SendState {
-    Open,
-    /// Stream was killed — peer RST_STREAM, client protocol error, or
-    /// server error. StreamGuard's send_data observes this via
-    /// `is_close()` and exits the body loop. Carries the error for a
-    /// future `poll_capacity`-style API.
-    Error(StreamError),
-    /// Send completed normally (END_STREAM sent or response task finished).
-    /// ready to be removed from stream_map
-    Close,
+    state: State,
 }
 
 impl Send {
-    pub(crate) fn is_close(&self) -> bool {
-        matches!(self.state, SendState::Close)
-    }
-
-    /// Signal that the stream was killed by an error. Wakes the send
-    /// waker so StreamGuard's send_data poll exits promptly.
-    pub(crate) fn try_set_error(&mut self, err: StreamError) {
-        if matches!(self.state, SendState::Open) {
-            self.state = SendState::Error(err);
+    fn try_set_err(&mut self, err: StreamError) {
+        if self.state.is_open() {
+            self.state = State::Error(err);
             self.wake();
         }
     }
 
-    fn take_error(&self) -> Option<io::Error> {
-        match self.state {
-            SendState::Error(err) => Some(err.into()),
-            _ => None,
-        }
-    }
-
     pub(crate) fn set_close(&mut self) {
-        self.state = SendState::Close;
+        self.state = State::Close;
     }
 
     pub(crate) fn wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
+        }
+    }
+}
+
+enum PendingReset {
+    None,
+    Peer,
+    Local(Reason),
+}
+
+impl PendingReset {
+    fn try_set_peer(&mut self) {
+        if matches!(self, Self::None) {
+            *self = Self::Peer;
+        }
+    }
+
+    fn try_set_local(&mut self, reason: Reason) {
+        if matches!(self, Self::None) {
+            *self = Self::Local(reason);
+        }
+    }
+
+    fn take(&mut self) -> Option<Reason> {
+        match mem::replace(self, PendingReset::None) {
+            PendingReset::Local(reason) => Some(reason),
+            _ => None,
+        }
+    }
+}
+
+// lifecycle state of Recv and Send
+enum State {
+    Open,
+    // for recv only
+    Cancel,
+    // for recv only
+    Eof,
+    Error(StreamError),
+    // ready to be removed from stream_map
+    Close,
+}
+
+impl State {
+    fn is_open(&self) -> bool {
+        matches!(self, State::Open)
+    }
+
+    fn is_close(&self) -> bool {
+        matches!(self, State::Close)
+    }
+
+    fn take_error(&self) -> Option<io::Error> {
+        match *self {
+            State::Error(err) => Some(err.into()),
+            _ => None,
         }
     }
 }

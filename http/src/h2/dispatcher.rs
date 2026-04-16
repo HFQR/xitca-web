@@ -231,7 +231,7 @@ impl FlowControl {
             return Ok(());
         };
 
-        state.try_set_err(StreamError::PeerReset);
+        state.try_set_peer_reset();
 
         self.premature_reset_count += 1;
 
@@ -262,26 +262,26 @@ impl FlowControl {
     fn stream_guard_drop(&mut self, id: StreamId) {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
-        stream.close_send();
+        stream.send.set_close();
 
         if let Some(remove) = stream.try_remove() {
             self.remove_stream(id, remove);
         }
     }
 
-    /// Try to remove a stream after END_STREAM is received.
-    /// Only actually removes if both recv and send sides are closed.
+    // Try to remove a stream after END_STREAM is received.
+    // Only actually removes if both recv and send sides are closed.
     fn try_remove_stream(&mut self, id: StreamId) {
         if let Some(stream) = self.stream_map.get_mut(&id) {
-            match stream.close_recv(&mut self.frame_buf) {
+            match stream.maybe_close_recv(&mut self.frame_buf) {
                 RecvClose::Cancel(size) => {
-                    self.queue.push_window_update(size);
+                    self.queue.connection_window_update(size);
                     if size > 0 {
                         self.queue.push(Message::WindowUpdate { stream_id: id, size })
                     }
                 }
                 RecvClose::Close(size) => {
-                    self.queue.push_window_update(size);
+                    self.queue.connection_window_update(size);
                 }
             }
 
@@ -306,7 +306,7 @@ impl FlowControl {
         let stream = match self.try_get_data_recv(&id) {
             Ok(stream) => stream,
             Err(err) => {
-                self.queue.push_window_update(len);
+                self.queue.connection_window_update(len);
                 return Err(err);
             }
         };
@@ -316,7 +316,7 @@ impl FlowControl {
             RecvData::Discard(size) => {
                 // Body dropped — replenish both connection and stream windows
                 // so the peer can reach END_STREAM without stalling.
-                self.queue.push_window_update(size);
+                self.queue.connection_window_update(size);
 
                 if end_stream {
                     self.try_remove_stream(id);
@@ -328,7 +328,7 @@ impl FlowControl {
             }
             RecvData::StreamReset(size) => {
                 // Protocol error — replenish connection window only.
-                self.queue.push_window_update(size);
+                self.queue.connection_window_update(size);
             }
         }
 
@@ -433,7 +433,7 @@ impl WriterQueue {
 
     /// Accumulate a connection-level WINDOW_UPDATE into `pending_conn_window`.
     /// Flushed as a single connection frame after `poll_encode` drains the queue.
-    pub(super) fn push_window_update(&mut self, size: usize) {
+    pub(super) fn connection_window_update(&mut self, size: usize) {
         self.pending_conn_window += size;
     }
 
@@ -1392,12 +1392,7 @@ where
                     {
                         let mut flow = shared.borrow_mut();
                         for state in flow.stream_map.values_mut() {
-                            // Open → Error + wake; Close stays Close.
-                            // Return value ignored: connection-level teardown,
-                            // streams drain via StreamGuard/RequestBody drops.
-                            state.try_set_err(StreamError::PeerReset);
-                            // No more data will arrive on any stream.
-                            // Close recv; Error left intact for delivery.
+                            state.try_set_peer_reset();
                             state.recv.set_close_2();
                         }
                         flow.queue.close();
