@@ -63,12 +63,31 @@ impl Stream {
         RecvStream::try_new(self, buffer)
     }
 
-    pub(crate) fn close_recv(&mut self, buffer: &mut FrameBuffer) {
+    pub(crate) fn close_recv(&mut self, buffer: &mut FrameBuffer) -> RecvClose {
         self.recv.set_close();
-        self.recv.queue.clear(buffer);
+
+        let mut window = 0;
+
+        while let Some(frame) = self.recv.queue.pop_front(buffer) {
+            if let Frame::Data(bytes) = frame {
+                window += bytes.len();
+            }
+        }
+
+        self.recv.window += window;
+
+        if self.recv.is_close() {
+            RecvClose::Close(window)
+        } else {
+            RecvClose::Cancel(window)
+        }
     }
 
-    pub(crate) fn is_recv_close(&self) -> bool {
+    pub(crate) fn close_send(&mut self) {
+        self.send.set_close();
+    }
+
+    fn is_recv_close(&self) -> bool {
         self.recv.is_close()
     }
 
@@ -115,6 +134,11 @@ impl Stream {
     }
 }
 
+pub(crate) enum RecvClose {
+    Cancel(usize),
+    Close(usize),
+}
+
 pub(crate) enum Remove {
     Graceful,
     Reset(Reason),
@@ -134,7 +158,7 @@ impl<'a> RecvStream<'a> {
             // Open: normal receive path.
             // Close: body dropped before recv finished — data will be discarded.
             // Error: previous error pending for body reader — data will be discarded.
-            RecvState::Open | RecvState::Close | RecvState::Error(_) => Ok(Self { stream, buffer }),
+            RecvState::Open | RecvState::Cancel | RecvState::Close | RecvState::Error(_) => Ok(Self { stream, buffer }),
             // Eof: END_STREAM already received. Any further frames are a
             // protocol violation (RFC 7540 §5.1: "closed" state).
             RecvState::Eof => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
@@ -163,15 +187,19 @@ impl<'a> RecvStream<'a> {
         }
     }
 
-    pub(crate) fn try_recv_trailers(self, trailers: HeaderMap, end_stream: bool) {
+    pub(crate) fn try_recv_trailers(self, trailers: HeaderMap, end_stream: bool) -> RecvData {
         if let Err(err) = self.trailers_check(end_stream) {
             self.stream.set_reset(err);
+            return RecvData::StreamReset(0);
         }
 
         if self.stream.recv.is_open() {
             self.stream
                 .recv
                 .push_frame(self.buffer, Frame::Trailers(trailers), true);
+            RecvData::Queued
+        } else {
+            RecvData::Discard(0)
         }
     }
 
@@ -265,6 +293,7 @@ pub(crate) struct Recv {
 
 enum RecvState {
     Open,
+    Cancel,
     Eof,
     Error(StreamError),
     // ready to be removed from stream_map
@@ -288,7 +317,10 @@ impl Recv {
     }
 
     fn set_close(&mut self) {
-        self.state = RecvState::Close;
+        self.state = match self.state {
+            RecvState::Open => RecvState::Cancel,
+            _ => RecvState::Close,
+        }
     }
 
     pub(crate) fn is_close(&self) -> bool {

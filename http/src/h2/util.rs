@@ -102,8 +102,4 @@ impl Deque {
         self.head = next;
         Some(buf.remove(idx))
     }
-
-    pub(super) fn clear<T>(&mut self, buf: &mut FrameBuffer<T>) {
-        while self.pop_front(buf).is_some() {}
-    }
 }

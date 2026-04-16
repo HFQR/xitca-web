@@ -60,7 +60,7 @@ use super::{
         },
         hpack,
         size::BodySize,
-        stream::{RecvData, RecvStream, Remove, Stream, StreamError},
+        stream::{RecvClose, RecvData, RecvStream, Remove, Stream, StreamError},
     },
 };
 
@@ -209,33 +209,6 @@ impl FlowControl {
             .ok_or(Error::GoAway(Reason::FLOW_CONTROL_ERROR))?;
         Ok(())
     }
-    /// Try to remove a stream after END_STREAM is received.
-    /// Only actually removes if both recv and send sides are closed.
-    fn remove_stream(&mut self, id: StreamId) {
-        if let Some(state) = self.stream_map.get_mut(&id) {
-            if let Some(Remove::Reset(reason)) = state.try_remove() {
-                self.stream_map.remove(&id);
-                self.queue.push(Message::Reset { stream_id: id, reason });
-            }
-        }
-    }
-
-    /// Close the send side of a stream. Wakes any parked response task,
-    /// then removes the stream if both sides are done.
-    /// Returns `true` if the stream was present in the map (used by
-    /// `StreamGuard::drop` to decide whether to credit back a premature reset).
-    fn remove_send(&mut self, id: StreamId) -> bool {
-        if let Some(state) = self.stream_map.get_mut(&id) {
-            state.send.set_close();
-            if let Some(Remove::Reset(reason)) = state.try_remove() {
-                self.stream_map.remove(&id);
-                self.queue.push(Message::Reset { stream_id: id, reason });
-            }
-            true
-        } else {
-            false
-        }
-    }
 
     /// Apply `delta` to every active send stream's window and wake any that
     /// now have a positive window. Use `delta = 0` to wake without changing
@@ -283,15 +256,46 @@ impl FlowControl {
     }
 
     pub(super) fn request_body_drop(&mut self, id: StreamId) {
-        let stream = self
-            .stream_map
-            .get_mut(&id)
-            .expect("RequestBody is the owner of Recv type and stream MUST NOT be removed when it's still alive");
+        self.try_remove_stream(id);
+    }
 
-        stream.close_recv(&mut self.frame_buf);
+    fn stream_guard_drop(&mut self, id: StreamId) {
+        let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
-        if let Some(Remove::Reset(reason)) = stream.try_remove() {
-            self.queue.push(Message::Reset { stream_id: id, reason });
+        stream.close_send();
+
+        if let Some(remove) = stream.try_remove() {
+            self.remove_stream(id, remove);
+        }
+    }
+
+    /// Try to remove a stream after END_STREAM is received.
+    /// Only actually removes if both recv and send sides are closed.
+    fn try_remove_stream(&mut self, id: StreamId) {
+        if let Some(stream) = self.stream_map.get_mut(&id) {
+            match stream.close_recv(&mut self.frame_buf) {
+                RecvClose::Cancel(size) => {
+                    self.queue.push_window_update(size);
+                    if size > 0 {
+                        self.queue.push(Message::WindowUpdate { stream_id: id, size })
+                    }
+                }
+                RecvClose::Close(size) => {
+                    self.queue.push_window_update(size);
+                }
+            }
+
+            if let Some(remove) = stream.try_remove() {
+                self.remove_stream(id, remove);
+            }
+        }
+    }
+
+    fn remove_stream(&mut self, id: StreamId, remove: Remove) {
+        self.stream_map.remove(&id);
+        match remove {
+            Remove::Reset(reason) => self.queue.push(Message::Reset { stream_id: id, reason }),
+            Remove::Graceful => self.premature_reset_count = self.premature_reset_count.saturating_sub(1),
         }
     }
 
@@ -313,12 +317,13 @@ impl FlowControl {
                 // Body dropped — replenish both connection and stream windows
                 // so the peer can reach END_STREAM without stalling.
                 self.queue.push_window_update(size);
-                self.queue
-                    .messages
-                    .push_back(Message::WindowUpdate { stream_id: id, size });
 
                 if end_stream {
-                    self.remove_stream(id);
+                    self.try_remove_stream(id);
+                } else {
+                    self.queue
+                        .messages
+                        .push_back(Message::WindowUpdate { stream_id: id, size });
                 }
             }
             RecvData::StreamReset(size) => {
@@ -406,6 +411,8 @@ pub(super) struct WriterQueue {
 }
 
 pub(super) type Shared = Rc<RefCell<FlowControl>>;
+
+const STREAM_MUST_EXIST: &str = "Stream MUST NOT be removed while RequestBody or StreamGuard is still alive";
 
 impl WriterQueue {
     fn new() -> Self {
@@ -822,10 +829,13 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let mut flow = self.ctx.borrow_mut();
         if flow.last_stream_id.get() >= id {
-            flow.try_get_trailers_recv(&id)?.try_recv_trailers(headers, end_stream);
-
-            if end_stream {
-                flow.remove_stream(id);
+            match flow.try_get_trailers_recv(&id)?.try_recv_trailers(headers, end_stream) {
+                RecvData::Queued => {}
+                _ => {
+                    if end_stream {
+                        flow.try_remove_stream(id);
+                    }
+                }
             }
             return Ok(None);
         }
@@ -1111,13 +1121,7 @@ struct StreamGuard<'a> {
 
 impl Drop for StreamGuard<'_> {
     fn drop(&mut self) {
-        let mut flow = self.ctx.borrow_mut();
-        // Stream was still in the map: it completed normally (not evicted
-        // by RST_STREAM). Credit back one premature reset so well-behaved
-        // connections never accumulate toward the limit over time.
-        if flow.remove_send(self.stream_id) {
-            flow.premature_reset_count = flow.premature_reset_count.saturating_sub(1);
-        }
+        self.ctx.borrow_mut().stream_guard_drop(self.stream_id);
     }
 }
 
@@ -1135,7 +1139,7 @@ impl StreamGuard<'_> {
             let opt = poll_fn(|cx| {
                 let mut flow = self.ctx.borrow_mut();
                 let send_connection_window = flow.send_connection_window;
-                let state = flow.stream_map.get_mut(&self.stream_id).unwrap();
+                let state = flow.stream_map.get_mut(&self.stream_id).expect(STREAM_MUST_EXIST);
 
                 if let Some(err) = state.take_send_err() {
                     return Poll::Ready(Some(Err(err)));
