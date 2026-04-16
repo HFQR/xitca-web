@@ -1,6 +1,7 @@
-# unreleased 0.8.1
+# 0.8.1
 ## Change
 - `App::at` relax route string identifier lifetime
+- update `xitca-http` to `0.9.2`
 
 # 0.8.0
 ## Add
