@@ -54,8 +54,62 @@ impl Stream {
         }
     }
 
-    pub(crate) fn try_get_recv<'a>(&'a mut self, buffer: &'a mut FrameBuffer) -> Result<RecvStream<'a>, Error> {
-        RecvStream::try_new(self, buffer)
+    pub(crate) fn try_recv_data(
+        &mut self,
+        buffer: &mut FrameBuffer,
+        data: Bytes,
+        end_stream: bool,
+    ) -> Result<RecvData, Error> {
+        self.recvable()?;
+
+        let len = data.len();
+
+        let recv = match self.data_check(len, end_stream) {
+            Ok(_) => {
+                if self.recv.state.is_open() {
+                    self.recv.push_frame(buffer, Frame::Data(data), end_stream);
+                    RecvData::Queued
+                } else {
+                    // Body dropped (Close) or error (Error): discard data, restore
+                    // stream window so the caller can replenish via WINDOW_UPDATE
+                    // and the peer can reach END_STREAM without stalling.
+                    self.recv.window += len;
+                    RecvData::Discard(len)
+                }
+            }
+            Err(err) => {
+                self.set_reset(err);
+                RecvData::StreamReset(len)
+            }
+        };
+
+        Ok(recv)
+    }
+
+    pub(crate) fn try_recv_trailers(
+        &mut self,
+        buffer: &mut FrameBuffer,
+        trailers: HeaderMap,
+        end_stream: bool,
+    ) -> Result<RecvData, Error> {
+        self.recvable()?;
+
+        let recv = match self.trailers_check(end_stream) {
+            Ok(_) => {
+                if self.recv.state.is_open() {
+                    self.recv.push_frame(buffer, Frame::Trailers(trailers), true);
+                    RecvData::Queued
+                } else {
+                    RecvData::Discard(0)
+                }
+            }
+            Err(err) => {
+                self.set_reset(err);
+                RecvData::StreamReset(0)
+            }
+        };
+
+        Ok(recv)
     }
 
     // may close or cancel the recv side of stream
@@ -120,6 +174,56 @@ impl Stream {
     pub(crate) fn take_send_err(&self) -> Option<io::Error> {
         self.send.state.take_error()
     }
+
+    fn recvable(&self) -> Result<(), Error> {
+        match (&self.pending_reset, &self.recv.state) {
+            (PendingReset::Peer, _) => Err(Error::GoAway(Reason::STREAM_CLOSED)),
+            (_, State::Eof) => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            (_, _) => Ok(()),
+        }
+    }
+
+    fn data_check(&mut self, len: usize, end_stream: bool) -> Result<(), StreamError> {
+        if len == 0 && !end_stream {
+            return Err(StreamError::EmptyDataNoEndStream);
+        }
+
+        self.recv
+            .content_length
+            .dec(len)
+            .map_err(|_| StreamError::ContentLengthOverflow)?;
+
+        if end_stream {
+            self.ensure_zero()?;
+        }
+
+        self.try_window_dec(len)
+    }
+
+    fn trailers_check(&self, end_stream: bool) -> Result<(), StreamError> {
+        if !end_stream {
+            // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
+            return Err(StreamError::TrailersNoEndStream);
+        }
+        self.ensure_zero()
+    }
+
+    fn try_window_dec(&mut self, len: usize) -> Result<(), StreamError> {
+        match self.recv.window.checked_sub(len) {
+            Some(window) => {
+                self.recv.window = window;
+                Ok(())
+            }
+            None => Err(StreamError::FlowControlOverflow),
+        }
+    }
+
+    fn ensure_zero(&self) -> Result<(), StreamError> {
+        self.recv
+            .content_length
+            .ensure_zero()
+            .map_err(|_| StreamError::ContentLengthUnderflow)
+    }
 }
 
 // outcome of Stream::maybe_close_recv
@@ -141,107 +245,7 @@ pub(crate) enum Remove {
     Reset(Reason),
 }
 
-// Guard type for receiving frames on a stream.
-// Borrows the whole Stream so it can set pending_reset, recv error,
-// and send error in a single operation on protocol violations.
-pub(crate) struct RecvStream<'a> {
-    stream: &'a mut Stream,
-    buffer: &'a mut FrameBuffer,
-}
-
-impl<'a> RecvStream<'a> {
-    fn try_new(stream: &'a mut Stream, buffer: &'a mut FrameBuffer) -> Result<Self, Error> {
-        match (&stream.pending_reset, &stream.recv.state) {
-            (PendingReset::Peer, _) => Err(Error::GoAway(Reason::STREAM_CLOSED)),
-            (_, State::Eof) => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-            (_, _) => Ok(Self { stream, buffer }),
-        }
-    }
-
-    /// Try to receive a DATA frame. See [`RecvData`] for what the caller
-    /// must do with each variant.
-    pub(crate) fn try_recv_data(mut self, data: Bytes, end_stream: bool) -> RecvData {
-        let len = data.len();
-
-        if let Err(err) = self.data_check(len, end_stream) {
-            self.stream.set_reset(err);
-            return RecvData::StreamReset(len);
-        }
-
-        if self.stream.recv.state.is_open() {
-            self.stream.recv.push_frame(self.buffer, Frame::Data(data), end_stream);
-            RecvData::Queued
-        } else {
-            // Body dropped (Close) or error (Error): discard data, restore
-            // stream window so the caller can replenish via WINDOW_UPDATE
-            // and the peer can reach END_STREAM without stalling.
-            self.stream.recv.window += len;
-            RecvData::Discard(len)
-        }
-    }
-
-    pub(crate) fn try_recv_trailers(self, trailers: HeaderMap, end_stream: bool) -> RecvData {
-        if let Err(err) = self.trailers_check(end_stream) {
-            self.stream.set_reset(err);
-            return RecvData::StreamReset(0);
-        }
-
-        if self.stream.recv.state.is_open() {
-            self.stream
-                .recv
-                .push_frame(self.buffer, Frame::Trailers(trailers), true);
-            RecvData::Queued
-        } else {
-            RecvData::Discard(0)
-        }
-    }
-
-    fn data_check(&mut self, len: usize, end_stream: bool) -> Result<(), StreamError> {
-        if len == 0 && !end_stream {
-            return Err(StreamError::EmptyDataNoEndStream);
-        }
-
-        self.stream
-            .recv
-            .content_length
-            .dec(len)
-            .map_err(|_| StreamError::ContentLengthOverflow)?;
-
-        if end_stream {
-            self.ensure_zero()?;
-        }
-
-        self.try_window_dec(len)
-    }
-
-    fn trailers_check(&self, end_stream: bool) -> Result<(), StreamError> {
-        if !end_stream {
-            // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
-            return Err(StreamError::TrailersNoEndStream);
-        }
-        self.ensure_zero()
-    }
-
-    fn try_window_dec(&mut self, len: usize) -> Result<(), StreamError> {
-        match self.stream.recv.window.checked_sub(len) {
-            Some(window) => {
-                self.stream.recv.window = window;
-                Ok(())
-            }
-            None => Err(StreamError::FlowControlOverflow),
-        }
-    }
-
-    fn ensure_zero(&self) -> Result<(), StreamError> {
-        self.stream
-            .recv
-            .content_length
-            .ensure_zero()
-            .map_err(|_| StreamError::ContentLengthUnderflow)
-    }
-}
-
-/// Result of [`RecvStream::try_recv_data`]. Each variant tells the caller
+/// Result of [`Stream::try_recv_data`]. Each variant tells the caller
 /// how to handle flow control after the frame has been processed.
 ///
 /// The connection-level receive window is always decremented by the caller

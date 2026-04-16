@@ -60,7 +60,7 @@ use super::{
         },
         hpack,
         size::BodySize,
-        stream::{RecvClose, RecvData, RecvStream, Remove, Stream, StreamError},
+        stream::{RecvClose, RecvData, Remove, Stream, StreamError},
     },
 };
 
@@ -242,19 +242,6 @@ impl FlowControl {
         Ok(())
     }
 
-    fn try_get_data_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
-        let stream = self.stream_map.get_mut(id).ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
-        stream.try_get_recv(&mut self.frame_buf)
-    }
-
-    fn try_get_trailers_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
-        let stream = self
-            .stream_map
-            .get_mut(id)
-            .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
-        stream.try_get_recv(&mut self.frame_buf)
-    }
-
     pub(super) fn request_body_drop(&mut self, id: StreamId) {
         self.try_remove_stream(id);
     }
@@ -303,15 +290,12 @@ impl FlowControl {
         let len = payload.len();
         self.recv_window_dec(len)?;
 
-        let stream = match self.try_get_data_recv(&id) {
-            Ok(stream) => stream,
-            Err(err) => {
-                self.queue.connection_window_update(len);
-                return Err(err);
-            }
-        };
+        let stream = self.stream_map.get_mut(&id).ok_or_else(|| {
+            self.queue.connection_window_update(len);
+            Error::Reset(Reason::STREAM_CLOSED)
+        })?;
 
-        match stream.try_recv_data(payload, end_stream) {
+        match stream.try_recv_data(&mut self.frame_buf, payload, end_stream)? {
             RecvData::Queued => {}
             RecvData::Discard(size) => {
                 // Body dropped — replenish both connection and stream windows
@@ -827,9 +811,14 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let (pseudo, headers) = headers.into_parts();
 
-        let mut flow = self.ctx.borrow_mut();
+        let flow = &mut *self.ctx.borrow_mut();
         if flow.last_stream_id.get() >= id {
-            match flow.try_get_trailers_recv(&id)?.try_recv_trailers(headers, end_stream) {
+            let stream = flow
+                .stream_map
+                .get_mut(&id)
+                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
+
+            match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
                 RecvData::Queued => {}
                 _ => {
                     if end_stream {
