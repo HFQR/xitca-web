@@ -41,7 +41,7 @@ impl Drop for RequestBody {
         let mut inner = self.ctx.borrow_mut();
         let ci = &mut *inner;
 
-        ci.request_body_drop(&self.stream_id);
+        ci.request_body_drop(self.stream_id);
 
         // Replenish any bytes consumed but not yet acknowledged. The stream
         // itself may already be gone (e.g. RST_STREAM), so only the connection

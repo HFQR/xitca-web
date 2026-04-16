@@ -282,16 +282,16 @@ impl FlowControl {
         stream.try_get_recv(&mut self.frame_buf)
     }
 
-    pub(super) fn request_body_drop(&mut self, id: &StreamId) {
+    pub(super) fn request_body_drop(&mut self, id: StreamId) {
         let stream = self
             .stream_map
-            .get_mut(id)
+            .get_mut(&id)
             .expect("RequestBody is the owner of Recv type and stream MUST NOT be removed when it's still alive");
 
         stream.close_recv(&mut self.frame_buf);
 
-        if stream.is_send_close() {
-            self.stream_map.remove(id);
+        if let Some(Remove::Reset(reason)) = stream.try_remove() {
+            self.queue.push(Message::Reset { stream_id: id, reason });
         }
     }
 
