@@ -41,13 +41,13 @@ impl Drop for RequestBody {
         let mut inner = self.ctx.borrow_mut();
         let ci = &mut *inner;
 
-        ci.request_body_drop(&self.stream_id);
+        ci.request_body_drop(self.stream_id);
 
         // Replenish any bytes consumed but not yet acknowledged. The stream
         // itself may already be gone (e.g. RST_STREAM), so only the connection
         // window is restored (stream 0).
         let size = mem::replace(&mut self.pending_window, 0);
-        ci.queue.push_window_update(size);
+        ci.queue.connection_window_update(size);
     }
 }
 
@@ -73,7 +73,7 @@ impl Body for RequestBody {
                 if this.pending_window >= settings::DEFAULT_INITIAL_WINDOW_SIZE as usize * 3 / 4 {
                     let window = mem::replace(&mut this.pending_window, 0);
                     stream.recv.window += window;
-                    flow.queue.push_window_update(window);
+                    flow.queue.connection_window_update(window);
                     flow.queue.messages.push_back(Message::WindowUpdate {
                         stream_id: this.stream_id,
                         size: window,
@@ -82,7 +82,7 @@ impl Body for RequestBody {
             }
 
             Poll::Ready(Some(Ok(frame)))
-        } else if let Some(e) = stream.recv.take_error() {
+        } else if let Some(e) = stream.take_recv_err() {
             // Peer reset the stream while body was in progress.
             Poll::Ready(Some(Err(e.into())))
         } else if stream.recv.is_eof() {

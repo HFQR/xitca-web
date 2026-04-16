@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use xitca_client::Client;
 use xitca_http::{
-    body::{BodyExt, Frame, ResponseBody},
+    body::{Body, BodyExt, ResponseBody, SizeHint},
     bytes::{Bytes, BytesMut},
     h2,
     http::{HeaderMap, Method, Request, RequestExt, Response, Version, header},
@@ -178,6 +178,30 @@ async fn h2_keepalive() -> Result<(), Error> {
     Ok(())
 }
 
+#[tokio::test]
+async fn h2_post_early_body_drop() -> Result<(), Error> {
+    let mut handle = test_h2_server(fn_service(handle))?;
+
+    let server_url = format!("https://{}/drop_body", handle.ip_port_string());
+
+    let c = Client::new();
+
+    for _ in 0..3 {
+        let mut body = BytesMut::new();
+        for _ in 0..1024 * 1024 {
+            body.extend_from_slice(b"Hello,World!");
+        }
+        let res = c.post(&server_url).version(Version::HTTP_2).text(body).send().await?;
+        assert_eq!(res.status().as_u16(), 200);
+    }
+
+    handle.try_handle()?.stop(false);
+
+    handle.await?;
+
+    Ok(())
+}
+
 async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     // Some yield for testing h2 dispatcher's concurrent future handling.
     tokio::task::yield_now().await;
@@ -208,23 +232,24 @@ async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<Re
         (&Method::POST, "/") => {
             let (parts, mut body) = req.into_parts();
 
-            let length = parts
-                .headers
-                .get(header::CONTENT_LENGTH)
-                .unwrap()
-                .to_str()?
-                .parse::<usize>()?;
+            let length = parts.headers.get(header::CONTENT_LENGTH).unwrap().to_str()?.parse()?;
+
+            let size = body.size_hint();
+
+            assert_eq!(size, SizeHint::Exact(length));
 
             let mut buf = BytesMut::new();
 
-            while let Some(bytes) = body.frame().await {
-                if let Frame::Data(bytes) = bytes? {
-                    buf.extend_from_slice(&bytes);
-                }
+            while let Some(bytes) = body.data().await {
+                buf.extend_from_slice(&bytes?);
             }
 
-            assert_eq!(buf.len(), length);
+            assert_eq!(buf.len(), length as usize);
 
+            Ok(Response::new(Bytes::new().into()))
+        }
+        (&Method::POST, "/drop_body") => {
+            drop(req.into_body());
             Ok(Response::new(Bytes::new().into()))
         }
         _ => todo!(),

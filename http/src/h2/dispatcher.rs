@@ -60,7 +60,7 @@ use super::{
         },
         hpack,
         size::BodySize,
-        stream::{RecvStream, Stream},
+        stream::{RecvClose, RecvData, Remove, Stream, StreamError},
     },
 };
 
@@ -209,32 +209,6 @@ impl FlowControl {
             .ok_or(Error::GoAway(Reason::FLOW_CONTROL_ERROR))?;
         Ok(())
     }
-    /// Try to remove a stream after END_STREAM is received.
-    /// Only actually removes if both recv and send sides are closed.
-    fn remove_stream(&mut self, id: StreamId) {
-        if let Some(state) = self.stream_map.get_mut(&id) {
-            if state.is_close() {
-                self.stream_map.remove(&id);
-            }
-        }
-    }
-
-    /// Close the send side of a stream. Wakes any parked response task,
-    /// then removes the stream if both sides are done.
-    /// Returns `true` if the stream was present in the map (used by
-    /// `StreamGuard::drop` to decide whether to credit back a premature reset).
-    fn remove_send(&mut self, id: StreamId) -> bool {
-        if let Some(state) = self.stream_map.get_mut(&id) {
-            state.send.set_close();
-            state.send.wake();
-            if state.is_close() {
-                self.stream_map.remove(&id);
-            }
-            true
-        } else {
-            false
-        }
-    }
 
     /// Apply `delta` to every active send stream's window and wake any that
     /// now have a positive window. Use `delta = 0` to wake without changing
@@ -257,10 +231,7 @@ impl FlowControl {
             return Ok(());
         };
 
-        state.try_set_err(io::Error::new(
-            io::ErrorKind::ConnectionReset,
-            "h2 stream reset by peer",
-        ));
+        state.try_set_peer_reset();
 
         self.premature_reset_count += 1;
 
@@ -268,68 +239,81 @@ impl FlowControl {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
 
-        if state.is_recv_close() {
-            // Body already dropped — close send side and remove entirely.
-            state.send.set_close();
-            state.send.wake();
-            self.stream_map.remove(&id);
-        } else {
-            self.remove_send(id);
-        }
-
         Ok(())
     }
 
-    fn try_get_data_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
-        let stream = self.stream_map.get_mut(id).ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
-        stream.try_get_recv(&mut self.frame_buf)
+    pub(super) fn request_body_drop(&mut self, id: StreamId) {
+        self.try_remove_stream(id);
     }
 
-    fn try_get_trailers_recv(&mut self, id: &StreamId) -> Result<RecvStream<'_>, Error> {
-        let stream = self
-            .stream_map
-            .get_mut(id)
-            .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
-        stream.try_get_recv(&mut self.frame_buf)
+    fn stream_guard_drop(&mut self, id: StreamId) {
+        let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
+
+        stream.send.set_close();
+
+        if let Some(remove) = stream.try_remove() {
+            self.remove_stream(id, remove);
+        }
     }
 
-    pub(super) fn request_body_drop(&mut self, id: &StreamId) {
-        let stream = self
-            .stream_map
-            .get_mut(id)
-            .expect("RequestBody is the owner of Recv type and stream MUST NOT be removed when it's still alive");
+    // Try to remove a stream after END_STREAM is received.
+    // Only actually removes if both recv and send sides are closed.
+    fn try_remove_stream(&mut self, id: StreamId) {
+        if let Some(stream) = self.stream_map.get_mut(&id) {
+            match stream.maybe_close_recv(&mut self.frame_buf) {
+                RecvClose::Cancel(size) => {
+                    self.queue.connection_window_update(size);
+                    if size > 0 {
+                        self.queue.push(Message::WindowUpdate { stream_id: id, size })
+                    }
+                }
+                RecvClose::Close(size) => {
+                    self.queue.connection_window_update(size);
+                }
+            }
 
-        stream.close_recv(&mut self.frame_buf);
+            if let Some(remove) = stream.try_remove() {
+                self.remove_stream(id, remove);
+            }
+        }
+    }
 
-        if stream.is_send_close() {
-            self.stream_map.remove(id);
+    fn remove_stream(&mut self, id: StreamId, remove: Remove) {
+        self.stream_map.remove(&id);
+        match remove {
+            Remove::Reset(reason) => self.queue.push(Message::Reset { stream_id: id, reason }),
+            Remove::Graceful => self.premature_reset_count = self.premature_reset_count.saturating_sub(1),
         }
     }
 
     fn handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
         let len = payload.len();
         self.recv_window_dec(len)?;
-        self._handle_data(id, payload, end_stream)
-            .inspect_err(|_| self.queue.push_window_update(len))
-    }
 
-    fn _handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
-        let opt_data = self.try_get_data_recv(&id)?.try_recv_data(payload, end_stream)?;
+        let stream = self.stream_map.get_mut(&id).ok_or_else(|| {
+            self.queue.connection_window_update(len);
+            Error::Reset(Reason::STREAM_CLOSED)
+        })?;
 
-        if let Some(data) = opt_data {
-            let size = data.len();
-            // Body dropped: discard data, and take responsibilty of RequestBody:
-            // - replenish both connection and stream windows so the peer can reach END_STREAM without stalling.
-            // - track end_stream state and remove stream
-            self.queue.push_window_update(size);
+        match stream.try_recv_data(&mut self.frame_buf, payload, end_stream)? {
+            RecvData::Queued => {}
+            RecvData::Discard(size) => {
+                // Body dropped — replenish both connection and stream windows
+                // so the peer can reach END_STREAM without stalling.
+                self.queue.connection_window_update(size);
 
-            self.queue
-                .messages
-                .push_back(Message::WindowUpdate { stream_id: id, size });
-
-            if end_stream {
-                self.remove_stream(id);
-            };
+                if end_stream {
+                    self.try_remove_stream(id);
+                } else {
+                    self.queue
+                        .messages
+                        .push_back(Message::WindowUpdate { stream_id: id, size });
+                }
+            }
+            RecvData::StreamReset(size) => {
+                // Protocol error — replenish connection window only.
+                self.queue.connection_window_update(size);
+            }
         }
 
         Ok(())
@@ -412,6 +396,8 @@ pub(super) struct WriterQueue {
 
 pub(super) type Shared = Rc<RefCell<FlowControl>>;
 
+const STREAM_MUST_EXIST: &str = "Stream MUST NOT be removed while RequestBody or StreamGuard is still alive";
+
 impl WriterQueue {
     fn new() -> Self {
         Self {
@@ -431,7 +417,7 @@ impl WriterQueue {
 
     /// Accumulate a connection-level WINDOW_UPDATE into `pending_conn_window`.
     /// Flushed as a single connection frame after `poll_encode` drains the queue.
-    pub(super) fn push_window_update(&mut self, size: usize) {
+    pub(super) fn connection_window_update(&mut self, size: usize) {
         self.pending_conn_window += size;
     }
 
@@ -636,12 +622,8 @@ impl<'a, S> DecodeContext<'a, S> {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
                         if let Some(state) = flow.stream_map.get_mut(&id) {
-                            state.try_set_err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "WINDOW_UPDATE with zero increment",
-                            ));
+                            state.set_reset(StreamError::WindowUpdateZeroIncrement);
                         }
-                        return Err(Error::Reset(Reason::PROTOCOL_ERROR));
                     }
                     (incr, StreamId::ZERO) => {
                         let incr = incr as usize;
@@ -663,14 +645,12 @@ impl<'a, S> DecodeContext<'a, S> {
                         let incr = incr as i64;
                         let window = flow.send_connection_window;
                         if let Some(state) = flow.stream_map.get_mut(&id) {
-                            let sf = &mut state.send;
-                            if sf.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                state.try_set_err(io::Error::new(io::ErrorKind::InvalidData, "WINDOW_UPDATE overflow"));
-                                return Err(Error::Reset(Reason::FLOW_CONTROL_ERROR));
+                            if state.send.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
+                                state.set_reset(StreamError::WindowUpdateOverflow);
                             } else {
-                                sf.window += incr;
+                                state.send.window += incr;
                                 if window > 0 {
-                                    sf.wake();
+                                    state.send.wake();
                                 }
                             }
                         }
@@ -831,13 +811,20 @@ impl<'a, S> DecodeContext<'a, S> {
 
         let (pseudo, headers) = headers.into_parts();
 
-        let mut flow = self.ctx.borrow_mut();
+        let flow = &mut *self.ctx.borrow_mut();
         if flow.last_stream_id.get() >= id {
-            flow.try_get_trailers_recv(&id)?
-                .try_recv_trailers(headers, end_stream)?;
+            let stream = flow
+                .stream_map
+                .get_mut(&id)
+                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
 
-            if end_stream {
-                flow.remove_stream(id);
+            match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
+                RecvData::Queued => {}
+                _ => {
+                    if end_stream {
+                        flow.try_remove_stream(id);
+                    }
+                }
             }
             return Ok(None);
         }
@@ -1059,16 +1046,9 @@ async fn response_task<S, ReqB, ResB, ResBE>(
         Ok(res) => res,
         Err(e) => {
             error!("service error: {:?}", e);
-            // Only send RST_STREAM if the stream is still active. If the peer
-            // already reset it (or the dispatcher removed it for another reason),
-            // the error may have originated from try_set_err and sending a
-            // redundant reset is unnecessary.
             let mut flow = ctx.borrow_mut();
-            if flow.stream_map.contains_key(&stream_id) {
-                flow.queue.push(Message::Reset {
-                    stream_id,
-                    reason: Reason::PROTOCOL_ERROR,
-                });
+            if let Some(state) = flow.stream_map.get_mut(&stream_id) {
+                state.set_reset(StreamError::ServerError);
             }
             return;
         }
@@ -1106,10 +1086,11 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                 None => break ctx.borrow_mut().queue.push_end_stream(guard.stream_id),
                 Some(Err(e)) => {
                     error!("body error: {:?}", e);
-                    break guard.ctx.borrow_mut().queue.push(Message::Reset {
-                        stream_id: guard.stream_id,
-                        reason: Reason::INTERNAL_ERROR,
-                    });
+                    let mut flow = guard.ctx.borrow_mut();
+                    if let Some(state) = flow.stream_map.get_mut(&guard.stream_id) {
+                        state.set_reset(StreamError::ServerError);
+                    }
+                    break;
                 }
                 Some(Ok(Frame::Data(bytes))) => {
                     if guard.send_data(bytes, body.is_end_stream()).await {
@@ -1129,13 +1110,7 @@ struct StreamGuard<'a> {
 
 impl Drop for StreamGuard<'_> {
     fn drop(&mut self) {
-        let mut flow = self.ctx.borrow_mut();
-        // Stream was still in the map: it completed normally (not evicted
-        // by RST_STREAM). Credit back one premature reset so well-behaved
-        // connections never accumulate toward the limit over time.
-        if flow.remove_send(self.stream_id) {
-            flow.premature_reset_count = flow.premature_reset_count.saturating_sub(1);
-        }
+        self.ctx.borrow_mut().stream_guard_drop(self.stream_id);
     }
 }
 
@@ -1153,9 +1128,11 @@ impl StreamGuard<'_> {
             let opt = poll_fn(|cx| {
                 let mut flow = self.ctx.borrow_mut();
                 let send_connection_window = flow.send_connection_window;
-                let Some(state) = flow.stream_map.get_mut(&self.stream_id) else {
-                    return Poll::Ready(None);
-                };
+                let state = flow.stream_map.get_mut(&self.stream_id).expect(STREAM_MUST_EXIST);
+
+                if let Some(err) = state.take_send_err() {
+                    return Poll::Ready(Some(Err(err)));
+                }
 
                 if state.is_send_close() {
                     return Poll::Ready(None);
@@ -1172,11 +1149,11 @@ impl StreamGuard<'_> {
                 let aval = cmp::min(aval, len);
                 sf.window -= aval as i64;
                 flow.send_connection_window -= aval;
-                Poll::Ready(Some((aval, flow)))
+                Poll::Ready(Some(Ok((aval, flow))))
             })
             .await;
 
-            let Some((aval, mut flow)) = opt else {
+            let Some(Ok((aval, mut flow))) = opt else {
                 return true;
             };
 
@@ -1404,15 +1381,7 @@ where
                     {
                         let mut flow = shared.borrow_mut();
                         for state in flow.stream_map.values_mut() {
-                            // Open → Error + wake; Close stays Close.
-                            // Return value ignored: connection-level teardown,
-                            // streams drain via StreamGuard/RequestBody drops.
-                            state.try_set_err(io::Error::new(
-                                io::ErrorKind::ConnectionReset,
-                                "h2 connection closed by peer",
-                            ));
-                            // No more data will arrive on any stream.
-                            // Close recv; Error left intact for delivery.
+                            state.try_set_peer_reset();
                             state.recv.set_close_2();
                         }
                         flow.queue.close();

@@ -16,8 +16,3 @@ mimalloc = { version = "0.1.48", default-features = false, features = ["v3"] }
 # rcgen = "0.14"
 # rustls = "0.23"
 # rustls-pki-types = "1"
-
-
-[profile.release]
-opt-level = 3
-lto = "fat"
