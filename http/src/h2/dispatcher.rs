@@ -1,6 +1,6 @@
 use core::{
     cell::RefCell,
-    cmp, fmt,
+    fmt,
     future::poll_fn,
     mem,
     pin::{Pin, pin},
@@ -61,12 +61,14 @@ use super::{
         hpack,
         size::BodySize,
         stream::{RecvClose, RecvData, Remove, Stream, StreamError},
+        threshold::StreamRecvWindowThreshold,
     },
 };
 
 struct DecodeContext<'a, S> {
     max_header_list_size: usize,
     max_concurrent_streams: usize,
+    recv_threshold: StreamRecvWindowThreshold,
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
@@ -497,12 +499,14 @@ impl<'a, S> DecodeContext<'a, S> {
         ctx: &'a Shared,
         service: &'a S,
         max_concurrent_streams: usize,
+        recv_threshold: StreamRecvWindowThreshold,
         addr: SocketAddr,
         date: &'a DateTimeHandle,
     ) -> Self {
         Self {
             max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
             max_concurrent_streams,
+            recv_threshold,
             decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
             next_frame_len: 0,
             continuation: None,
@@ -909,7 +913,7 @@ impl<'a, S> DecodeContext<'a, S> {
             *req.uri_mut() = uri;
         }
 
-        let body = RequestBody::new(id, content_length, Rc::clone(self.ctx));
+        let body = RequestBody::new(id, content_length, Rc::clone(self.ctx), self.recv_threshold);
 
         flow.insert_stream(id, end_stream, content_length);
 
@@ -1044,12 +1048,10 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
     let res = match service.call(req).await {
         Ok(res) => res,
-        Err(e) => {
-            error!("service error: {:?}", e);
+        Err(_) => {
             let mut flow = ctx.borrow_mut();
-            if let Some(state) = flow.stream_map.get_mut(&stream_id) {
-                state.set_reset(StreamError::ServerError);
-            }
+            let stream = flow.stream_map.get_mut(&stream_id).unwrap();
+            stream.set_reset(StreamError::InternalError);
             return;
         }
     };
@@ -1088,7 +1090,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
                     error!("body error: {:?}", e);
                     let mut flow = guard.ctx.borrow_mut();
                     if let Some(state) = flow.stream_map.get_mut(&guard.stream_id) {
-                        state.set_reset(StreamError::ServerError);
+                        state.set_reset(StreamError::InternalError);
                     }
                     break;
                 }
@@ -1127,29 +1129,16 @@ impl StreamGuard<'_> {
 
             let opt = poll_fn(|cx| {
                 let mut flow = self.ctx.borrow_mut();
-                let send_connection_window = flow.send_connection_window;
-                let state = flow.stream_map.get_mut(&self.stream_id).expect(STREAM_MUST_EXIST);
+                let window = flow.send_connection_window;
 
-                if let Some(err) = state.take_send_err() {
-                    return Poll::Ready(Some(Err(err)));
-                }
-
-                if state.is_send_close() {
-                    return Poll::Ready(None);
-                }
-
-                let sf = &mut state.send;
-                if len > 0 && (send_connection_window == 0 || sf.window <= 0) {
-                    sf.waker = Some(cx.waker().clone());
-                    return Poll::Pending;
-                }
-
-                let len = cmp::min(len, sf.frame_size);
-                let aval = cmp::min(sf.window as usize, send_connection_window);
-                let aval = cmp::min(aval, len);
-                sf.window -= aval as i64;
-                flow.send_connection_window -= aval;
-                Poll::Ready(Some(Ok((aval, flow))))
+                flow.stream_map
+                    .get_mut(&self.stream_id)
+                    .expect(STREAM_MUST_EXIST)
+                    .poll_send_window(len, window, cx)
+                    .map_ok(|aval| {
+                        flow.send_connection_window -= aval;
+                        (aval, flow)
+                    })
             })
             .await;
 
@@ -1278,19 +1267,17 @@ where
 
     let (mut read_buf, mut write_buf) = handshake::<READ_BUF_LIMIT>(&io, read_buf, &settings, ka.as_mut()).await?;
 
-    let recv_initial_window_size = settings
-        .initial_window_size()
-        .unwrap_or(settings::DEFAULT_INITIAL_WINDOW_SIZE);
-    let max_frame_size = settings.max_frame_size().unwrap_or(settings::DEFAULT_MAX_FRAME_SIZE);
-    let max_concurrent_streams = settings.max_concurrent_streams().unwrap_or(u32::MAX) as usize;
+    let max_concurrent_streams = config.h2_max_concurrent_streams as usize;
+    let max_frame_size = config.h2_max_frame_size as usize;
+    let recv_connection_window = config.h2_initial_window_size as usize;
 
     let shared = Rc::new(RefCell::new(FlowControl {
         // Send windows start at RFC 7540 §6.9.2 default (65535) until the
         // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
         send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
         stream_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
-        max_frame_size: max_frame_size as usize,
-        recv_connection_window: recv_initial_window_size as usize,
+        max_frame_size,
+        recv_connection_window,
         stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
         premature_reset_count: 0,
         last_stream_id: LastStreamId::Incrementable(StreamId::ZERO),
@@ -1298,7 +1285,8 @@ where
         frame_buf: FrameBuffer::new(),
     }));
 
-    let mut ctx = DecodeContext::new(&shared, service, max_concurrent_streams, addr, date);
+    let recv_threshold = StreamRecvWindowThreshold::from(&settings);
+    let mut ctx = DecodeContext::new(&shared, service, max_concurrent_streams, recv_threshold, addr, date);
     let mut enc = EncodeContext::new(&shared);
 
     let mut queue = Queue::new();

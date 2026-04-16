@@ -12,13 +12,14 @@ use crate::{
 
 use super::{
     dispatcher::{Message, Shared},
-    proto::frame::{settings, stream_id::StreamId},
+    proto::{frame::stream_id::StreamId, threshold::StreamRecvWindowThreshold},
 };
 
 pub struct RequestBody {
     stream_id: StreamId,
     size: SizeHint,
     ctx: Shared,
+    threshold: StreamRecvWindowThreshold,
     /// Bytes consumed but not yet reported back as a WINDOW_UPDATE.
     /// Flushed as a single message when the channel has no more items
     /// ready, batching updates across consecutive chunks.
@@ -26,11 +27,12 @@ pub struct RequestBody {
 }
 
 impl RequestBody {
-    pub(super) fn new(stream_id: StreamId, size: SizeHint, ctx: Shared) -> Self {
+    pub(super) fn new(stream_id: StreamId, size: SizeHint, ctx: Shared, threshold: StreamRecvWindowThreshold) -> Self {
         Self {
             stream_id,
             size,
             ctx,
+            threshold,
             pending_window: 0,
         }
     }
@@ -64,13 +66,7 @@ impl Body for RequestBody {
             if let Some(bytes) = frame.data_ref() {
                 this.pending_window += bytes.len();
 
-                // Flush when the remaining window would drop below 25% of the
-                // initial size (i.e. 75% consumed). This mirrors nginx's
-                // threshold, which is widely deployed and clients are tuned
-                // to work well against it. It is more eager than the common
-                // window/2 practice, reducing the chance of the peer stalling
-                // while still batching small chunks effectively.
-                if this.pending_window >= settings::DEFAULT_INITIAL_WINDOW_SIZE as usize * 3 / 4 {
+                if this.pending_window >= this.threshold {
                     let window = mem::replace(&mut this.pending_window, 0);
                     stream.recv.window += window;
                     flow.queue.connection_window_update(window);
