@@ -456,7 +456,7 @@ pub(crate) enum StreamError {
     /// WINDOW_UPDATE caused stream window overflow.
     WindowUpdateOverflow,
     /// Server-side error (service error, response body error, etc.).
-    ServerError,
+    InternalError,
 }
 
 impl StreamError {
@@ -464,7 +464,7 @@ impl StreamError {
         match self {
             Self::FlowControlOverflow | Self::WindowUpdateOverflow => Reason::FLOW_CONTROL_ERROR,
             Self::PeerReset => Reason::NO_ERROR,
-            Self::ServerError => Reason::INTERNAL_ERROR,
+            Self::InternalError => Reason::INTERNAL_ERROR,
             _ => Reason::PROTOCOL_ERROR,
         }
     }
@@ -481,7 +481,7 @@ impl From<StreamError> for io::Error {
             StreamError::PeerReset => "h2 stream reset by peer",
             StreamError::WindowUpdateZeroIncrement => "WINDOW_UPDATE with zero increment",
             StreamError::WindowUpdateOverflow => "WINDOW_UPDATE caused window overflow",
-            StreamError::ServerError => "server error",
+            StreamError::InternalError => "ineternal error",
         };
         io::Error::new(io::ErrorKind::InvalidData, msg)
     }
