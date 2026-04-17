@@ -36,13 +36,6 @@ impl LastStreamId {
         }
     }
 
-    /// Returns `true` once `saturate` has been called. The dispatcher's
-    /// main loop uses this to detect that the graceful drain may
-    /// terminate as soon as the in-flight queue empties.
-    pub(crate) const fn is_goaway(self) -> bool {
-        matches!(self, Self::GoAway(_))
-    }
-
     /// Advance the boundary to `id` if still incrementable. No-op once
     /// goaway, which is the mechanism by which post-GOAWAY HEADERS
     /// are dropped without bumping internal counters.
