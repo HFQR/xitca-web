@@ -603,18 +603,11 @@ impl<'a, S> DecodeContext<'a, S> {
                 inner.try_reset_stream(id)?;
             }
             (head::Kind::GoAway, _) => {
-                // The peer is shutting down. Always treat it as a graceful
-                // shutdown regardless of the error code — RFC 7540 §7 says
-                // unknown error codes MUST NOT trigger special behavior.
                 let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
-                if go_away.reason() != Reason::NO_ERROR {
-                    tracing::warn!(
-                        "received GOAWAY with error: {:?} last_stream={:?}",
-                        go_away.reason(),
-                        go_away.last_stream_id(),
-                    );
+                match go_away.reason() {
+                    Reason::NO_ERROR => self.ctx.borrow_mut().go_away(Reason::NO_ERROR),
+                    reason => return Err(Error::GoAway(reason)),
                 }
-                return Err(Error::GoAway(go_away.reason()));
             }
             (head::Kind::Priority, _) => handle_priority(head.stream_id(), &frame)?,
             (head::Kind::PushPromise, _) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
@@ -1275,6 +1268,7 @@ where
                             };
                             queue.clear();
                             ctx.ctx.borrow_mut().go_away(reason);
+                            break;
                         },
                         res => break ShutDown::ReadClosed(res.map(|_| ())),
                     };
