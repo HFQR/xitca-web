@@ -330,6 +330,80 @@ impl<Obj, CF> App<AppRouter<Obj>, CF> {
         self.router = self.router.insert_typed(typed);
         self
     }
+
+    /// merget two App instances into one.
+    ///
+    /// input App's state would be discarded in progress and Self's state would be preserved.
+    ///
+    /// only App instances without any middlewares enclosed can be merged.
+    ///
+    /// # Example
+    /// ```rust
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use xitca_unsafe_collection::futures::NowOrPanic;
+    /// # use xitca_web::{
+    /// #   handler::{handler_service, state::StateRef},
+    /// #   http::{Request, StatusCode},
+    /// #   route::get,
+    /// #   service::Service,
+    /// #   App
+    /// # };
+    /// // define routes in separate App instances.
+    /// let api_v1 = App::new()
+    ///     .at("/foo", get(handler_service(handler)))
+    ///     .at("/bar", get(handler_service(handler)));
+    ///
+    /// let api_v2 = App::new()
+    ///     .at("/baz", get(handler_service(handler)));
+    ///
+    /// // merge them into one App and attach state.
+    /// // note: any state set on api_v1 or api_v2 via with_state would be discarded;
+    /// // only the state on the final merged App is used.
+    /// let app = App::new()
+    ///     .merge(api_v1)
+    ///     .merge(api_v2)
+    ///     .with_state(996usize);
+    ///
+    /// async fn handler(StateRef(state): StateRef<'_, usize>) -> StatusCode {
+    ///     assert_eq!(996, *state);
+    ///     StatusCode::OK
+    /// }
+    ///
+    /// let service = app.finish().call(()).now_or_panic().unwrap();
+    ///
+    /// // all merged routes are accessible.
+    /// let req = Request::builder().uri("/foo").body(Default::default())?;
+    /// let res = service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    ///
+    /// let req = Request::builder().uri("/baz").body(Default::default())?;
+    /// let res = service.call(req).now_or_panic()?;
+    /// assert_eq!(res.status(), StatusCode::OK);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Middlewares enclosed on the input App change its type and prevent merging.
+    /// Only bare Apps (no `.enclosed()` / `.enclosed_fn()`) can be passed to `merge`:
+    /// ```compile_fail
+    /// # use xitca_web::{
+    /// #   handler::handler_service,
+    /// #   http::StatusCode,
+    /// #   route::get,
+    /// #   App, WebContext
+    /// # };
+    /// # async fn mw<S, C, B>(s: &S, req: WebContext<'_, C, B>) {}
+    /// let other = App::new()
+    ///     .at("/foo", get(handler_service(|| async { StatusCode::OK })))
+    ///     .enclosed_fn(mw); // adding middleware changes the type
+    ///
+    /// // this will not compile because `other` is no longer `App<AppRouter<_>, _>`.
+    /// App::new().merge(other);
+    /// ```
+    pub fn merge<CF2>(mut self, other: App<AppRouter<Obj>, CF2>) -> Self {
+        self.router = self.router.merge(other.router);
+        self
+    }
 }
 
 impl<R, CF> App<R, CF> {

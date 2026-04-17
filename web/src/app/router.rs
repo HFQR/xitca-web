@@ -31,6 +31,11 @@ impl<Obj> AppRouter<Obj> {
         self.0 = self.0.insert_typed(t);
         self
     }
+
+    pub(super) fn merge(mut self, other: Self) -> Self {
+        self.0 = self.0.merge(other.0);
+        self
+    }
 }
 
 impl<Obj> PathGen for AppRouter<Obj>

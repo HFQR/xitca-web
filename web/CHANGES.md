@@ -1,3 +1,7 @@
+# unreleased 0.8.2
+## Add
+- `App::merge` for merging two App instances into one
+
 # 0.8.1
 ## Change
 - `App::at` relax route string identifier lifetime
