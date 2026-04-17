@@ -1,5 +1,5 @@
 use core::{
-    cmp, mem,
+    cmp,
     task::{Context, Poll, Waker},
 };
 
@@ -25,7 +25,7 @@ use super::{
 pub(crate) struct Stream {
     pub(crate) recv: Recv,
     pub(crate) send: Send,
-    pending_reset: PendingReset,
+    pending_error: Option<StreamError>,
 }
 
 impl Stream {
@@ -54,7 +54,7 @@ impl Stream {
                 waker: None,
                 state: State::Open,
             },
-            pending_reset: PendingReset::None,
+            pending_error: None,
         }
     }
 
@@ -82,7 +82,7 @@ impl Stream {
                 }
             }
             Err(err) => {
-                self.set_reset(err);
+                self.try_set_reset(err);
                 RecvData::StreamReset(len)
             }
         };
@@ -108,7 +108,7 @@ impl Stream {
                 }
             }
             Err(err) => {
-                self.set_reset(err);
+                self.try_set_reset(err);
                 RecvData::StreamReset(0)
             }
         };
@@ -125,7 +125,7 @@ impl Stream {
             Some(Ok(frame))
         } else {
             match self.recv.state {
-                State::Error(err) => Some(Err(BodyError::from(io::Error::from(err)))),
+                State::Error => self.pending_error.map(|err| Err(BodyError::from(io::Error::from(err)))),
                 State::Eof => None,
                 _ => {
                     self.recv.waker = Some(cx.waker().clone());
@@ -143,7 +143,25 @@ impl Stream {
         window: usize,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<usize, StreamError>>> {
-        self.send.poll_send_window(len, window, cx)
+        let opt = match self.send.state {
+            State::Error => self.pending_error.map(Err),
+            State::Close => None,
+            _ => {
+                if len > 0 && (window == 0 || self.send.window <= 0) {
+                    self.send.waker = Some(cx.waker().clone());
+                    return Poll::Pending;
+                }
+
+                let len = cmp::min(len, self.send.frame_size);
+                let aval = cmp::min(self.send.window as usize, window);
+                let aval = cmp::min(aval, len);
+                self.send.window -= aval as i64;
+
+                Some(Ok(aval))
+            }
+        };
+
+        Poll::Ready(opt)
     }
 
     // may close or cancel the recv side of stream
@@ -175,9 +193,9 @@ impl Stream {
     }
 
     pub(crate) fn try_remove(&mut self) -> Option<Remove> {
-        (self.is_send_close() && self.recv.state.is_close()).then(|| match self.pending_reset.take() {
-            Some(reason) => Remove::Reset(reason),
-            None => Remove::Graceful,
+        (self.is_send_close() && self.recv.state.is_close()).then_some(match self.pending_error {
+            Some(err) if !matches!(err, StreamError::PeerReset) => Remove::Reset(err),
+            _ => Remove::Graceful,
         })
     }
 
@@ -185,10 +203,10 @@ impl Stream {
     /// Sets recv error (so RequestBody sees it), send error (so StreamGuard's
     /// send_data exits), and pending_reset (so the lifecycle sends RST_STREAM).
     /// First reason wins via `get_or_insert`.
-    pub(crate) fn set_reset(&mut self, err: StreamError) {
-        self.pending_reset.try_set_local(err);
-        self.recv.try_set_err(err);
-        self.send.try_set_err(err);
+    pub(crate) fn try_set_reset(&mut self, err: StreamError) {
+        self.pending_error.get_or_insert(err);
+        self.recv.try_set_err();
+        self.send.try_set_err();
     }
 
     /// Set an error on both sides without scheduling an outgoing RST_STREAM.
@@ -196,9 +214,7 @@ impl Stream {
     /// StreamGuard must observe the error and exit, but we must not echo
     /// back a RST_STREAM.
     pub(crate) fn try_set_peer_reset(&mut self) {
-        self.pending_reset.try_set_peer();
-        self.recv.try_set_err(StreamError::PeerReset);
-        self.send.try_set_err(StreamError::PeerReset);
+        self.try_set_reset(StreamError::PeerReset);
     }
 
     pub(crate) fn is_recv_end_stream(&self) -> bool {
@@ -206,8 +222,8 @@ impl Stream {
     }
 
     fn recvable(&self) -> Result<(), Error> {
-        match (&self.pending_reset, &self.recv.state) {
-            (PendingReset::Peer, _) => Err(Error::GoAway(Reason::STREAM_CLOSED)),
+        match (&self.pending_error, &self.recv.state) {
+            (Some(StreamError::PeerReset), _) => Err(Error::GoAway(Reason::STREAM_CLOSED)),
             (_, State::Eof) => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
             (_, _) => Ok(()),
         }
@@ -307,9 +323,9 @@ pub(crate) struct Recv {
 }
 
 impl Recv {
-    fn try_set_err(&mut self, err: StreamError) {
+    fn try_set_err(&mut self) {
         if self.state.is_open() {
-            self.state = State::Error(err);
+            self.state = State::Error;
             self.wake();
         }
     }
@@ -340,7 +356,7 @@ impl Recv {
     /// the body reader first.
     pub(crate) fn set_close_2(&mut self) {
         match self.state {
-            State::Error(_) => {}
+            State::Error => {}
             _ => self.state = State::Close,
         }
     }
@@ -363,36 +379,9 @@ pub(crate) struct Send {
 }
 
 impl Send {
-    fn poll_send_window(
-        &mut self,
-        len: usize,
-        window: usize,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<usize, StreamError>>> {
-        let opt = match self.state {
-            State::Error(err) => Some(Err(err)),
-            State::Close => None,
-            _ => {
-                if len > 0 && (window == 0 || self.window <= 0) {
-                    self.waker = Some(cx.waker().clone());
-                    return Poll::Pending;
-                }
-
-                let len = cmp::min(len, self.frame_size);
-                let aval = cmp::min(self.window as usize, window);
-                let aval = cmp::min(aval, len);
-                self.window -= aval as i64;
-
-                Some(Ok(aval))
-            }
-        };
-
-        Poll::Ready(opt)
-    }
-
-    fn try_set_err(&mut self, err: StreamError) {
+    fn try_set_err(&mut self) {
         if self.state.is_open() {
-            self.state = State::Error(err);
+            self.state = State::Error;
             self.wake();
         }
     }
@@ -408,33 +397,6 @@ impl Send {
     }
 }
 
-enum PendingReset {
-    None,
-    Peer,
-    Local(StreamError),
-}
-
-impl PendingReset {
-    fn try_set_peer(&mut self) {
-        if matches!(self, Self::None) {
-            *self = Self::Peer;
-        }
-    }
-
-    fn try_set_local(&mut self, err: StreamError) {
-        if matches!(self, Self::None) {
-            *self = Self::Local(err);
-        }
-    }
-
-    fn take(&mut self) -> Option<StreamError> {
-        match mem::replace(self, PendingReset::None) {
-            PendingReset::Local(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
 // lifecycle state of Recv and Send
 enum State {
     Open,
@@ -442,7 +404,7 @@ enum State {
     Cancel,
     // for recv only
     Eof,
-    Error(StreamError),
+    Error,
     // ready to be removed from stream_map
     Close,
 }

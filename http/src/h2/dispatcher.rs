@@ -278,7 +278,7 @@ impl FlowControl {
         self.stream_map
             .get_mut(id)
             .expect(STREAM_MUST_EXIST)
-            .set_reset(StreamError::InternalError);
+            .try_set_reset(StreamError::InternalError);
     }
 
     fn go_away(&mut self, reason: Reason) {
@@ -572,7 +572,7 @@ impl<'a, S> DecodeContext<'a, S> {
                     (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
                     (0, id) => {
                         if let Some(state) = flow.stream_map.get_mut(&id) {
-                            state.set_reset(StreamError::WindowUpdateZeroIncrement);
+                            state.try_set_reset(StreamError::WindowUpdateZeroIncrement);
                         }
                     }
                     (incr, StreamId::ZERO) => {
@@ -596,7 +596,7 @@ impl<'a, S> DecodeContext<'a, S> {
                         let window = flow.send_connection_window;
                         if let Some(state) = flow.stream_map.get_mut(&id) {
                             if state.send.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                state.set_reset(StreamError::WindowUpdateOverflow);
+                                state.try_set_reset(StreamError::WindowUpdateOverflow);
                             } else {
                                 state.send.window += incr;
                                 if window > 0 {
