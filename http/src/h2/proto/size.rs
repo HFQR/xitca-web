@@ -22,18 +22,19 @@ pub(crate) trait BodySize {
 
 impl BodySize for SizeHint {
     fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()> {
-        if is_end_stream {
-            Ok(Self::None)
-        } else {
-            match headers.get(CONTENT_LENGTH) {
-                Some(v) => {
-                    let s = v.to_str().map_err(|_| ())?;
-                    let len = headers::parse_u64(s.as_bytes())?;
-                    Ok(Self::Exact(len))
+        let res = match headers.get(CONTENT_LENGTH) {
+            Some(v) => {
+                let s = v.to_str().map_err(|_| ())?;
+                match headers::parse_u64(s.as_bytes())? {
+                    0 if is_end_stream => Self::None,
+                    _ if is_end_stream => return Err(()),
+                    n => Self::Exact(n),
                 }
-                None => Ok(Self::Unknown),
             }
-        }
+            None if is_end_stream => Self::None,
+            None => Self::Unknown,
+        };
+        Ok(res)
     }
 
     /// Subtract `len` bytes received in a DATA frame.

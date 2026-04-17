@@ -1,10 +1,10 @@
 use core::{
     cell::RefCell,
     fmt,
-    future::poll_fn,
+    future::{Future, poll_fn},
     mem,
     pin::{Pin, pin},
-    task::Poll,
+    task::{Context, Poll, ready},
 };
 
 use std::{
@@ -105,9 +105,11 @@ pub(super) struct FlowControl {
     /// Remaining bytes we may send on the whole connection.
     send_connection_window: usize,
     /// Default send-window for new streams (RFC 7540 §6.9.2).
-    stream_window: i64,
+    send_stream_initial_window: i64,
     /// Remote's SETTINGS_MAX_FRAME_SIZE.
     max_frame_size: usize,
+    /// Default recv-window for new streams
+    recv_stream_initial_window: usize,
     /// Remaining bytes we are willing to receive on the whole connection.
     recv_connection_window: usize,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
@@ -132,7 +134,13 @@ pub(super) struct FlowControl {
 
 impl FlowControl {
     fn insert_stream(&mut self, id: StreamId, end_stream: bool, content_length: SizeHint) {
-        let stream = Stream::new(self.stream_window, self.max_frame_size, content_length, end_stream);
+        let stream = Stream::new(
+            self.send_stream_initial_window,
+            self.max_frame_size,
+            self.recv_stream_initial_window,
+            content_length,
+            end_stream,
+        );
 
         self.stream_map.insert(id, stream);
     }
@@ -280,17 +288,14 @@ impl FlowControl {
     fn go_away(&mut self, reason: Reason) {
         if let Some(last_stream_id) = self.last_stream_id.try_go_away() {
             self.queue.push(Message::GoAway { last_stream_id, reason });
+        }
+
+        if reason != Reason::NO_ERROR {
             self.queue.close();
         }
     }
 }
 
-/// The peer's remote settings and their ACK state.
-///
-/// Stores the peer's latest non-ACK SETTINGS frame. `pending` is set on
-/// receipt and cleared when the ACK is dispatched by `poll_encode`. The full
-/// `Settings` value is kept so all relevant fields (e.g. HPACK table size)
-/// can be applied atomically at ACK time.
 #[derive(Default)]
 struct RemoteSettings {
     header_table_size: Option<Option<u32>>,
@@ -467,11 +472,11 @@ impl<'a, S> DecodeContext<'a, S> {
         }
     }
 
-    fn decode(&mut self, buf: &mut BytesMut, mut on_msg: impl FnMut(&Self, Decoded)) -> Result<(), ShutDown> {
+    fn decode(&mut self, buf: &mut BytesMut, mut on_msg: impl FnMut(&Self, Decoded)) {
         let reason = loop {
             match self.try_decode(buf) {
                 Ok(Some(res)) => on_msg(self, res),
-                Ok(None) => return Ok(()),
+                Ok(None) => return,
                 Err(Error::Reset(_)) => {
                     unreachable!("reset error must be handled at scope where it's associated StreamId exsits")
                 }
@@ -481,7 +486,7 @@ impl<'a, S> DecodeContext<'a, S> {
             }
         };
 
-        Err(self.go_away(reason))
+        self.ctx.borrow_mut().go_away(reason);
     }
 
     fn try_decode(&mut self, buf: &mut BytesMut) -> Result<Option<Decoded>, Error> {
@@ -512,22 +517,6 @@ impl<'a, S> DecodeContext<'a, S> {
                 return Ok(Some(decoded));
             }
         }
-    }
-
-    /// Queue a GOAWAY frame with the given reason and close the write
-    /// queue. Idempotent: subsequent calls (e.g. from a peer GOAWAY
-    /// arriving after we already initiated shutdown, or from a critical
-    /// error escalating an in-progress graceful drain) only update local
-    /// state and do not emit a second GOAWAY frame on the wire.
-    ///
-    /// Always returns `ShutDown::DrainWrite`. Non-critical (`NO_ERROR`)
-    /// shutdowns do not propagate through this path — see the GOAWAY
-    /// frame handler in `decode_frame`, which calls this for side
-    /// effects only and returns `Ok(None)` to keep the decode loop
-    /// running until in-flight streams drain naturally.
-    fn go_away(&self, reason: Reason) -> ShutDown {
-        self.ctx.borrow_mut().go_away(reason);
-        ShutDown::DrainWrite
     }
 
     fn decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
@@ -642,16 +631,7 @@ impl<'a, S> DecodeContext<'a, S> {
                         go_away.last_stream_id(),
                     );
                 }
-                // Mirror the peer's intent: queue our own GOAWAY and mark
-                // `flow.goaway_sent` so the dispatcher's main loop can
-                // terminate the graceful drain once all in-flight streams
-                // complete. RFC 7540 §6.8 explicitly allows the peer to
-                // keep sending frames (DATA, WINDOW_UPDATE, RST_STREAM,
-                // trailers) for streams that were already in flight at
-                // the time the GOAWAY was sent, so we deliberately do not
-                // bail out of the decode loop — subsequent frames in the
-                // same buffer must still be processed.
-                self.go_away(Reason::NO_ERROR);
+                return Err(Error::GoAway(go_away.reason()));
             }
             (head::Kind::Priority, _) => handle_priority(head.stream_id(), &frame)?,
             (head::Kind::PushPromise, _) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
@@ -691,8 +671,8 @@ impl<'a, S> DecodeContext<'a, S> {
 
         if let Some(new_window) = setting.initial_window_size() {
             let new_window = new_window as i64;
-            let delta = new_window - flow.stream_window;
-            flow.stream_window = new_window;
+            let delta = new_window - flow.send_stream_initial_window;
+            flow.send_stream_initial_window = new_window;
 
             if delta > 0 {
                 let overflow = flow
@@ -1060,54 +1040,73 @@ impl Drop for StreamGuard<'_> {
     }
 }
 
+struct SendData<'a> {
+    data: Bytes,
+    end_stream: bool,
+    stream_id: StreamId,
+    flow: &'a Shared,
+}
+
+impl Future for SendData<'_> {
+    type Output = bool;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        let flow = &mut *this.flow.borrow_mut();
+
+        loop {
+            let len = this.data.len();
+
+            let opt = ready!(
+                flow.stream_map
+                    .get_mut(&this.stream_id)
+                    .expect(STREAM_MUST_EXIST)
+                    .poll_send_window(len, flow.send_connection_window, cx)
+            );
+
+            let Some(Ok(aval)) = opt else {
+                return Poll::Ready(true);
+            };
+
+            flow.send_connection_window -= aval;
+
+            let all_consumed = aval == len;
+
+            let payload = if all_consumed {
+                mem::take(&mut this.data)
+            } else {
+                this.data.split_to(aval)
+            };
+
+            let end_stream = all_consumed && this.end_stream;
+
+            flow.queue.push_data(this.stream_id, payload, end_stream);
+
+            if end_stream {
+                return Poll::Ready(true);
+            } else if all_consumed {
+                return Poll::Ready(false);
+            }
+        }
+    }
+}
+
 impl StreamGuard<'_> {
     // return true to inform outer loop to break
-    async fn send_data(&self, mut data: Bytes, end_stream: bool) -> bool {
+    async fn send_data(&self, data: Bytes, end_stream: bool) -> bool {
         if data.is_empty() && !end_stream {
             tracing::warn!("response body should not yield empty Frame::Data unless it's the last chunk of Body");
             return false;
         }
 
-        loop {
-            let len = data.len();
-
-            let opt = poll_fn(|cx| {
-                let mut flow = self.ctx.borrow_mut();
-                let window = flow.send_connection_window;
-
-                flow.stream_map
-                    .get_mut(&self.stream_id)
-                    .expect(STREAM_MUST_EXIST)
-                    .poll_send_window(len, window, cx)
-                    .map_ok(|aval| {
-                        flow.send_connection_window -= aval;
-                        (aval, flow)
-                    })
-            })
-            .await;
-
-            let Some(Ok((aval, mut flow))) = opt else {
-                return true;
-            };
-
-            let all_consumed = aval == len;
-
-            let payload = if all_consumed {
-                mem::take(&mut data)
-            } else {
-                data.split_to(aval)
-            };
-
-            let end_stream = all_consumed && end_stream;
-
-            flow.queue.push_data(self.stream_id, payload, end_stream);
-
-            if end_stream {
-                return true;
-            } else if all_consumed {
-                return false;
-            }
+        SendData {
+            data,
+            end_stream,
+            stream_id: self.stream_id,
+            flow: self.ctx,
         }
+        .await
     }
 
     fn send_trailers(&self, trailers: HeaderMap) {
@@ -1212,25 +1211,28 @@ where
     settings.set_max_header_list_size(Some(config.h2_max_header_list_size));
     settings.set_enable_connect_protocol(Some(1));
 
-    let (mut read_buf, mut write_buf) = handshake::<READ_BUF_LIMIT>(&io, read_buf, &settings, ka.as_mut()).await?;
-
     let max_concurrent_streams = config.h2_max_concurrent_streams as usize;
-    let max_frame_size = config.h2_max_frame_size as usize;
-    let recv_connection_window = config.h2_initial_window_size as usize;
 
-    let shared = Rc::new(RefCell::new(FlowControl {
+    let mut flow = FlowControl {
         // Send windows start at RFC 7540 §6.9.2 default (65535) until the
         // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
         send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
-        stream_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
-        max_frame_size,
-        recv_connection_window,
+        send_stream_initial_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
+        max_frame_size: settings::DEFAULT_MAX_FRAME_SIZE as usize,
+        recv_stream_initial_window: config.h2_initial_window_size as usize,
+        recv_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
         stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
         reset_counter: ResetCounter::new(RESET_MAX, RESET_WINDOW),
         last_stream_id: LastStreamId::new(),
         queue: WriterQueue::new(),
         frame_buf: FrameBuffer::new(),
-    }));
+    };
+
+    let (mut read_buf, mut write_buf) = flow
+        .handshake::<READ_BUF_LIMIT>(&io, read_buf, &settings, ka.as_mut())
+        .await?;
+
+    let shared = Rc::new(RefCell::new(flow));
 
     let recv_threshold = StreamRecvWindowThreshold::from(&settings);
     let mut ctx = DecodeContext::new(&shared, service, max_concurrent_streams, recv_threshold, addr, date);
@@ -1285,11 +1287,9 @@ where
 
                     match res {
                         Ok(n) if n > 0 => {
-                            if let Err(shutdown) = ctx.decode(&mut read_buf, |decoder, (req, id)| {
+                            ctx.decode(&mut read_buf, |decoder, (req, id)| {
                                 queue.push(response_task(req, id, decoder.service, decoder.ctx, decoder.date));
-                            }) {
-                                break shutdown;
-                            }
+                            });
                         }
                         res => break ShutDown::ReadClosed(res.map(|_| ())),
                     };
@@ -1324,7 +1324,9 @@ where
 
                     read_res = res;
                 }
-                ShutDown::DrainWrite => queue.clear(),
+                ShutDown::DrainWrite => {
+                    shared.borrow_mut().queue.close();
+                }
             }
 
             loop {
@@ -1373,35 +1375,47 @@ fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), Error> {
 
 type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
-/// Perform the HTTP/2 connection handshake: validate the client preface,
-/// then send our SETTINGS frame. Returns the read buffer (with preface
-/// consumed) and the write buffer (ready for reuse).
-#[cold]
-#[inline(never)]
-fn handshake<'a, const LIMIT: usize>(
-    io: &'a (impl AsyncBufRead + AsyncBufWrite),
-    buf: BytesMut,
-    settings: &'a settings::Settings,
-    timer: Pin<&'a mut KeepAlive>,
-) -> BoxedFuture<'a, io::Result<(BytesMut, BytesMut)>> {
-    Box::pin(async {
-        async {
-            // No cap during preface: the buffer is tiny and always fully drained.
-            let (mut read_buf, res) = prefix_check::<LIMIT>(buf, io).await;
-            res?;
-            read_buf.advance(PREFACE.len());
+impl FlowControl {
+    /// Perform the HTTP/2 connection handshake: validate the client preface,
+    /// then send our SETTINGS frame. Returns the read buffer (with preface
+    /// consumed) and the write buffer (ready for reuse).
+    #[cold]
+    #[inline(never)]
+    fn handshake<'a, const LIMIT: usize>(
+        &'a mut self,
+        io: &'a (impl AsyncBufRead + AsyncBufWrite),
+        buf: BytesMut,
+        settings: &'a settings::Settings,
+        timer: Pin<&'a mut KeepAlive>,
+    ) -> BoxedFuture<'a, io::Result<(BytesMut, BytesMut)>> {
+        Box::pin(async move {
+            async {
+                // No cap during preface: the buffer is tiny and always fully drained.
+                let (mut read_buf, res) = prefix_check::<LIMIT>(buf, io).await;
+                res?;
+                read_buf.advance(PREFACE.len());
 
-            let mut write_buf = BytesMut::new();
-            settings.encode(&mut write_buf);
-            let (res, write_buf) = write_io(write_buf, io).await;
-            res?;
+                let mut write_buf = BytesMut::new();
+                settings.encode(&mut write_buf);
 
-            Ok((read_buf, write_buf))
-        }
-        .timeout(timer)
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
-    })
+                let delta =
+                    (self.recv_stream_initial_window as u32).saturating_sub(settings::DEFAULT_INITIAL_WINDOW_SIZE);
+
+                if delta > 0 {
+                    WindowUpdate::new(StreamId::ZERO, delta).encode(&mut write_buf);
+                    self.recv_connection_window += delta as usize;
+                };
+
+                let (res, write_buf) = write_io(write_buf, io).await;
+                res?;
+
+                Ok((read_buf, write_buf))
+            }
+            .timeout(timer)
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
+        })
+    }
 }
 
 // only check the prefix but not consume it

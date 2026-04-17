@@ -16,11 +16,7 @@ use crate::{
     http::HeaderMap,
 };
 
-use super::{
-    error::Error,
-    frame::{reason::Reason, settings},
-    size::BodySize,
-};
+use super::{error::Error, frame::reason::Reason, size::BodySize};
 
 pub(crate) struct Stream {
     pub(crate) recv: Recv,
@@ -33,18 +29,20 @@ impl Stream {
     // TODO: strip response body for HEAD method request.
     const HEAD_METHOD: u8 = 1 << 3;
 
-    pub(crate) fn new(send_window: i64, send_frame_size: usize, content_length: SizeHint, end_stream: bool) -> Self {
-        let (window, state) = if end_stream {
-            (0, State::Eof)
-        } else {
-            (settings::DEFAULT_INITIAL_WINDOW_SIZE as usize, State::Open)
-        };
+    pub(crate) fn new(
+        send_window: i64,
+        send_frame_size: usize,
+        recv_window: usize,
+        content_length: SizeHint,
+        end_stream: bool,
+    ) -> Self {
+        let state = if end_stream { State::Eof } else { State::Open };
 
         Self {
             recv: Recv {
                 queue: Deque::new(),
                 waker: None,
-                window,
+                window: recv_window,
                 state,
                 content_length,
             },
