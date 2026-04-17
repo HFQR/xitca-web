@@ -472,23 +472,6 @@ impl<'a, S> DecodeContext<'a, S> {
         }
     }
 
-    fn decode(&mut self, buf: &mut BytesMut, mut on_msg: impl FnMut(&Self, Decoded)) {
-        let reason = loop {
-            match self.try_decode(buf) {
-                Ok(Some(res)) => on_msg(self, res),
-                Ok(None) => return,
-                Err(Error::Reset(_)) => {
-                    unreachable!("reset error must be handled at scope where it's associated StreamId exsits")
-                }
-                Err(Error::GoAway(reason)) => break reason,
-                Err(Error::Hpack(_)) => break Reason::COMPRESSION_ERROR,
-                Err(Error::MalformedMessage) => break Reason::PROTOCOL_ERROR,
-            }
-        };
-
-        self.ctx.borrow_mut().go_away(reason);
-    }
-
     fn try_decode(&mut self, buf: &mut BytesMut) -> Result<Option<Decoded>, Error> {
         loop {
             if self.next_frame_len == 0 {
@@ -1265,16 +1248,6 @@ where
                 .as_mut()
                 .select(async {
                     loop {
-                        // Once a GOAWAY has been queued (either initiated
-                        // locally or mirrored from the peer at L955), the
-                        // graceful drain completes the moment there are
-                        // no more in-flight response tasks. Returning here
-                        // breaks the main loop into the write-only drain
-                        // path with empty stream/queue state, so the
-                        // subsequent fault/clear is a no-op.
-                        if queue.is_empty() && shared.borrow().last_stream_id.is_goaway() {
-                            return;
-                        }
                         let _ = queue.next().await;
                     }
                 })
@@ -1286,19 +1259,28 @@ where
                     read_buf = buf;
 
                     match res {
-                        Ok(n) if n > 0 => {
-                            ctx.decode(&mut read_buf, |decoder, (req, id)| {
-                                queue.push(response_task(req, id, decoder.service, decoder.ctx, decoder.date));
-                            });
-                        }
+                        Ok(n) if n > 0 => loop {
+                            let reason = match ctx.try_decode(&mut read_buf) {
+                                Ok(Some((req, id))) => {
+                                    queue.push(response_task(req, id, ctx.service, ctx.ctx, ctx.date));
+                                    continue;
+                                }
+                                Ok(None) => break,
+                                Err(Error::Reset(_)) => unreachable!(
+                                    "reset error must be handled at scope where it's associated StreamId exsits"
+                                ),
+                                Err(Error::GoAway(reason)) => reason,
+                                Err(Error::Hpack(_)) => Reason::COMPRESSION_ERROR,
+                                Err(Error::MalformedMessage) => Reason::PROTOCOL_ERROR,
+                            };
+                            queue.clear();
+                            ctx.ctx.borrow_mut().go_away(reason);
+                        },
                         res => break ShutDown::ReadClosed(res.map(|_| ())),
                     };
 
                     read_task.set(read_io(read_buf, &io));
                 }
-                // The inner future returns only when the graceful drain is
-                // complete (queue empty and a GOAWAY has been sent). Falls
-                // through to the write-only drain path with empty state.
                 SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break ShutDown::DrainWrite,
                 SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
                 SelectOutput::B(Ok(_)) => {}

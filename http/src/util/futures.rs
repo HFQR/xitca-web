@@ -40,5 +40,10 @@ mod queue {
         pub(crate) async fn drain(&mut self) {
             while self.0.next().await.is_some() {}
         }
+
+        #[cfg(feature = "http2")]
+        pub(crate) fn clear(&mut self) {
+            self.0.clear();
+        }
     }
 }
