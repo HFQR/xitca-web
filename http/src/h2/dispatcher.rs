@@ -208,9 +208,7 @@ impl FlowControl {
             match stream.maybe_close_recv(&mut self.frame_buf) {
                 RecvClose::Cancel(size) => {
                     self.queue.connection_window_update(size);
-                    if size > 0 {
-                        self.queue.push(Message::WindowUpdate { stream_id: id, size })
-                    }
+                    self.queue.stream_window_update(id, size);
                 }
                 RecvClose::Close(size) => {
                     self.queue.connection_window_update(size);
@@ -260,9 +258,7 @@ impl FlowControl {
                 if end_stream {
                     self.try_remove_stream(id);
                 } else {
-                    self.queue
-                        .messages
-                        .push_back(Message::WindowUpdate { stream_id: id, size });
+                    self.queue.stream_window_update(id, size);
                 }
             }
             RecvData::StreamReset(size) => {
@@ -378,6 +374,12 @@ impl WriterQueue {
     /// Flushed as a single connection frame after `poll_encode` drains the queue.
     pub(super) fn connection_window_update(&mut self, size: usize) {
         self.pending_conn_window += size;
+    }
+
+    fn stream_window_update(&mut self, id: StreamId, size: usize) {
+        if size > 0 {
+            self.push(Message::WindowUpdate { stream_id: id, size })
+        }
     }
 
     pub(super) fn push_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) {
