@@ -235,7 +235,7 @@ impl FlowControl {
             // window. INTERNAL_ERROR is server-originated and excluded.
             // When the limit is exceeded, queue GOAWAY and close the write
             // side so the connection drains and terminates.
-            if matches!(err, StreamError::InternalError) && self.reset_counter.tick() {
+            if !matches!(err, StreamError::InternalError) && self.reset_counter.tick() {
                 self.go_away(Reason::ENHANCE_YOUR_CALM);
             }
         }
@@ -272,6 +272,13 @@ impl FlowControl {
         }
 
         Ok(())
+    }
+
+    fn reset(&mut self, id: &StreamId) {
+        self.stream_map
+            .get_mut(id)
+            .expect(STREAM_MUST_EXIST)
+            .set_reset(StreamError::InternalError);
     }
 
     fn go_away(&mut self, reason: Reason) {
@@ -988,9 +995,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
     let res = match service.call(req).await {
         Ok(res) => res,
         Err(_) => {
-            let mut flow = ctx.borrow_mut();
-            let stream = flow.stream_map.get_mut(&stream_id).unwrap();
-            stream.set_reset(StreamError::InternalError);
+            ctx.borrow_mut().reset(&stream_id);
             return;
         }
     };
@@ -1108,12 +1113,7 @@ impl StreamGuard<'_> {
     }
 
     fn reset(&self) {
-        self.ctx
-            .borrow_mut()
-            .stream_map
-            .get_mut(&self.stream_id)
-            .expect(STREAM_MUST_EXIST)
-            .set_reset(StreamError::InternalError);
+        self.ctx.borrow_mut().reset(&self.stream_id);
     }
 }
 
