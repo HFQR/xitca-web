@@ -43,6 +43,7 @@ use crate::{
 };
 
 use super::{
+    STREAM_MUST_EXIST,
     body::RequestBody,
     proto::{
         error::Error,
@@ -59,6 +60,8 @@ use super::{
             window_update::WindowUpdate,
         },
         hpack,
+        last_stream_id::LastStreamId,
+        reset_counter::ResetCounter,
         size::BodySize,
         stream::{RecvClose, RecvData, Remove, Stream, StreamError},
         threshold::StreamRecvWindowThreshold,
@@ -98,67 +101,6 @@ enum KeepalivePing {
     InFlight,
 }
 
-/// Tracks the highest stream id we've accepted from the peer plus whether
-/// the boundary is still open to advancement.
-///
-/// - `Incrementable(id)` is the normal state. New HEADERS may advance the
-///   boundary via `try_advance`.
-/// - `Saturated(id)` is the post-GOAWAY state (RFC 7540 §6.8). The value
-///   is frozen and serves as the boundary for silently dropping HEADERS
-///   for higher stream ids; `try_advance` becomes a no-op.
-///
-/// All read paths (DATA / WINDOW_UPDATE / RST_STREAM / trailer routing)
-/// use `get` and treat both variants identically — they only need the
-/// value to detect frames addressed to idle stream ids (RFC 7540 §5.1).
-#[derive(Clone, Copy)]
-pub(super) enum LastStreamId {
-    Incrementable(StreamId),
-    Saturated(StreamId),
-}
-
-impl LastStreamId {
-    /// Read the current boundary value regardless of variant.
-    pub(super) fn get(self) -> StreamId {
-        match self {
-            Self::Incrementable(id) | Self::Saturated(id) => id,
-        }
-    }
-
-    /// Returns `true` once `saturate` has been called. The dispatcher's
-    /// main loop uses this to detect that the graceful drain may
-    /// terminate as soon as the in-flight queue empties.
-    pub(super) fn is_saturated(self) -> bool {
-        matches!(self, Self::Saturated(_))
-    }
-
-    /// Advance the boundary to `id` if still incrementable. No-op once
-    /// saturated, which is the mechanism by which post-GOAWAY HEADERS
-    /// are dropped without bumping internal counters.
-    pub(super) fn try_set(&mut self, id: StreamId) -> Result<Option<()>, Error> {
-        match self {
-            Self::Saturated(_) => Ok(None),
-            Self::Incrementable(last_id) if !id.is_client_initiated() || id <= *last_id => {
-                Err(Error::GoAway(Reason::PROTOCOL_ERROR))
-            }
-            Self::Incrementable(last_id) => {
-                *last_id = id;
-                Ok(Some(()))
-            }
-        }
-    }
-
-    /// try transit into Saturated state. Returns Some(last_stream_id) when succeeded
-    pub(super) fn try_set_saturate(&mut self) -> Option<StreamId> {
-        match *self {
-            Self::Incrementable(id) => {
-                let _ = mem::replace(self, LastStreamId::Saturated(id));
-                Some(id)
-            }
-            _ => None,
-        }
-    }
-}
-
 pub(super) struct FlowControl {
     /// Remaining bytes we may send on the whole connection.
     send_connection_window: usize,
@@ -171,11 +113,10 @@ pub(super) struct FlowControl {
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
     pub(super) stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
-    /// Net count of premature resets: incremented when RST_STREAM arrives for
-    /// an active response task, decremented when a stream completes normally.
-    /// Stays near zero for well-behaved clients; climbs toward
-    /// PREMATURE_RESET_LIMIT only when resets consistently outpace completions.
-    premature_reset_count: usize,
+    /// Sliding-window counter for client-caused resets (CVE-2023-44487).
+    /// Counts both peer-initiated RST_STREAM and server-generated RST_STREAM
+    /// in response to client protocol errors within a time window.
+    reset_counter: ResetCounter,
     /// Highest accepted client stream id, with explicit lifecycle: while
     /// `Incrementable` it advances on each new HEADERS; once GOAWAY is
     /// queued it transitions to `Saturated` and is frozen, which both
@@ -197,7 +138,7 @@ impl FlowControl {
     }
 
     fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
-        if id > self.last_stream_id.get() {
+        if self.last_stream_id.check_idle(id) {
             Err(Error::GoAway(Reason::PROTOCOL_ERROR))
         } else {
             Ok(())
@@ -235,17 +176,19 @@ impl FlowControl {
 
         state.try_set_peer_reset();
 
-        self.premature_reset_count += 1;
-
-        if self.premature_reset_count > PREMATURE_RESET_LIMIT {
+        if self.reset_counter.tick() {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
 
         Ok(())
     }
 
-    pub(super) fn request_body_drop(&mut self, id: StreamId) {
+    pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
         self.try_remove_stream(id);
+        // Replenish any bytes consumed but not yet acknowledged. The stream
+        // itself may already be gone (e.g. RST_STREAM), so only the connection
+        // window is restored (stream 0).
+        self.queue.connection_window_update(pending_window);
     }
 
     fn stream_guard_drop(&mut self, id: StreamId) {
@@ -282,9 +225,19 @@ impl FlowControl {
 
     fn remove_stream(&mut self, id: StreamId, remove: Remove) {
         self.stream_map.remove(&id);
-        match remove {
-            Remove::Reset(reason) => self.queue.push(Message::Reset { stream_id: id, reason }),
-            Remove::Graceful => self.premature_reset_count = self.premature_reset_count.saturating_sub(1),
+        if let Remove::Reset(err) = remove {
+            self.queue.push(Message::Reset {
+                stream_id: id,
+                reason: err.reason(),
+            });
+            // Count client-caused resets (protocol errors, flow-control
+            // violations, content-length mismatches) toward the sliding
+            // window. INTERNAL_ERROR is server-originated and excluded.
+            // When the limit is exceeded, queue GOAWAY and close the write
+            // side so the connection drains and terminates.
+            if matches!(err, StreamError::InternalError) && self.reset_counter.tick() {
+                self.go_away(Reason::ENHANCE_YOUR_CALM);
+            }
         }
     }
 
@@ -319,6 +272,13 @@ impl FlowControl {
         }
 
         Ok(())
+    }
+
+    fn go_away(&mut self, reason: Reason) {
+        if let Some(last_stream_id) = self.last_stream_id.try_go_away() {
+            self.queue.push(Message::GoAway { last_stream_id, reason });
+            self.queue.close();
+        }
     }
 }
 
@@ -369,13 +329,6 @@ pub(super) enum Message {
 
 pub(super) struct WriterQueue {
     pub(super) messages: VecDeque<Message>,
-    /// Bounded queue for RST_STREAM frames triggered by client-caused protocol
-    /// errors (e.g. WINDOW_UPDATE incr=0, flow-control overflow). These are
-    /// separated from `messages` so that a malicious client cannot exhaust
-    /// heap memory by forcing the server to emit an unbounded number of resets.
-    /// Server-initiated resets (service errors, body errors) stay in `messages`
-    /// because they are bounded by `max_concurrent_streams`.
-    resets: VecDeque<(StreamId, Reason)>,
     closed: bool,
     /// The peer's latest SETTINGS frame, pending an ACK (CVE-2019-9515).
     /// A well-behaved peer sends one SETTINGS and waits for the ACK before
@@ -398,13 +351,10 @@ pub(super) struct WriterQueue {
 
 pub(super) type Shared = Rc<RefCell<FlowControl>>;
 
-const STREAM_MUST_EXIST: &str = "Stream MUST NOT be removed while RequestBody or StreamGuard is still alive";
-
 impl WriterQueue {
     fn new() -> Self {
         Self {
             messages: VecDeque::new(),
-            resets: VecDeque::new(),
             closed: false,
             pending_settings: RemoteSettings::default(),
             pending_conn_window: 0,
@@ -434,14 +384,6 @@ impl WriterQueue {
         self.push(Message::Trailer(trailer));
     }
 
-    /// Push a RST_STREAM caused by a client protocol error. Returns `true` if
-    /// the reset queue has reached `CLIENT_RESET_QUEUE_CAP`, indicating the
-    /// caller should send GOAWAY and close the connection.
-    fn push_client_reset(&mut self, stream_id: StreamId, reason: Reason) -> bool {
-        self.resets.push_back((stream_id, reason));
-        self.resets.len() > CLIENT_RESET_QUEUE_CAP
-    }
-
     /// Set END_STREAM on the most recent DATA frame for `stream_id` in place,
     /// avoiding an extra zero-length frame in the common case (O(1)).
     ///
@@ -469,9 +411,7 @@ impl WriterQueue {
     }
 
     fn poll_recv(&mut self) -> Poll<Option<Message>> {
-        if let Some((stream_id, reason)) = self.resets.pop_front() {
-            Poll::Ready(Some(Message::Reset { stream_id, reason }))
-        } else if let Some(msg) = self.messages.pop_front() {
+        if let Some(msg) = self.messages.pop_front() {
             Poll::Ready(Some(msg))
         } else if self.closed {
             Poll::Ready(None)
@@ -489,7 +429,8 @@ impl<'a, S> DecodeContext<'a, S> {
     /// Returns `Err(GoAway)` if the client has triggered too many resets.
     fn handle_stream_reset(&self, id: StreamId, reason: Reason) -> Result<(), Error> {
         let mut inner = self.ctx.borrow_mut();
-        if inner.queue.push_client_reset(id, reason) {
+        inner.queue.push(Message::Reset { stream_id: id, reason });
+        if inner.reset_counter.tick() {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
         Ok(())
@@ -522,7 +463,9 @@ impl<'a, S> DecodeContext<'a, S> {
             match self.try_decode(buf) {
                 Ok(Some(res)) => on_msg(self, res),
                 Ok(None) => return Ok(()),
-                Err(Error::Reset(_)) => unreachable!(),
+                Err(Error::Reset(_)) => {
+                    unreachable!("reset error must be handled at scope where it's associated StreamId exsits")
+                }
                 Err(Error::GoAway(reason)) => break reason,
                 Err(Error::Hpack(_)) => break Reason::COMPRESSION_ERROR,
                 Err(Error::MalformedMessage) => break Reason::PROTOCOL_ERROR,
@@ -574,11 +517,7 @@ impl<'a, S> DecodeContext<'a, S> {
     /// effects only and returns `Ok(None)` to keep the decode loop
     /// running until in-flight streams drain naturally.
     fn go_away(&self, reason: Reason) -> ShutDown {
-        let mut inner = self.ctx.borrow_mut();
-        if let Some(last_stream_id) = inner.last_stream_id.try_set_saturate() {
-            inner.queue.push(Message::GoAway { last_stream_id, reason });
-            inner.queue.close();
-        }
+        self.ctx.borrow_mut().go_away(reason);
         ShutDown::DrainWrite
     }
 
@@ -816,7 +755,7 @@ impl<'a, S> DecodeContext<'a, S> {
         let (pseudo, headers) = headers.into_parts();
 
         let flow = &mut *self.ctx.borrow_mut();
-        if flow.last_stream_id.get() >= id {
+        if !flow.last_stream_id.check_idle(id) {
             let stream = flow
                 .stream_map
                 .get_mut(&id)
@@ -1058,45 +997,43 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
     let (mut parts, body) = res.into_parts();
 
-    let size = body.size_hint();
-
-    if let SizeHint::Exact(size) = size {
-        parts.headers.insert(CONTENT_LENGTH, size.into());
-    }
-
     if !parts.headers.contains_key(DATE) {
         let date = date.with_date_header(Clone::clone);
         parts.headers.insert(DATE, date);
     }
 
+    let end_stream = match body.size_hint() {
+        SizeHint::None => true,
+        size => {
+            if let SizeHint::Exact(size) = size {
+                parts.headers.insert(CONTENT_LENGTH, size.into());
+            }
+            false
+        }
+    };
+
     let pseudo = headers::Pseudo::response(parts.status);
     let mut headers = headers::Headers::new(stream_id, pseudo, parts.headers);
 
-    let has_body = !matches!(size, SizeHint::None);
-
-    if !has_body {
+    if end_stream {
         headers.set_end_stream();
     }
 
     ctx.borrow_mut().queue.push(Message::Head(headers));
 
-    if has_body {
+    if !end_stream {
         let mut body = pin!(body);
 
-        'body: loop {
+        loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
                 None => break ctx.borrow_mut().queue.push_end_stream(guard.stream_id),
                 Some(Err(e)) => {
                     error!("body error: {:?}", e);
-                    let mut flow = guard.ctx.borrow_mut();
-                    if let Some(state) = flow.stream_map.get_mut(&guard.stream_id) {
-                        state.set_reset(StreamError::InternalError);
-                    }
-                    break;
+                    break guard.reset();
                 }
                 Some(Ok(Frame::Data(bytes))) => {
                     if guard.send_data(bytes, body.is_end_stream()).await {
-                        break 'body;
+                        break;
                     }
                 }
                 Some(Ok(Frame::Trailers(trailers))) => break guard.send_trailers(trailers),
@@ -1169,6 +1106,15 @@ impl StreamGuard<'_> {
     fn send_trailers(&self, trailers: HeaderMap) {
         self.ctx.borrow_mut().queue.push_trailers(self.stream_id, trailers);
     }
+
+    fn reset(&self) {
+        self.ctx
+            .borrow_mut()
+            .stream_map
+            .get_mut(&self.stream_id)
+            .expect(STREAM_MUST_EXIST)
+            .set_reset(StreamError::InternalError);
+    }
 }
 
 struct PingPong<'a> {
@@ -1209,14 +1155,13 @@ impl<'a> PingPong<'a> {
     }
 }
 
-/// Maximum number of premature RST_STREAMs before the connection is closed
-/// with GOAWAY(ENHANCE_YOUR_CALM). Matches the h2 crate's default.
-const PREMATURE_RESET_LIMIT: usize = 100;
-/// Maximum number of client-caused RST_STREAM frames that may queue up in
-/// `WriterQueue::resets` at once. Exceeding this kills the connection with
-/// GOAWAY(ENHANCE_YOUR_CALM). A well-behaved client should not trigger more
-/// resets than it has open streams; a burst beyond this cap is abuse.
-const CLIENT_RESET_QUEUE_CAP: usize = 64;
+/// Maximum number of client-caused resets allowed within `RESET_WINDOW`
+/// before the connection is closed with GOAWAY(ENHANCE_YOUR_CALM).
+/// Matches the h2 crate's DEFAULT_REMOTE_RESET_STREAM_MAX.
+const RESET_MAX: usize = 20;
+/// Sliding window duration for the reset counter. Resets older than this
+/// are expired and no longer counted.
+const RESET_WINDOW: Duration = Duration::from_secs(30);
 
 /// Peek into the given buffer (and read more if needed) to determine whether
 /// the connection speaks HTTP/2.  Returns `(version, buf)` where `buf` contains
@@ -1279,8 +1224,8 @@ where
         max_frame_size,
         recv_connection_window,
         stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
-        premature_reset_count: 0,
-        last_stream_id: LastStreamId::Incrementable(StreamId::ZERO),
+        reset_counter: ResetCounter::new(RESET_MAX, RESET_WINDOW),
+        last_stream_id: LastStreamId::new(),
         queue: WriterQueue::new(),
         frame_buf: FrameBuffer::new(),
     }));
@@ -1323,7 +1268,7 @@ where
                         // breaks the main loop into the write-only drain
                         // path with empty stream/queue state, so the
                         // subsequent fault/clear is a no-op.
-                        if queue.is_empty() && shared.borrow().last_stream_id.is_saturated() {
+                        if queue.is_empty() && shared.borrow().last_stream_id.is_goaway() {
                             return;
                         }
                         let _ = queue.next().await;

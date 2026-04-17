@@ -11,6 +11,7 @@ use crate::{
 };
 
 use super::{
+    STREAM_MUST_EXIST,
     dispatcher::{Message, Shared},
     proto::{frame::stream_id::StreamId, threshold::StreamRecvWindowThreshold},
 };
@@ -40,16 +41,9 @@ impl RequestBody {
 
 impl Drop for RequestBody {
     fn drop(&mut self) {
-        let mut inner = self.ctx.borrow_mut();
-        let ci = &mut *inner;
-
-        ci.request_body_drop(self.stream_id);
-
-        // Replenish any bytes consumed but not yet acknowledged. The stream
-        // itself may already be gone (e.g. RST_STREAM), so only the connection
-        // window is restored (stream 0).
-        let size = mem::replace(&mut self.pending_window, 0);
-        ci.queue.connection_window_update(size);
+        self.ctx
+            .borrow_mut()
+            .request_body_drop(self.stream_id, self.pending_window);
     }
 }
 
@@ -61,8 +55,9 @@ impl Body for RequestBody {
         let this = self.get_mut();
 
         let flow = &mut *this.ctx.borrow_mut();
-        let stream = flow.stream_map.get_mut(&this.stream_id).unwrap();
-        if let Some(frame) = stream.recv.queue.pop_front(&mut flow.frame_buf) {
+        let stream = flow.stream_map.get_mut(&this.stream_id).expect(STREAM_MUST_EXIST);
+
+        stream.poll_frame(&mut flow.frame_buf, cx).map_ok(|frame| {
             if let Some(bytes) = frame.data_ref() {
                 this.pending_window += bytes.len();
 
@@ -76,24 +71,18 @@ impl Body for RequestBody {
                     });
                 }
             }
-
-            Poll::Ready(Some(Ok(frame)))
-        } else if let Some(e) = stream.take_recv_err() {
-            // Peer reset the stream while body was in progress.
-            Poll::Ready(Some(Err(e.into())))
-        } else if stream.recv.is_eof() {
-            // END_STREAM received and queue drained: graceful EOF.
-            Poll::Ready(None)
-        } else {
-            stream.recv.waker = Some(cx.waker().clone());
-            Poll::Pending
-        }
+            frame
+        })
     }
 
+    #[inline]
     fn is_end_stream(&self) -> bool {
-        let flow = self.ctx.borrow();
-        let stream = flow.stream_map.get(&self.stream_id).unwrap();
-        stream.recv.is_eof() && stream.recv.queue.is_empty()
+        self.ctx
+            .borrow()
+            .stream_map
+            .get(&self.stream_id)
+            .expect(STREAM_MUST_EXIST)
+            .is_recv_end_stream()
     }
 
     #[inline]

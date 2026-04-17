@@ -8,6 +8,7 @@ use std::io;
 use crate::{
     body::SizeHint,
     bytes::Bytes,
+    error::BodyError,
     h2::{
         dispatcher::{Frame, FrameBuffer},
         util::Deque,
@@ -115,6 +116,27 @@ impl Stream {
         Ok(recv)
     }
 
+    pub(crate) fn poll_frame(
+        &mut self,
+        buffer: &mut FrameBuffer,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame, BodyError>>> {
+        let opt = if let Some(frame) = self.recv.queue.pop_front(buffer) {
+            Some(Ok(frame))
+        } else {
+            match self.recv.state {
+                State::Error(err) => Some(Err(BodyError::from(io::Error::from(err)))),
+                State::Eof => None,
+                _ => {
+                    self.recv.waker = Some(cx.waker().clone());
+                    return Poll::Pending;
+                }
+            }
+        };
+
+        Poll::Ready(opt)
+    }
+
     pub(crate) fn poll_send_window(
         &mut self,
         len: usize,
@@ -164,7 +186,7 @@ impl Stream {
     /// send_data exits), and pending_reset (so the lifecycle sends RST_STREAM).
     /// First reason wins via `get_or_insert`.
     pub(crate) fn set_reset(&mut self, err: StreamError) {
-        self.pending_reset.try_set_local(err.reason());
+        self.pending_reset.try_set_local(err);
         self.recv.try_set_err(err);
         self.send.try_set_err(err);
     }
@@ -179,8 +201,8 @@ impl Stream {
         self.send.try_set_err(StreamError::PeerReset);
     }
 
-    pub(crate) fn take_recv_err(&self) -> Option<io::Error> {
-        self.recv.state.take_error()
+    pub(crate) fn is_recv_end_stream(&self) -> bool {
+        self.recv.is_eof() && self.recv.queue.is_empty()
     }
 
     fn recvable(&self) -> Result<(), Error> {
@@ -250,7 +272,7 @@ pub(crate) enum Remove {
     // graceful removal nothing should be done
     Graceful,
     // observer must send Reason with Reset frame and send to peer
-    Reset(Reason),
+    Reset(StreamError),
 }
 
 /// Result of [`Stream::try_recv_data`]. Each variant tells the caller
@@ -389,7 +411,7 @@ impl Send {
 enum PendingReset {
     None,
     Peer,
-    Local(Reason),
+    Local(StreamError),
 }
 
 impl PendingReset {
@@ -399,15 +421,15 @@ impl PendingReset {
         }
     }
 
-    fn try_set_local(&mut self, reason: Reason) {
+    fn try_set_local(&mut self, err: StreamError) {
         if matches!(self, Self::None) {
-            *self = Self::Local(reason);
+            *self = Self::Local(err);
         }
     }
 
-    fn take(&mut self) -> Option<Reason> {
+    fn take(&mut self) -> Option<StreamError> {
         match mem::replace(self, PendingReset::None) {
-            PendingReset::Local(reason) => Some(reason),
+            PendingReset::Local(err) => Some(err),
             _ => None,
         }
     }
@@ -432,13 +454,6 @@ impl State {
 
     fn is_close(&self) -> bool {
         matches!(self, State::Close)
-    }
-
-    fn take_error(&self) -> Option<io::Error> {
-        match *self {
-            State::Error(err) => Some(err.into()),
-            _ => None,
-        }
     }
 }
 
