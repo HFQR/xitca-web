@@ -197,7 +197,7 @@ where
         ResB: Body<Data = Bytes> + 'static,
         ResB::Error: fmt::Debug + 'static,
     {
-        let http = HttpServiceBuilder::with_config(self.config);
+        let http = HttpServiceBuilder::with_config(self.config.clone());
         let service = self.service.clone();
         let name = "xitca-web";
 
@@ -226,7 +226,7 @@ where
         ResB::Error: fmt::Debug + 'static,
         L: IntoListener + 'static,
     {
-        let http = HttpServiceBuilder::with_config(self.config);
+        let http = HttpServiceBuilder::with_config(self.config.clone());
         let service = self.service.clone();
         let name = "xitca-web";
 
@@ -361,7 +361,7 @@ where
         ResB: Body<Data = Bytes> + 'static,
         ResB::Error: fmt::Debug + 'static,
     {
-        let http = HttpServiceBuilder::with_config(self.config);
+        let http = HttpServiceBuilder::with_config(self.config.clone());
         let name = "xitca-web";
         let service = self.service.clone();
         self.builder = if self.enable_io_uring {
