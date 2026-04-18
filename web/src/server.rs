@@ -259,7 +259,7 @@ where
         ResB: Body<Data = Bytes> + 'static,
         ResB::Error: fmt::Debug + 'static,
     {
-        let config = self.config;
+        let config = self.config.clone();
 
         const H11: &[u8] = b"\x08http/1.1";
 
@@ -323,7 +323,7 @@ where
         ResB: Body<Data = Bytes> + 'static,
         ResB::Error: fmt::Debug + 'static,
     {
-        let service_config = self.config;
+        let service_config = self.config.clone();
 
         #[cfg(feature = "http2")]
         config.alpn_protocols.push("h2".into());
@@ -396,7 +396,7 @@ where
         let service = self
             .service
             .clone()
-            .enclosed(HttpServiceBuilder::with_config(self.config));
+            .enclosed(HttpServiceBuilder::with_config(self.config.clone()));
 
         self.builder = self.builder.bind_h3("xitca-web", addr, config, service)?;
         Ok(self)
