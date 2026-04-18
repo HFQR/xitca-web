@@ -162,13 +162,17 @@ impl Stream {
         Poll::Ready(opt)
     }
 
-    // may close or cancel the recv side of stream
-    // behavior depend on current state of Recv.
-    // State::Open -> State::Cancel. return with RecvClose::Cancel
-    // State::<non_OPEN> -> state::Close. return with RecvClose::Close
-    pub(crate) fn maybe_close_recv(&mut self, buffer: &mut FrameBuffer) -> RecvClose {
-        self.recv.set_close();
+    pub(crate) fn promote_cancel_to_close_recv(&mut self) {
+        if matches!(self.recv.state, State::Cancel) {
+            self.recv.state = State::Close;
+        }
+    }
 
+    pub(crate) fn close_send(&mut self) {
+        self.send.set_close();
+    }
+
+    pub(crate) fn maybe_close_recv(&mut self, buffer: &mut FrameBuffer) -> RecvClose {
         let mut window = 0;
 
         while let Some(frame) = self.recv.queue.pop_front(buffer) {
@@ -179,19 +183,20 @@ impl Stream {
 
         self.recv.window += window;
 
-        if self.recv.state.is_close() {
-            RecvClose::Close(window)
-        } else {
-            RecvClose::Cancel(window)
+        match self.recv.state {
+            State::Open => {
+                self.recv.state = State::Cancel;
+                RecvClose::Cancel(window)
+            }
+            _ => {
+                self.recv.state = State::Close;
+                RecvClose::Close(window)
+            }
         }
     }
 
-    pub(crate) fn is_send_close(&self) -> bool {
-        self.send.state.is_close()
-    }
-
     pub(crate) fn try_remove(&mut self) -> Option<Remove> {
-        (self.is_send_close() && self.recv.state.is_close()).then_some(match self.pending_error {
+        (self.send.state.is_close() && self.recv.state.is_close()).then_some(match self.pending_error {
             Some(err) if !matches!(err, StreamError::PeerReset) => Remove::Reset(err),
             _ => Remove::Graceful,
         })
@@ -270,7 +275,6 @@ impl Stream {
     }
 }
 
-// outcome of Stream::maybe_close_recv
 pub(crate) enum RecvClose {
     // Recv is locally canceled but peer still consider it's open
     // observer must keep updating connection window and stream window to keep
@@ -322,9 +326,13 @@ pub(crate) struct Recv {
 
 impl Recv {
     fn try_set_err(&mut self) {
-        if self.state.is_open() {
-            self.state = State::Error;
-            self.wake();
+        match self.state {
+            State::Open => {
+                self.state = State::Error;
+                self.wake();
+            }
+            State::Cancel => self.state = State::Close,
+            _ => {}
         }
     }
 
@@ -336,16 +344,7 @@ impl Recv {
         self.wake();
     }
 
-    fn set_close(&mut self) {
-        self.state = match self.state {
-            State::Open => State::Cancel,
-            _ => State::Close,
-        }
-    }
-
-    /// END_STREAM received or stream fully closed. Used by the body to
-    /// detect EOF after draining the queue.
-    pub(crate) fn is_eof(&self) -> bool {
+    fn is_eof(&self) -> bool {
         matches!(self.state, State::Eof)
     }
 
@@ -384,7 +383,7 @@ impl Send {
         }
     }
 
-    pub(crate) fn set_close(&mut self) {
+    fn set_close(&mut self) {
         self.state = State::Close;
     }
 

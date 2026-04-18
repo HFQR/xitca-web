@@ -179,11 +179,13 @@ impl FlowControl {
     // the response task is running or the request body is still being
     // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
     fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
-        let Some(state) = self.stream_map.get_mut(&id) else {
+        let Some(stream) = self.stream_map.get_mut(&id) else {
             return Ok(());
         };
 
-        state.try_set_peer_reset();
+        stream.try_set_peer_reset();
+
+        self.try_remove_stream(id);
 
         if self.reset_counter.tick() {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
@@ -193,37 +195,37 @@ impl FlowControl {
     }
 
     pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
-        self.try_remove_stream(id);
-        // Replenish any bytes consumed but not yet acknowledged. The stream
-        // itself may already be gone (e.g. RST_STREAM), so only the connection
-        // window is restored (stream 0).
-        self.queue.connection_window_update(pending_window);
-    }
-
-    fn stream_guard_drop(&mut self, id: StreamId) {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
-        stream.send.set_close();
+        match stream.maybe_close_recv(&mut self.frame_buf) {
+            RecvClose::Cancel(size) => {
+                let size = size + pending_window;
+                self.queue.connection_window_update(size);
+                self.queue.stream_window_update(id, size);
+            }
+            RecvClose::Close(size) => {
+                self.queue.connection_window_update(size + pending_window);
+            }
+        }
 
         if let Some(remove) = stream.try_remove() {
             self.remove_stream(id, remove);
         }
     }
 
-    // Try to remove a stream after END_STREAM is received.
-    // Only actually removes if both recv and send sides are closed.
+    fn stream_guard_drop(&mut self, id: StreamId) {
+        let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
+
+        stream.close_send();
+
+        if let Some(remove) = stream.try_remove() {
+            self.remove_stream(id, remove);
+        }
+    }
+
     fn try_remove_stream(&mut self, id: StreamId) {
         if let Some(stream) = self.stream_map.get_mut(&id) {
-            match stream.maybe_close_recv(&mut self.frame_buf) {
-                RecvClose::Cancel(size) => {
-                    self.queue.connection_window_update(size);
-                    self.queue.stream_window_update(id, size);
-                }
-                RecvClose::Close(size) => {
-                    self.queue.connection_window_update(size);
-                }
-            }
-
+            stream.promote_cancel_to_close_recv();
             if let Some(remove) = stream.try_remove() {
                 self.remove_stream(id, remove);
             }
@@ -273,6 +275,7 @@ impl FlowControl {
             RecvData::StreamReset(size) => {
                 // Protocol error — replenish connection window only.
                 self.queue.connection_window_update(size);
+                self.try_remove_stream(id);
             }
         }
 
@@ -735,11 +738,7 @@ impl<'a, S> DecodeContext<'a, S> {
 
             match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
                 RecvData::Queued => {}
-                _ => {
-                    if end_stream {
-                        flow.try_remove_stream(id);
-                    }
-                }
+                _ => flow.try_remove_stream(id),
             }
             return Ok(None);
         }
