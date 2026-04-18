@@ -259,24 +259,24 @@ impl FlowControl {
             Error::Reset(Reason::STREAM_CLOSED)
         })?;
 
-        match stream.try_recv_data(&mut self.frame_buf, payload, end_stream)? {
-            RecvData::Queued => {}
+        let (size, want_remove) = match stream.try_recv_data(&mut self.frame_buf, payload, end_stream)? {
+            RecvData::Queued => return Ok(()),
             RecvData::Discard(size) => {
-                // Body dropped — replenish both connection and stream windows
-                // so the peer can reach END_STREAM without stalling.
-                self.queue.connection_window_update(size);
-
-                if end_stream {
-                    self.try_remove_stream(id);
-                } else {
+                // RequdstBody dropped. replenish stream and connection window if more frame expected
+                if !end_stream {
                     self.queue.stream_window_update(id, size);
                 }
+                (size, end_stream)
             }
-            RecvData::StreamReset(size) => {
-                // Protocol error — replenish connection window only.
-                self.queue.connection_window_update(size);
-                self.try_remove_stream(id);
-            }
+            // stream reseted. replenish connection window
+            RecvData::StreamReset(size) => (size, true),
+        };
+
+        self.queue.connection_window_update(size);
+
+        // try remove stream from map in case RequestBody is dropped before reaching end_stream or rst_stream state
+        if want_remove {
+            self.try_remove_stream(id);
         }
 
         Ok(())
