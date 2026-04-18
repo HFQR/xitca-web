@@ -871,37 +871,33 @@ impl<'a> EncodeContext<'a> {
         // remote_setting can contain updated states for following encoding
         flow.queue.pending_settings.encode(&mut self.encoder, write_buf);
 
-        let closed = loop {
-            match flow.queue.try_recv() {
-                Some(Message::Head(headers)) => {
+        while let Some(msg) = flow.queue.try_recv() {
+            match msg {
+                Message::Head(headers) => {
                     let frame_size = flow.max_frame_size;
                     let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
                     while let Some(c) = cont {
                         cont = c.encode(&mut write_buf.limit(frame_size));
                     }
                 }
-                Some(Message::Trailer(headers)) => {
+                Message::Trailer(headers) => {
                     let frame_size = flow.max_frame_size;
                     let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
                     while let Some(c) = cont {
                         cont = c.encode(&mut write_buf.limit(frame_size));
                     }
                 }
-                Some(Message::Data(mut data)) => data.encode_chunk(write_buf),
-                Some(Message::Reset { stream_id, reason }) => Reset::new(stream_id, reason).encode(write_buf),
-                Some(Message::WindowUpdate { stream_id, size }) => {
-                    WindowUpdate::new(stream_id, size as _).encode(write_buf)
-                }
-                Some(Message::GoAway { last_stream_id, reason }) => {
-                    flow.queue.pending_conn_window = 0;
+                Message::Data(mut data) => data.encode_chunk(write_buf),
+                Message::Reset { stream_id, reason } => Reset::new(stream_id, reason).encode(write_buf),
+                Message::WindowUpdate { stream_id, size } => WindowUpdate::new(stream_id, size as _).encode(write_buf),
+                Message::GoAway { last_stream_id, reason } => {
                     GoAway::new(last_stream_id, reason).encode(write_buf);
                     // GoAway may be graceful (queue stays open to drain in-flight frames)
                     // or forceful (queue closed). The pusher decides via FlowControl::go_away;
-                    // we keep draining either way and let the None arm observe is_closed().
+                    // we keep draining either way.
                 }
-                None => break flow.queue.is_closed(),
             }
-        };
+        }
 
         let pending = mem::replace(&mut flow.queue.pending_conn_window, 0);
         if pending > 0 {
@@ -925,7 +921,7 @@ impl<'a> EncodeContext<'a> {
 
         if !write_buf.is_empty() {
             Poll::Ready(true)
-        } else if closed {
+        } else if flow.queue.is_closed() {
             Poll::Ready(false)
         } else {
             Poll::Pending
