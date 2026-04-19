@@ -967,6 +967,8 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
     let (mut parts, body) = res.into_parts();
 
+    super::strip_connection_headers::<false>(&mut parts.headers);
+
     if !parts.headers.contains_key(DATE) {
         let date = date.with_date_header(Clone::clone);
         parts.headers.insert(DATE, date);
@@ -977,7 +979,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
         (false, SizeHint::None) => true,
         (false, size) => {
             if let SizeHint::Exact(size) = size {
-                parts.headers.insert(CONTENT_LENGTH, size.into());
+                parts.headers.entry(CONTENT_LENGTH).or_insert_with(|| size.into());
             }
             false
         }
