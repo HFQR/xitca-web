@@ -48,7 +48,8 @@ use super::{
     proto::{
         error::Error,
         frame::{
-            PREFACE, data,
+            PREFACE,
+            data::Data,
             go_away::GoAway,
             head,
             headers::{self, ResponsePseudo},
@@ -250,17 +251,30 @@ impl FlowControl {
         }
     }
 
-    fn handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
-        let len = payload.len();
-        self.recv_window_dec(len)?;
+    fn handle_data(&mut self, data: Data) -> Result<(), Error> {
+        let id = data.stream_id();
+        self.check_not_idle(id)?;
+
+        let flow_len = data.flow_controlled_len();
+        self.recv_window_dec(flow_len)?;
 
         let stream = self.stream_map.get_mut(&id).ok_or_else(|| {
-            self.queue.connection_window_update(len);
+            self.queue.connection_window_update(flow_len);
             Error::Reset(Reason::STREAM_CLOSED)
         })?;
 
-        let (size, want_remove) = match stream.try_recv_data(&mut self.frame_buf, payload, end_stream)? {
-            RecvData::Queued => return Ok(()),
+        let end_stream = data.is_end_stream();
+        let data = data.into_payload();
+
+        let (size, want_remove) = match stream.try_recv_data(&mut self.frame_buf, data, flow_len, end_stream)? {
+            RecvData::Queued(size) => {
+                // Padding isn't body-observable — auto-release the padding
+                // portion on both connection and stream windows now, so only
+                // the data portion is paced by application consumption.
+                self.queue.connection_window_update(size);
+                self.queue.stream_window_update(id, size);
+                return Ok(());
+            }
             RecvData::Discard(size) => {
                 // RequdstBody dropped. replenish stream and connection window if more frame expected
                 if !end_stream {
@@ -314,9 +328,12 @@ struct RemoteSettings {
 }
 
 impl RemoteSettings {
-    /// Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
-    /// previous SETTINGS has not yet been ACKed (CVE-2019-9515).
+    // Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
+    // previous SETTINGS has not yet been ACKed (CVE-2019-9515).
     fn try_update(&mut self, settings: Settings) -> Result<(), Error> {
+        // Only one in flight peer settings is allowed. This is over restricted according
+        // to RFC and multiple settings on wire should be allowed. That said in practice
+        // only malicous peer would initliaze mutliple settings in short time burst.
         if self.header_table_size.is_some() {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
@@ -340,7 +357,7 @@ impl RemoteSettings {
 
 pub(super) enum Message {
     Head(headers::Headers<ResponsePseudo>),
-    Data(data::Data),
+    Data(Data),
     Trailer(headers::Headers<()>),
     Reset { stream_id: StreamId, reason: Reason },
     WindowUpdate { stream_id: StreamId, size: usize },
@@ -400,7 +417,7 @@ impl WriterQueue {
     }
 
     pub(super) fn push_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) {
-        let mut data = data::Data::new(id, payload);
+        let mut data = Data::new(id, payload);
         data.set_end_stream(end_stream);
         self.push(Message::Data(data));
     }
@@ -535,14 +552,8 @@ impl<'a, S> DecodeContext<'a, S> {
                 return self.handle_headers(headers, payload, is_end_headers);
             }
             (head::Kind::Data, _) => {
-                let data = data::Data::load(head, frame.freeze())?;
-                let is_end = data.is_end_stream();
-                let id = data.stream_id();
-                let payload = data.into_payload();
-
-                let mut state = self.ctx.borrow_mut();
-                state.check_not_idle(id)?;
-                state.handle_data(id, payload, is_end)?;
+                let data = Data::load(head, frame.freeze())?;
+                self.ctx.borrow_mut().handle_data(data)?;
             }
             (head::Kind::WindowUpdate, _) => {
                 let window = WindowUpdate::load(head, frame.as_ref())?;
@@ -736,8 +747,10 @@ impl<'a, S> DecodeContext<'a, S> {
                 .get_mut(&id)
                 .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
 
+            // pseudo is not checked for legitmacy and ignored when receiving trailers.
+
             match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
-                RecvData::Queued => {}
+                RecvData::Queued(_) => {}
                 _ => flow.try_remove_stream(id),
             }
             return Ok(None);

@@ -60,28 +60,35 @@ impl Stream {
         &mut self,
         buffer: &mut FrameBuffer,
         data: Bytes,
+        flow_len: usize,
         end_stream: bool,
     ) -> Result<RecvData, Error> {
         self.recvable()?;
 
         let len = data.len();
+        let padded_len = flow_len - len;
 
-        let recv = match self.data_check(len, end_stream) {
+        let recv = match self.data_check(len, flow_len, end_stream) {
             Ok(_) => {
                 if self.recv.state.is_open() {
+                    // RFC 7540 §6.9.1: padding counts toward flow control. The caller
+                    // auto-releases `padded_len` on both connection and stream windows
+                    // since padding is not body-observable. Mirror that here so
+                    // `recv.window` only paces the data portion via body consumption.
+                    self.recv.window += padded_len;
                     self.recv.push_frame(buffer, Frame::Data(data), end_stream);
-                    RecvData::Queued
+                    RecvData::Queued(padded_len)
                 } else {
                     // Body dropped (Close) or error (Error): discard data, restore
                     // stream window so the caller can replenish via WINDOW_UPDATE
                     // and the peer can reach END_STREAM without stalling.
-                    self.recv.window += len;
-                    RecvData::Discard(len)
+                    self.recv.window += flow_len;
+                    RecvData::Discard(flow_len)
                 }
             }
             Err(err) => {
                 self.try_set_reset(err);
-                RecvData::StreamReset(len)
+                RecvData::StreamReset(flow_len)
             }
         };
 
@@ -100,7 +107,7 @@ impl Stream {
             Ok(_) => {
                 if self.recv.state.is_open() {
                     self.recv.push_frame(buffer, Frame::Trailers(trailers), true);
-                    RecvData::Queued
+                    RecvData::Queued(0)
                 } else {
                     RecvData::Discard(0)
                 }
@@ -232,11 +239,12 @@ impl Stream {
         }
     }
 
-    fn data_check(&mut self, len: usize, end_stream: bool) -> Result<(), StreamError> {
+    fn data_check(&mut self, len: usize, flow_len: usize, end_stream: bool) -> Result<(), StreamError> {
         if len == 0 && !end_stream {
             return Err(StreamError::EmptyDataNoEndStream);
         }
 
+        // content-length accounts for data only; padding is not part of the message body.
         self.recv
             .content_length
             .dec(len)
@@ -246,7 +254,8 @@ impl Stream {
             self.ensure_zero()?;
         }
 
-        self.try_window_dec(len)
+        // flow control accounts for the full frame payload (data + pad byte + padding).
+        self.try_window_dec(flow_len)
     }
 
     fn trailers_check(&self, end_stream: bool) -> Result<(), StreamError> {
@@ -298,16 +307,18 @@ pub(crate) enum Remove {
 ///
 /// The connection-level receive window is always decremented by the caller
 /// *before* `try_recv_data` runs, so `Discard` and `StreamReset` both
-/// carry the frame length for the caller to replenish it.
+/// carry the frame length for the caller to replenish it. Sizes reported
+/// here are the full flow-controlled length (data + pad byte + padding).
 pub(crate) enum RecvData {
-    /// Data was queued to the body reader. No window replenishment needed —
-    /// `RequestBody::poll_frame` handles stream and connection windows as
-    /// the application consumes the data.
-    Queued,
+    /// Data was queued to the body reader. The caller must still auto-release
+    /// the `padded_len` portion on both connection and stream windows — only
+    /// the data portion is paced by `RequestBody::poll_frame` as the
+    /// application consumes it.
+    Queued(usize),
     /// Body was dropped (recv `Close`) or has a pending error (recv `Error`).
     /// Data has been discarded. The caller must replenish **both** the
-    /// connection-level and stream-level receive windows so the peer can
-    /// reach END_STREAM without stalling.
+    /// connection-level and stream-level receive windows by the returned
+    /// flow-controlled length so the peer can reach END_STREAM without stalling.
     Discard(usize),
     /// A protocol error was detected (`pending_reset` and recv/send errors
     /// have been set on the stream). The caller must replenish the
