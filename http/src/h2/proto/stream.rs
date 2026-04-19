@@ -25,10 +25,6 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
-    #[allow(dead_code)]
-    // TODO: strip response body for HEAD method request.
-    const HEAD_METHOD: u8 = 1 << 3;
-
     pub(crate) fn new(
         send_window: i64,
         send_frame_size: usize,

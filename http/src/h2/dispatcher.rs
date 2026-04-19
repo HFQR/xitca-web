@@ -955,6 +955,8 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
     let req = req.map(|ext| ext.map_body(From::from));
 
+    let head_method = req.method() == Method::HEAD;
+
     let res = match service.call(req).await {
         Ok(res) => res,
         Err(_) => {
@@ -970,9 +972,10 @@ async fn response_task<S, ReqB, ResB, ResBE>(
         parts.headers.insert(DATE, date);
     }
 
-    let end_stream = match body.size_hint() {
-        SizeHint::None => true,
-        size => {
+    let end_stream = match (head_method, body.size_hint()) {
+        (true, _) => true,
+        (false, SizeHint::None) => true,
+        (false, size) => {
             if let SizeHint::Exact(size) = size {
                 parts.headers.insert(CONTENT_LENGTH, size.into());
             }
