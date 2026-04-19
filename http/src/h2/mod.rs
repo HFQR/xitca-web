@@ -32,7 +32,7 @@ pub fn strip_connection_headers<const IS_REQ: bool>(headers: &mut HeaderMap) {
     headers.remove(TE);
 
     if IS_REQ {
-        if headers.get(TE).map_or(false, |te_header| te_header != "trailers") {
+        if headers.get(TE).is_some_and(|te_header| te_header != "trailers") {
             headers.remove(TE);
         }
     } else {
