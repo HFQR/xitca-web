@@ -266,27 +266,24 @@ impl FlowControl {
         let end_stream = data.is_end_stream();
         let data = data.into_payload();
 
-        let (size, want_remove) = match stream.try_recv_data(&mut self.frame_buf, data, flow_len, end_stream)? {
-            RecvData::Queued(size) => {
-                // Padding isn't body-observable — auto-release the padding
-                // portion on both connection and stream windows now, so only
-                // the data portion is paced by application consumption.
-                self.queue.connection_window_update(size);
-                self.queue.stream_window_update(id, size);
-                return Ok(());
-            }
-            RecvData::Discard(size) => {
-                // RequdstBody dropped. replenish stream and connection window if more frame expected
-                if !end_stream {
-                    self.queue.stream_window_update(id, size);
+        let (conn_window, stream_window, want_remove) =
+            match stream.try_recv_data(&mut self.frame_buf, data, flow_len, end_stream)? {
+                RecvData::Queued(size) => {
+                    // Padding isn't body-observable — auto-release the padding
+                    // portion on both connection and stream windows now, so only
+                    // the data portion is paced by application consumption.
+                    (size, size, false)
                 }
-                (size, end_stream)
-            }
-            // stream reseted. replenish connection window
-            RecvData::StreamReset(size) => (size, true),
-        };
+                RecvData::Discard(size) => {
+                    let stream_window = if !end_stream { size } else { 0 };
+                    (size, stream_window, end_stream)
+                }
+                // stream reseted. replenish connection window
+                RecvData::StreamReset(size) => (size, 0, true),
+            };
 
-        self.queue.connection_window_update(size);
+        self.queue.connection_window_update(conn_window);
+        self.queue.stream_window_update(id, stream_window);
 
         // try remove stream from map in case RequestBody is dropped before reaching end_stream or rst_stream state
         if want_remove {
