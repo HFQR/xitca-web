@@ -1247,7 +1247,7 @@ where
 
                     read_task.set(read_io(read_buf, &io));
                 }
-                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break ShutDown::DrainWrite,
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => unreachable!(),
                 SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
                 SelectOutput::B(Ok(_)) => {}
                 SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
@@ -1255,9 +1255,7 @@ where
         };
 
         Box::pin(async {
-            let mut read_res = Ok(());
-
-            match shutdown {
+            let read_res = match shutdown {
                 ShutDown::WriteClosed(res) => return res,
                 ShutDown::Timeout(err) => return Err(err),
                 ShutDown::ReadClosed(res) => {
@@ -1265,19 +1263,18 @@ where
                         let mut flow = shared.borrow_mut();
                         for state in flow.stream_map.values_mut() {
                             state.try_set_peer_reset();
-                            state.recv.set_close_2();
                         }
-                        flow.queue.close();
                     }
 
-                    read_res = res;
+                    res
                 }
-                ShutDown::DrainWrite => {
-                    shared.borrow_mut().queue.close();
-                }
-            }
+            };
 
             loop {
+                if queue.is_empty() {
+                    shared.borrow_mut().queue.close();
+                }
+
                 match queue.next().select(write_task.as_mut()).select(ping_pong.tick()).await {
                     SelectOutput::A(SelectOutput::A(_)) => {}
                     SelectOutput::A(SelectOutput::B(res)) => {
@@ -1301,7 +1298,6 @@ enum ShutDown {
     ReadClosed(io::Result<()>),
     WriteClosed(io::Result<()>),
     Timeout(io::Error),
-    DrainWrite,
 }
 
 /// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).

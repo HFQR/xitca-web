@@ -355,16 +355,6 @@ impl Recv {
         matches!(self.state, State::Eof)
     }
 
-    /// Force recv to `Close`. Used on connection-level teardown.
-    /// Does not overwrite `Error` — the error must be delivered to
-    /// the body reader first.
-    pub(crate) fn set_close_2(&mut self) {
-        match self.state {
-            State::Error => {}
-            _ => self.state = State::Close,
-        }
-    }
-
     fn wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
