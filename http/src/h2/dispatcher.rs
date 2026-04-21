@@ -186,13 +186,7 @@ impl FlowControl {
 
         stream.try_set_peer_reset();
 
-        self.try_remove_stream(id);
-
-        if self.reset_counter.tick() {
-            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
-        }
-
-        Ok(())
+        self.inline_remove_stream(id)
     }
 
     pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
@@ -202,7 +196,7 @@ impl FlowControl {
         self.queue.connection_window_update(window + pending_window);
 
         let remove = stream.try_remove();
-        self.remove_stream(id, remove);
+        self.detached_remove_stream(id, remove);
     }
 
     fn stream_guard_drop(&mut self, id: StreamId) {
@@ -211,45 +205,53 @@ impl FlowControl {
         stream.close_send();
 
         let remove = stream.try_remove();
-        self.remove_stream(id, remove);
+        self.detached_remove_stream(id, remove);
     }
 
-    fn try_remove_stream(&mut self, id: StreamId) {
+    fn inline_remove_stream(&mut self, id: StreamId) -> Result<(), Error> {
         if let Some(stream) = self.stream_map.get_mut(&id) {
             stream.promote_cancel_to_close_recv();
             let remove = stream.try_remove();
-            self.remove_stream(id, remove);
+            self.remove_stream(id, remove)?;
+        };
+
+        Ok(())
+    }
+
+    fn detached_remove_stream(&mut self, id: StreamId, remove: TryRemove) {
+        if let Err(err) = self.remove_stream(id, remove) {
+            if let Err(Error::GoAway(reason)) = self.try_push_reset(id, err.reason()) {
+                self.go_away(reason);
+            }
         }
     }
 
-    fn remove_stream(&mut self, id: StreamId, remove: TryRemove) {
-        let reset = match remove {
-            TryRemove::Keep => return,
-            TryRemove::ResetKeep(err) => Some(err),
-            TryRemove::ResetRemove(err) => {
-                self.stream_map.remove(&id);
-                Some(err)
-            }
-            TryRemove::Remove => {
-                self.stream_map.remove(&id);
-                None
-            }
+    fn remove_stream(&mut self, id: StreamId, remove: TryRemove) -> Result<(), StreamError> {
+        let res = match remove {
+            TryRemove::Keep => return Ok(()),
+            TryRemove::ResetKeep(err) => return Err(err),
+            TryRemove::ResetRemove(err) => Err(err),
+            TryRemove::Remove => Ok(()),
         };
 
-        if let Some(err) = reset {
-            self.queue.push(Message::Reset {
-                stream_id: id,
-                reason: err.reason(),
-            });
-            // Count client-caused resets (protocol errors, flow-control
-            // violations, content-length mismatches) toward the sliding
-            // window. Server-originated variants (INTERNAL_ERROR from
-            // response body errors, Cancel from RequestBody drop) are
-            // excluded. When the limit is exceeded, queue GOAWAY and close
-            // the write side so the connection drains and terminates.
-            if !matches!(err, StreamError::InternalError | StreamError::NoError) && self.reset_counter.tick() {
-                self.go_away(Reason::ENHANCE_YOUR_CALM);
-            }
+        self.stream_map.remove(&id);
+
+        res
+    }
+
+    fn try_push_reset(&mut self, id: StreamId, reason: Reason) -> Result<(), Error> {
+        // Count client-caused resets (protocol errors, flow-control
+        // violations, content-length mismatches) toward the sliding
+        // window. Server-originated variants (INTERNAL_ERROR from
+        // response body errors, Cancel from RequestBody drop) are
+        // excluded. When the limit is exceeded, queue GOAWAY and close
+        // the write side so the connection drains and terminates.
+
+        if !matches!(reason, Reason::INTERNAL_ERROR | Reason::NO_ERROR) && self.reset_counter.tick() {
+            Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM))
+        } else {
+            self.queue.push(Message::Reset { stream_id: id, reason });
+            Ok(())
         }
     }
 
@@ -289,7 +291,7 @@ impl FlowControl {
 
         // try remove stream from map in case RequestBody is dropped before reaching end_stream or rst_stream state
         if want_remove {
-            self.try_remove_stream(id);
+            self.inline_remove_stream(id)?;
         }
 
         Ok(())
@@ -370,6 +372,12 @@ impl From<ProtoError> for Error {
         } else {
             Self::Reset(e.reason())
         }
+    }
+}
+
+impl From<StreamError> for Error {
+    fn from(err: StreamError) -> Self {
+        Self::Reset(err.reason())
     }
 }
 
@@ -483,18 +491,6 @@ impl WriterQueue {
 type Decoded = (Request<RequestExt<RequestBody>>, StreamId);
 
 impl<'a, S> DecodeContext<'a, S> {
-    /// Handle a stream-level error: queue RST_STREAM and replenish any
-    /// connection window bytes consumed by the offending frame.
-    /// Returns `Err(GoAway)` if the client has triggered too many resets.
-    fn handle_stream_reset(&self, id: StreamId, reason: Reason) -> Result<(), Error> {
-        let mut inner = self.ctx.borrow_mut();
-        inner.queue.push(Message::Reset { stream_id: id, reason });
-        if inner.reset_counter.tick() {
-            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
-        }
-        Ok(())
-    }
-
     fn new(
         ctx: &'a Shared,
         service: &'a S,
@@ -550,7 +546,7 @@ impl<'a, S> DecodeContext<'a, S> {
     fn decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
         match self._decode_frame(head, frame) {
             Err(Error::Reset(reason)) => {
-                self.handle_stream_reset(head.stream_id(), reason)?;
+                self.ctx.borrow_mut().try_push_reset(head.stream_id(), reason)?;
                 Ok(None)
             }
             res => res,
@@ -666,7 +662,7 @@ impl<'a, S> DecodeContext<'a, S> {
             return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
         }
 
-        payload.extend_from_slice(&frame);
+        payload.unsplit(frame);
         self.handle_headers(headers, payload, is_end_headers)
     }
 
@@ -766,7 +762,7 @@ impl<'a, S> DecodeContext<'a, S> {
 
             match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
                 RecvData::Queued(_) => {}
-                _ => flow.try_remove_stream(id),
+                _ => flow.inline_remove_stream(id)?,
             }
             return Ok(None);
         }
@@ -1226,7 +1222,7 @@ where
             Ok(())
         });
 
-        let shutdown = loop {
+        let shutdown = 'body: loop {
             match read_task
                 .as_mut()
                 .select(async {
@@ -1243,7 +1239,7 @@ where
 
                     match res {
                         Ok(n) if n > 0 => loop {
-                            let reason = match ctx.try_decode(&mut read_buf) {
+                            match ctx.try_decode(&mut read_buf) {
                                 Ok(Some((req, id))) => {
                                     queue.push(response_task(req, id, ctx.service, ctx.ctx, ctx.date));
                                     continue;
@@ -1252,10 +1248,11 @@ where
                                 Err(Error::Reset(_)) => unreachable!(
                                     "reset error must be handled at scope where it's associated StreamId exsits"
                                 ),
-                                Err(Error::GoAway(reason)) => reason,
-                            };
-                            if ctx.ctx.borrow_mut().go_away(reason) {
-                                break;
+                                Err(Error::GoAway(reason)) => {
+                                    if ctx.ctx.borrow_mut().go_away(reason) {
+                                        break 'body ShutDown::ReadClosed(Ok(()));
+                                    }
+                                }
                             }
                         },
                         res => break ShutDown::ReadClosed(res.map(|_| ())),
@@ -1271,8 +1268,17 @@ where
         };
 
         Box::pin(async {
-            let read_res = match shutdown {
-                ShutDown::WriteClosed(res) => return res,
+            let (io_res, want_write) = match shutdown {
+                ShutDown::WriteClosed(res) => {
+                    {
+                        let mut flow = shared.borrow_mut();
+                        for state in flow.stream_map.values_mut() {
+                            state.try_set_peer_reset();
+                        }
+                    }
+
+                    (res, false)
+                }
                 ShutDown::Timeout(err) => return Err(err),
                 ShutDown::ReadClosed(res) => {
                     {
@@ -1282,20 +1288,35 @@ where
                         }
                     }
 
-                    res
+                    (res, true)
                 }
             };
 
             loop {
                 if queue.is_empty() {
                     shared.borrow_mut().queue.close();
+
+                    if !want_write {
+                        break io_res;
+                    }
                 }
 
-                match queue.next().select(write_task.as_mut()).select(ping_pong.tick()).await {
+                match queue
+                    .next()
+                    .select(async {
+                        if want_write {
+                            write_task.as_mut().await
+                        } else {
+                            core::future::pending().await
+                        }
+                    })
+                    .select(ping_pong.tick())
+                    .await
+                {
                     SelectOutput::A(SelectOutput::A(_)) => {}
                     SelectOutput::A(SelectOutput::B(res)) => {
                         res?;
-                        break read_res;
+                        break io_res;
                     }
                     SelectOutput::B(res) => res?,
                 }
