@@ -289,7 +289,10 @@ async fn many_concurrent_drops_no_goaway() -> Result<(), Error> {
 
     // Connection must still be alive. If the server had sent GOAWAY, the
     // connection task would have completed.
-    assert!(!conn_task.is_finished(), "connection dropped — likely GOAWAY(ENHANCE_YOUR_CALM)");
+    assert!(
+        !conn_task.is_finished(),
+        "connection dropped — likely GOAWAY(ENHANCE_YOUR_CALM)"
+    );
 
     drop(send);
     handle.try_handle()?.stop(false);
