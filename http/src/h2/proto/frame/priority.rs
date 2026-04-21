@@ -23,7 +23,7 @@ impl Priority {
         let dependency = StreamDependency::load(payload)?;
 
         if dependency.dependency_id() == head.stream_id() {
-            return Err(Error::MalformedMessage);
+            return Err(Error::InvalidDependencyId);
         }
 
         Ok(Priority {
@@ -46,7 +46,7 @@ impl StreamDependency {
 
     pub fn load(src: &[u8]) -> Result<Self, Error> {
         if src.len() != 5 {
-            return Err(Error::MalformedMessage);
+            return Err(Error::InvalidPayloadLength);
         }
 
         // Parse the stream ID and exclusive flag

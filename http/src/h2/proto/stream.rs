@@ -237,8 +237,8 @@ impl Stream {
 
     fn recvable(&self) -> Result<(), Error> {
         match (&self.pending_error, &self.recv.state) {
-            (Some(StreamError::PeerReset), _) => Err(Error::GoAway(Reason::STREAM_CLOSED)),
-            (_, State::Eof) => Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            (Some(StreamError::PeerReset), _) => Err(Error::FrameAfterReset),
+            (_, State::Eof) => Err(Error::FrameAfterEndStream),
             (_, _) => Ok(()),
         }
     }

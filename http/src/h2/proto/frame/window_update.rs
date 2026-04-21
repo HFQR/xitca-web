@@ -36,7 +36,7 @@ impl WindowUpdate {
     /// Builds a `WindowUpdate` frame from a raw frame.
     pub fn load(head: Head, payload: &[u8]) -> Result<WindowUpdate, Error> {
         if payload.len() != 4 {
-            return Err(Error::MalformedMessage);
+            return Err(Error::BadFrameSize);
         }
 
         // Clear the most significant bit, as that is reserved and MUST be ignored

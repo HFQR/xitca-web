@@ -46,7 +46,7 @@ use super::{
     STREAM_MUST_EXIST,
     body::RequestBody,
     proto::{
-        error::Error,
+        error::Error as ProtoError,
         frame::{
             PREFACE,
             data::Data,
@@ -302,14 +302,18 @@ impl FlowControl {
             .try_set_reset(StreamError::InternalError);
     }
 
-    fn go_away(&mut self, reason: Reason) {
+    fn go_away(&mut self, reason: Reason) -> bool {
         if let Some(last_stream_id) = self.last_stream_id.try_go_away() {
             self.queue.push(Message::GoAway { last_stream_id, reason });
         }
 
-        if reason != Reason::NO_ERROR {
+        let fatal = reason != Reason::NO_ERROR;
+
+        if fatal {
             self.queue.close();
         }
+
+        fatal
     }
 
     pub(super) fn try_set_pending_ping(&mut self) -> io::Result<()> {
@@ -350,6 +354,21 @@ impl RemoteSettings {
                 encoder.update_max_size(size as usize);
             }
             Settings::ack().encode(buf);
+        }
+    }
+}
+
+enum Error {
+    Reset(Reason),
+    GoAway(Reason),
+}
+
+impl From<ProtoError> for Error {
+    fn from(e: ProtoError) -> Self {
+        if e.is_go_away() {
+            Self::GoAway(e.reason())
+        } else {
+            Self::Reset(e.reason())
         }
     }
 }
@@ -624,10 +643,7 @@ impl<'a, S> DecodeContext<'a, S> {
             }
             (head::Kind::GoAway, _) => {
                 let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
-                match go_away.reason() {
-                    Reason::NO_ERROR => self.ctx.borrow_mut().go_away(Reason::NO_ERROR),
-                    reason => return Err(Error::GoAway(reason)),
-                }
+                return Err(Error::GoAway(go_away.reason()));
             }
             (head::Kind::Priority, _) => handle_priority(head.stream_id(), &frame)?,
             (head::Kind::PushPromise, _) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
@@ -708,13 +724,13 @@ impl<'a, S> DecodeContext<'a, S> {
             return match e {
                 // NeedMore on a multi-frame header block is normal; accumulate and wait
                 // for CONTINUATION frames (RFC 7540 §6.10).
-                Error::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
+                ProtoError::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
                     self.continuation = Some((headers, payload));
                     Ok(None)
                 }
                 // Pseudo-header validation errors are stream-level (RFC 7540 §8.1.2).
                 // The HPACK context was decoded successfully so no compression error.
-                Error::MalformedMessage => {
+                ProtoError::MalformedMessage => {
                     let id = headers.stream_id();
                     if self.ctx.borrow_mut().last_stream_id.try_set(id)?.is_none() {
                         return Ok(None);
@@ -1237,22 +1253,20 @@ where
                                     "reset error must be handled at scope where it's associated StreamId exsits"
                                 ),
                                 Err(Error::GoAway(reason)) => reason,
-                                Err(Error::Hpack(_)) => Reason::COMPRESSION_ERROR,
-                                Err(Error::MalformedMessage) => Reason::PROTOCOL_ERROR,
                             };
-                            queue.clear();
-                            ctx.ctx.borrow_mut().go_away(reason);
-                            break;
+                            if ctx.ctx.borrow_mut().go_away(reason) {
+                                break;
+                            }
                         },
                         res => break ShutDown::ReadClosed(res.map(|_| ())),
                     };
 
                     read_task.set(read_io(read_buf, &io));
                 }
-                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => unreachable!(),
                 SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
-                SelectOutput::B(Ok(_)) => {}
                 SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
+                SelectOutput::B(Ok(_)) => {}
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => unreachable!(),
             }
         };
 

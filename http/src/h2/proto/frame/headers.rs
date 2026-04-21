@@ -124,13 +124,13 @@ where
         tracing::trace!("loading headers; flags={:?}", flags);
 
         if head.stream_id().is_zero() {
-            return Err(Error::MalformedMessage);
+            return Err(Error::InvalidStreamId);
         }
 
         // Read the padding length
         if flags.is_padded() {
             if src.is_empty() {
-                return Err(Error::MalformedMessage);
+                return Err(Error::TooMuchPadding);
             }
             pad = src[0] as usize;
 
@@ -145,18 +145,18 @@ where
         // connection-level PROTOCOL_ERROR (GOAWAY) too.
         if flags.is_priority() {
             if src.len() < 5 {
-                return Err(Error::MalformedMessage);
+                return Err(Error::InvalidPayloadLength);
             }
             let dep_id = StreamId::parse(&src[..4]).0;
             if dep_id == head.stream_id() {
-                return Err(Error::MalformedMessage);
+                return Err(Error::InvalidDependencyId);
             }
             let _ = src.split_to(5);
         }
 
         if pad > 0 {
             if pad > src.len() {
-                return Err(Error::MalformedMessage);
+                return Err(Error::TooMuchPadding);
             }
 
             let len = src.len() - pad;
