@@ -25,10 +25,6 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
-    #[allow(dead_code)]
-    // TODO: strip response body for HEAD method request.
-    const HEAD_METHOD: u8 = 1 << 3;
-
     pub(crate) fn new(
         send_window: i64,
         send_frame_size: usize,
@@ -60,28 +56,35 @@ impl Stream {
         &mut self,
         buffer: &mut FrameBuffer,
         data: Bytes,
+        flow_len: usize,
         end_stream: bool,
     ) -> Result<RecvData, Error> {
         self.recvable()?;
 
         let len = data.len();
+        let padded_len = flow_len - len;
 
-        let recv = match self.data_check(len, end_stream) {
+        let recv = match self.data_check(len, flow_len, end_stream) {
             Ok(_) => {
                 if self.recv.state.is_open() {
+                    // RFC 7540 §6.9.1: padding counts toward flow control. The caller
+                    // auto-releases `padded_len` on both connection and stream windows
+                    // since padding is not body-observable. Mirror that here so
+                    // `recv.window` only paces the data portion via body consumption.
+                    self.recv.window += padded_len;
                     self.recv.push_frame(buffer, Frame::Data(data), end_stream);
-                    RecvData::Queued
+                    RecvData::Queued(padded_len)
                 } else {
                     // Body dropped (Close) or error (Error): discard data, restore
                     // stream window so the caller can replenish via WINDOW_UPDATE
                     // and the peer can reach END_STREAM without stalling.
-                    self.recv.window += len;
-                    RecvData::Discard(len)
+                    self.recv.window += flow_len;
+                    RecvData::Discard(flow_len)
                 }
             }
             Err(err) => {
                 self.try_set_reset(err);
-                RecvData::StreamReset(len)
+                RecvData::StreamReset(flow_len)
             }
         };
 
@@ -100,7 +103,7 @@ impl Stream {
             Ok(_) => {
                 if self.recv.state.is_open() {
                     self.recv.push_frame(buffer, Frame::Trailers(trailers), true);
-                    RecvData::Queued
+                    RecvData::Queued(0)
                 } else {
                     RecvData::Discard(0)
                 }
@@ -165,6 +168,7 @@ impl Stream {
     pub(crate) fn promote_cancel_to_close_recv(&mut self) {
         if matches!(self.recv.state, State::Cancel) {
             self.recv.state = State::Close;
+            self.try_revert_cancel_error();
         }
     }
 
@@ -172,7 +176,7 @@ impl Stream {
         self.send.set_close();
     }
 
-    pub(crate) fn maybe_close_recv(&mut self, buffer: &mut FrameBuffer) -> RecvClose {
+    pub(crate) fn maybe_close_recv(&mut self, buffer: &mut FrameBuffer) -> usize {
         let mut window = 0;
 
         while let Some(frame) = self.recv.queue.pop_front(buffer) {
@@ -186,28 +190,35 @@ impl Stream {
         match self.recv.state {
             State::Open => {
                 self.recv.state = State::Cancel;
-                RecvClose::Cancel(window)
+                self.try_set_pending_error(StreamError::NoError);
             }
             _ => {
                 self.recv.state = State::Close;
-                RecvClose::Close(window)
             }
         }
+
+        window
     }
 
-    pub(crate) fn try_remove(&mut self) -> Option<Remove> {
-        (self.send.state.is_close() && self.recv.state.is_close()).then_some(match self.pending_error {
-            Some(err) if !matches!(err, StreamError::PeerReset) => Remove::Reset(err),
-            _ => Remove::Graceful,
-        })
+    pub(crate) fn try_remove(&mut self) -> TryRemove {
+        match (&self.recv.state, &self.send.state) {
+            (State::Close, State::Close) => match self.pending_error.take() {
+                Some(err) if !matches!(err, StreamError::PeerReset) => TryRemove::ResetRemove(err),
+                _ => TryRemove::Remove,
+            },
+            (State::Cancel, State::Close) => match self.pending_error.take() {
+                Some(StreamError::NoError) => TryRemove::ResetKeep(StreamError::NoError),
+                _ => TryRemove::Keep,
+            },
+            _ => TryRemove::Keep,
+        }
     }
 
     /// Record a reset caused by a protocol error or server error.
     /// Sets recv error (so RequestBody sees it), send error (so StreamGuard's
     /// send_data exits), and pending_reset (so the lifecycle sends RST_STREAM).
-    /// First reason wins via `get_or_insert`.
     pub(crate) fn try_set_reset(&mut self, err: StreamError) {
-        self.pending_error.get_or_insert(err);
+        self.try_set_pending_error(err);
         self.recv.try_set_err();
         self.send.try_set_err();
     }
@@ -232,11 +243,12 @@ impl Stream {
         }
     }
 
-    fn data_check(&mut self, len: usize, end_stream: bool) -> Result<(), StreamError> {
+    fn data_check(&mut self, len: usize, flow_len: usize, end_stream: bool) -> Result<(), StreamError> {
         if len == 0 && !end_stream {
             return Err(StreamError::EmptyDataNoEndStream);
         }
 
+        // content-length accounts for data only; padding is not part of the message body.
         self.recv
             .content_length
             .dec(len)
@@ -246,7 +258,8 @@ impl Stream {
             self.ensure_zero()?;
         }
 
-        self.try_window_dec(len)
+        // flow control accounts for the full frame payload (data + pad byte + padding).
+        self.try_window_dec(flow_len)
     }
 
     fn trailers_check(&self, end_stream: bool) -> Result<(), StreamError> {
@@ -273,24 +286,34 @@ impl Stream {
             .ensure_zero()
             .map_err(|_| StreamError::ContentLengthUnderflow)
     }
-}
 
-pub(crate) enum RecvClose {
-    // Recv is locally canceled but peer still consider it's open
-    // observer must keep updating connection window and stream window to keep
-    // stream going
-    Cancel(usize),
-    // Recv is locally closed
-    // observer must keep updating connection window
-    Close(usize),
+    fn try_set_pending_error(&mut self, err: StreamError) {
+        self.pending_error = match (self.pending_error, err) {
+            (_, StreamError::PeerReset) => Some(StreamError::PeerReset),
+            (None | Some(StreamError::NoError), err) => Some(err),
+            _ => return,
+        }
+    }
+
+    fn try_revert_cancel_error(&mut self) {
+        if matches!(self.pending_error, Some(StreamError::NoError)) {
+            self.pending_error = None;
+        }
+    }
 }
 
 // outcome of Stream::try_remove
-pub(crate) enum Remove {
-    // graceful removal nothing should be done
-    Graceful,
-    // observer must send Reason with Reset frame and send to peer
-    Reset(StreamError),
+pub(crate) enum TryRemove {
+    // keep Stream as is
+    Keep,
+    // graceful removal.
+    Remove,
+    // act the same as Keep variant.
+    // AND observer must send Reason with Reset frame and send to peer
+    ResetKeep(StreamError),
+    // act the same as Remove variant.
+    // AND observer must send Reason with Reset frame and send to peer
+    ResetRemove(StreamError),
 }
 
 /// Result of [`Stream::try_recv_data`]. Each variant tells the caller
@@ -298,16 +321,18 @@ pub(crate) enum Remove {
 ///
 /// The connection-level receive window is always decremented by the caller
 /// *before* `try_recv_data` runs, so `Discard` and `StreamReset` both
-/// carry the frame length for the caller to replenish it.
+/// carry the frame length for the caller to replenish it. Sizes reported
+/// here are the full flow-controlled length (data + pad byte + padding).
 pub(crate) enum RecvData {
-    /// Data was queued to the body reader. No window replenishment needed —
-    /// `RequestBody::poll_frame` handles stream and connection windows as
-    /// the application consumes the data.
-    Queued,
+    /// Data was queued to the body reader. The caller must still auto-release
+    /// the `padded_len` portion on both connection and stream windows — only
+    /// the data portion is paced by `RequestBody::poll_frame` as the
+    /// application consumes it.
+    Queued(usize),
     /// Body was dropped (recv `Close`) or has a pending error (recv `Error`).
     /// Data has been discarded. The caller must replenish **both** the
-    /// connection-level and stream-level receive windows so the peer can
-    /// reach END_STREAM without stalling.
+    /// connection-level and stream-level receive windows by the returned
+    /// flow-controlled length so the peer can reach END_STREAM without stalling.
     Discard(usize),
     /// A protocol error was detected (`pending_reset` and recv/send errors
     /// have been set on the stream). The caller must replenish the
@@ -346,16 +371,6 @@ impl Recv {
 
     fn is_eof(&self) -> bool {
         matches!(self.state, State::Eof)
-    }
-
-    /// Force recv to `Close`. Used on connection-level teardown.
-    /// Does not overwrite `Error` — the error must be delivered to
-    /// the body reader first.
-    pub(crate) fn set_close_2(&mut self) {
-        match self.state {
-            State::Error => {}
-            _ => self.state = State::Close,
-        }
     }
 
     fn wake(&mut self) {
@@ -410,10 +425,6 @@ impl State {
     fn is_open(&self) -> bool {
         matches!(self, State::Open)
     }
-
-    fn is_close(&self) -> bool {
-        matches!(self, State::Close)
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -423,6 +434,7 @@ pub(crate) enum StreamError {
     ContentLengthOverflow,
     ContentLengthUnderflow,
     FlowControlOverflow,
+    NoError,
     /// Peer sent RST_STREAM.
     PeerReset,
     /// WINDOW_UPDATE with zero increment (RFC 7540 §6.9.1).
@@ -437,7 +449,7 @@ impl StreamError {
     pub(crate) fn reason(&self) -> Reason {
         match self {
             Self::FlowControlOverflow | Self::WindowUpdateOverflow => Reason::FLOW_CONTROL_ERROR,
-            Self::PeerReset => Reason::NO_ERROR,
+            Self::PeerReset | Self::NoError => Reason::NO_ERROR,
             Self::InternalError => Reason::INTERNAL_ERROR,
             _ => Reason::PROTOCOL_ERROR,
         }
@@ -452,6 +464,7 @@ impl From<StreamError> for io::Error {
             StreamError::ContentLengthOverflow => "content-length exceeded",
             StreamError::ContentLengthUnderflow => "content-length underflow at END_STREAM",
             StreamError::FlowControlOverflow => "stream flow control overflow",
+            StreamError::NoError => "Recv stream canceled",
             StreamError::PeerReset => "h2 stream reset by peer",
             StreamError::WindowUpdateZeroIncrement => "WINDOW_UPDATE with zero increment",
             StreamError::WindowUpdateOverflow => "WINDOW_UPDATE caused window overflow",

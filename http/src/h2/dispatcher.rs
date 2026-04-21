@@ -48,7 +48,8 @@ use super::{
     proto::{
         error::Error,
         frame::{
-            PREFACE, data,
+            PREFACE,
+            data::Data,
             go_away::GoAway,
             head,
             headers::{self, ResponsePseudo},
@@ -64,7 +65,7 @@ use super::{
         ping_pong::PingPong,
         reset_counter::ResetCounter,
         size::BodySize,
-        stream::{RecvClose, RecvData, Remove, Stream, StreamError},
+        stream::{RecvData, Stream, StreamError, TryRemove},
         threshold::StreamRecvWindowThreshold,
     },
 };
@@ -197,20 +198,11 @@ impl FlowControl {
     pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
-        match stream.maybe_close_recv(&mut self.frame_buf) {
-            RecvClose::Cancel(size) => {
-                let size = size + pending_window;
-                self.queue.connection_window_update(size);
-                self.queue.stream_window_update(id, size);
-            }
-            RecvClose::Close(size) => {
-                self.queue.connection_window_update(size + pending_window);
-            }
-        }
+        let window = stream.maybe_close_recv(&mut self.frame_buf);
+        self.queue.connection_window_update(window + pending_window);
 
-        if let Some(remove) = stream.try_remove() {
-            self.remove_stream(id, remove);
-        }
+        let remove = stream.try_remove();
+        self.remove_stream(id, remove);
     }
 
     fn stream_guard_drop(&mut self, id: StreamId) {
@@ -218,61 +210,82 @@ impl FlowControl {
 
         stream.close_send();
 
-        if let Some(remove) = stream.try_remove() {
-            self.remove_stream(id, remove);
-        }
+        let remove = stream.try_remove();
+        self.remove_stream(id, remove);
     }
 
     fn try_remove_stream(&mut self, id: StreamId) {
         if let Some(stream) = self.stream_map.get_mut(&id) {
             stream.promote_cancel_to_close_recv();
-            if let Some(remove) = stream.try_remove() {
-                self.remove_stream(id, remove);
-            }
+            let remove = stream.try_remove();
+            self.remove_stream(id, remove);
         }
     }
 
-    fn remove_stream(&mut self, id: StreamId, remove: Remove) {
-        self.stream_map.remove(&id);
-        if let Remove::Reset(err) = remove {
+    fn remove_stream(&mut self, id: StreamId, remove: TryRemove) {
+        let reset = match remove {
+            TryRemove::Keep => return,
+            TryRemove::ResetKeep(err) => Some(err),
+            TryRemove::ResetRemove(err) => {
+                self.stream_map.remove(&id);
+                Some(err)
+            }
+            TryRemove::Remove => {
+                self.stream_map.remove(&id);
+                None
+            }
+        };
+
+        if let Some(err) = reset {
             self.queue.push(Message::Reset {
                 stream_id: id,
                 reason: err.reason(),
             });
             // Count client-caused resets (protocol errors, flow-control
             // violations, content-length mismatches) toward the sliding
-            // window. INTERNAL_ERROR is server-originated and excluded.
-            // When the limit is exceeded, queue GOAWAY and close the write
-            // side so the connection drains and terminates.
-            if !matches!(err, StreamError::InternalError) && self.reset_counter.tick() {
+            // window. Server-originated variants (INTERNAL_ERROR from
+            // response body errors, Cancel from RequestBody drop) are
+            // excluded. When the limit is exceeded, queue GOAWAY and close
+            // the write side so the connection drains and terminates.
+            if !matches!(err, StreamError::InternalError | StreamError::NoError) && self.reset_counter.tick() {
                 self.go_away(Reason::ENHANCE_YOUR_CALM);
             }
         }
     }
 
-    fn handle_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) -> Result<(), Error> {
-        let len = payload.len();
-        self.recv_window_dec(len)?;
+    fn handle_data(&mut self, data: Data) -> Result<(), Error> {
+        let id = data.stream_id();
+        self.check_not_idle(id)?;
+
+        let flow_len = data.flow_controlled_len();
+        self.recv_window_dec(flow_len)?;
 
         let stream = self.stream_map.get_mut(&id).ok_or_else(|| {
-            self.queue.connection_window_update(len);
+            self.queue.connection_window_update(flow_len);
             Error::Reset(Reason::STREAM_CLOSED)
         })?;
 
-        let (size, want_remove) = match stream.try_recv_data(&mut self.frame_buf, payload, end_stream)? {
-            RecvData::Queued => return Ok(()),
-            RecvData::Discard(size) => {
-                // RequdstBody dropped. replenish stream and connection window if more frame expected
-                if !end_stream {
-                    self.queue.stream_window_update(id, size);
-                }
-                (size, end_stream)
-            }
-            // stream reseted. replenish connection window
-            RecvData::StreamReset(size) => (size, true),
-        };
+        let end_stream = data.is_end_stream();
+        let data = data.into_payload();
 
-        self.queue.connection_window_update(size);
+        let (conn_window, stream_window, want_remove) =
+            match stream.try_recv_data(&mut self.frame_buf, data, flow_len, end_stream)? {
+                RecvData::Queued(size) => {
+                    // Padding isn't body-observable — auto-release the padding
+                    // portion on both connection and stream windows now, so only
+                    // the data portion is paced by application consumption.
+                    (size, size, false)
+                }
+                RecvData::Discard(size) => {
+                    let stream_window = if !end_stream { size } else { 0 };
+                    (size, stream_window, end_stream)
+                }
+                // stream reseted. replenish connection window
+                RecvData::StreamReset(size) => (size, 0, true),
+            };
+
+        self.queue.connection_window_update(conn_window);
+        self.queue.stream_window_update(id, stream_window);
 
         // try remove stream from map in case RequestBody is dropped before reaching end_stream or rst_stream state
         if want_remove {
@@ -314,9 +327,12 @@ struct RemoteSettings {
 }
 
 impl RemoteSettings {
-    /// Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
-    /// previous SETTINGS has not yet been ACKed (CVE-2019-9515).
+    // Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
+    // previous SETTINGS has not yet been ACKed (CVE-2019-9515).
     fn try_update(&mut self, settings: Settings) -> Result<(), Error> {
+        // Only one in flight peer settings is allowed. This is over restricted according
+        // to RFC and multiple settings on wire should be allowed. That said in practice
+        // only malicous peer would initliaze mutliple settings in short time burst.
         if self.header_table_size.is_some() {
             return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
@@ -340,7 +356,7 @@ impl RemoteSettings {
 
 pub(super) enum Message {
     Head(headers::Headers<ResponsePseudo>),
-    Data(data::Data),
+    Data(Data),
     Trailer(headers::Headers<()>),
     Reset { stream_id: StreamId, reason: Reason },
     WindowUpdate { stream_id: StreamId, size: usize },
@@ -400,7 +416,7 @@ impl WriterQueue {
     }
 
     pub(super) fn push_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) {
-        let mut data = data::Data::new(id, payload);
+        let mut data = Data::new(id, payload);
         data.set_end_stream(end_stream);
         self.push(Message::Data(data));
     }
@@ -535,14 +551,8 @@ impl<'a, S> DecodeContext<'a, S> {
                 return self.handle_headers(headers, payload, is_end_headers);
             }
             (head::Kind::Data, _) => {
-                let data = data::Data::load(head, frame.freeze())?;
-                let is_end = data.is_end_stream();
-                let id = data.stream_id();
-                let payload = data.into_payload();
-
-                let mut state = self.ctx.borrow_mut();
-                state.check_not_idle(id)?;
-                state.handle_data(id, payload, is_end)?;
+                let data = Data::load(head, frame.freeze())?;
+                self.ctx.borrow_mut().handle_data(data)?;
             }
             (head::Kind::WindowUpdate, _) => {
                 let window = WindowUpdate::load(head, frame.as_ref())?;
@@ -736,8 +746,10 @@ impl<'a, S> DecodeContext<'a, S> {
                 .get_mut(&id)
                 .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
 
+            // pseudo is not checked for legitmacy and ignored when receiving trailers.
+
             match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
-                RecvData::Queued => {}
+                RecvData::Queued(_) => {}
                 _ => flow.try_remove_stream(id),
             }
             return Ok(None);
@@ -945,6 +957,8 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
     let req = req.map(|ext| ext.map_body(From::from));
 
+    let head_method = req.method() == Method::HEAD;
+
     let res = match service.call(req).await {
         Ok(res) => res,
         Err(_) => {
@@ -955,16 +969,19 @@ async fn response_task<S, ReqB, ResB, ResBE>(
 
     let (mut parts, body) = res.into_parts();
 
+    super::strip_connection_headers::<false>(&mut parts.headers);
+
     if !parts.headers.contains_key(DATE) {
         let date = date.with_date_header(Clone::clone);
         parts.headers.insert(DATE, date);
     }
 
-    let end_stream = match body.size_hint() {
-        SizeHint::None => true,
-        size => {
+    let end_stream = match (head_method, body.size_hint()) {
+        (true, _) => true,
+        (false, SizeHint::None) => true,
+        (false, size) => {
             if let SizeHint::Exact(size) = size {
-                parts.headers.insert(CONTENT_LENGTH, size.into());
+                parts.headers.entry(CONTENT_LENGTH).or_insert_with(|| size.into());
             }
             false
         }
@@ -1232,7 +1249,7 @@ where
 
                     read_task.set(read_io(read_buf, &io));
                 }
-                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break ShutDown::DrainWrite,
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => unreachable!(),
                 SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
                 SelectOutput::B(Ok(_)) => {}
                 SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
@@ -1240,9 +1257,7 @@ where
         };
 
         Box::pin(async {
-            let mut read_res = Ok(());
-
-            match shutdown {
+            let read_res = match shutdown {
                 ShutDown::WriteClosed(res) => return res,
                 ShutDown::Timeout(err) => return Err(err),
                 ShutDown::ReadClosed(res) => {
@@ -1250,19 +1265,18 @@ where
                         let mut flow = shared.borrow_mut();
                         for state in flow.stream_map.values_mut() {
                             state.try_set_peer_reset();
-                            state.recv.set_close_2();
                         }
-                        flow.queue.close();
                     }
 
-                    read_res = res;
+                    res
                 }
-                ShutDown::DrainWrite => {
-                    shared.borrow_mut().queue.close();
-                }
-            }
+            };
 
             loop {
+                if queue.is_empty() {
+                    shared.borrow_mut().queue.close();
+                }
+
                 match queue.next().select(write_task.as_mut()).select(ping_pong.tick()).await {
                     SelectOutput::A(SelectOutput::A(_)) => {}
                     SelectOutput::A(SelectOutput::B(res)) => {
@@ -1286,7 +1300,6 @@ enum ShutDown {
     ReadClosed(io::Result<()>),
     WriteClosed(io::Result<()>),
     Timeout(io::Error),
-    DrainWrite,
 }
 
 /// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).
