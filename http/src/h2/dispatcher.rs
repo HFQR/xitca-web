@@ -65,7 +65,7 @@ use super::{
         ping_pong::PingPong,
         reset_counter::ResetCounter,
         size::BodySize,
-        stream::{RecvClose, RecvData, Remove, Stream, StreamError},
+        stream::{RecvData, Stream, StreamError, TryRemove},
         threshold::StreamRecvWindowThreshold,
     },
 };
@@ -198,20 +198,11 @@ impl FlowControl {
     pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
-        match stream.maybe_close_recv(&mut self.frame_buf) {
-            RecvClose::Cancel(size) => {
-                let size = size + pending_window;
-                self.queue.connection_window_update(size);
-                self.queue.stream_window_update(id, size);
-            }
-            RecvClose::Close(size) => {
-                self.queue.connection_window_update(size + pending_window);
-            }
-        }
+        let window = stream.maybe_close_recv(&mut self.frame_buf);
+        self.queue.connection_window_update(window + pending_window);
 
-        if let Some(remove) = stream.try_remove() {
-            self.remove_stream(id, remove);
-        }
+        let remove = stream.try_remove();
+        self.remove_stream(id, remove);
     }
 
     fn stream_guard_drop(&mut self, id: StreamId) {
@@ -219,33 +210,44 @@ impl FlowControl {
 
         stream.close_send();
 
-        if let Some(remove) = stream.try_remove() {
-            self.remove_stream(id, remove);
-        }
+        let remove = stream.try_remove();
+        self.remove_stream(id, remove);
     }
 
     fn try_remove_stream(&mut self, id: StreamId) {
         if let Some(stream) = self.stream_map.get_mut(&id) {
             stream.promote_cancel_to_close_recv();
-            if let Some(remove) = stream.try_remove() {
-                self.remove_stream(id, remove);
-            }
+            let remove = stream.try_remove();
+            self.remove_stream(id, remove);
         }
     }
 
-    fn remove_stream(&mut self, id: StreamId, remove: Remove) {
-        self.stream_map.remove(&id);
-        if let Remove::Reset(err) = remove {
+    fn remove_stream(&mut self, id: StreamId, remove: TryRemove) {
+        let reset = match remove {
+            TryRemove::Keep => return,
+            TryRemove::ResetKeep(err) => Some(err),
+            TryRemove::ResetRemove(err) => {
+                self.stream_map.remove(&id);
+                Some(err)
+            }
+            TryRemove::Remove => {
+                self.stream_map.remove(&id);
+                None
+            }
+        };
+
+        if let Some(err) = reset {
             self.queue.push(Message::Reset {
                 stream_id: id,
                 reason: err.reason(),
             });
             // Count client-caused resets (protocol errors, flow-control
             // violations, content-length mismatches) toward the sliding
-            // window. INTERNAL_ERROR is server-originated and excluded.
-            // When the limit is exceeded, queue GOAWAY and close the write
-            // side so the connection drains and terminates.
-            if !matches!(err, StreamError::InternalError) && self.reset_counter.tick() {
+            // window. Server-originated variants (INTERNAL_ERROR from
+            // response body errors, Cancel from RequestBody drop) are
+            // excluded. When the limit is exceeded, queue GOAWAY and close
+            // the write side so the connection drains and terminates.
+            if !matches!(err, StreamError::InternalError | StreamError::NoError) && self.reset_counter.tick() {
                 self.go_away(Reason::ENHANCE_YOUR_CALM);
             }
         }

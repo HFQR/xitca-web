@@ -29,5 +29,9 @@ percent-encoding = "2"
 rustls-pemfile = "2"
 tokio = { version = "1.30", features = ["macros", "rt"] }
 
+[dev-dependencies]
+h2 = "0.4"
+tokio = { version = "1.30", features = ["macros", "rt", "net", "time"] }
+
 [build-dependencies]
 prost-build = "0.14"
