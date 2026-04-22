@@ -1351,7 +1351,7 @@ where
             let (io_res, want_write) = match shutdown {
                 ShutDown::WriteClosed(res) => (res, false),
                 ShutDown::Timeout(err) => return Err(err),
-                ShutDown::ReadClosed(res) => (res, true)
+                ShutDown::ReadClosed(res) => (res, true),
             };
 
             let stream_err = if io_res.is_ok() {

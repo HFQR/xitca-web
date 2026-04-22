@@ -459,10 +459,7 @@ impl StreamError {
 
     // certain StreamError variants are not meant to be sent to peer
     fn transportable(&self) -> bool {
-        match self {
-            Self::PeerReset | Self::Io | Self::GoAway => false,
-            _ => true,
-        }
+        !matches!(self, Self::PeerReset | Self::Io | Self::GoAway)
     }
 }
 
