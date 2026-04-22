@@ -1,16 +1,17 @@
 use core::{
-    cell::RefCell,
+    cell::{RefCell, RefMut},
     fmt,
     future::{Future, poll_fn},
     mem,
+    net::SocketAddr,
     pin::{Pin, pin},
-    task::{Context, Poll, ready},
+    task::{Context, Poll, Waker, ready},
 };
 
 use std::{
     collections::{HashMap, VecDeque},
     io,
-    net::{Shutdown, SocketAddr},
+    net::Shutdown,
     rc::Rc,
     time::Duration,
 };
@@ -180,6 +181,8 @@ impl FlowControl {
     // the response task is running or the request body is still being
     // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
     fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
+        self.try_tick_reset()?;
+
         let Some(stream) = self.stream_map.get_mut(&id) else {
             return Ok(());
         };
@@ -192,20 +195,45 @@ impl FlowControl {
     pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
-        let window = stream.maybe_close_recv(&mut self.frame_buf);
-        self.queue.connection_window_update(window + pending_window);
+        let window = stream.maybe_close_recv(&mut self.frame_buf) + pending_window;
+
+        let mut wake = window > 0;
+
+        self.queue.connection_window_update(window);
 
         let remove = stream.try_remove();
-        self.detached_remove_stream(id, remove);
+
+        if let Err(err) = self.remove_stream(id, remove) {
+            wake = true;
+
+            if let Err(err) = self.try_push_reset(id, err.reason()) {
+                self.go_away(err);
+            }
+        }
+
+        // body is detached from Decode/EncodeContext. wake up WriterQueue
+        // if there are connection window and/or reset/goaway message scheduled
+        // to be sent
+        if wake {
+            self.queue.wake();
+        }
     }
 
-    fn stream_guard_drop(&mut self, id: StreamId) {
+    fn response_task_done(&mut self, id: StreamId) -> Result<(), ()> {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
         stream.close_send();
 
         let remove = stream.try_remove();
-        self.detached_remove_stream(id, remove);
+
+        if let Err(err) = self.remove_stream(id, remove) {
+            if let Err(err) = self.try_push_reset(id, err.reason()) {
+                self.go_away(err);
+                return Err(());
+            }
+        }
+
+        Ok(())
     }
 
     fn inline_remove_stream(&mut self, id: StreamId) -> Result<(), Error> {
@@ -216,14 +244,6 @@ impl FlowControl {
         };
 
         Ok(())
-    }
-
-    fn detached_remove_stream(&mut self, id: StreamId, remove: TryRemove) {
-        if let Err(err) = self.remove_stream(id, remove) {
-            if let Err(Error::GoAway(reason)) = self.try_push_reset(id, err.reason()) {
-                self.go_away(reason);
-            }
-        }
     }
 
     fn remove_stream(&mut self, id: StreamId, remove: TryRemove) -> Result<(), StreamError> {
@@ -247,12 +267,12 @@ impl FlowControl {
         // excluded. When the limit is exceeded, queue GOAWAY and close
         // the write side so the connection drains and terminates.
 
-        if !matches!(reason, Reason::INTERNAL_ERROR | Reason::NO_ERROR) && self.reset_counter.tick() {
-            Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM))
-        } else {
-            self.queue.push(Message::Reset { stream_id: id, reason });
-            Ok(())
+        if !matches!(reason, Reason::INTERNAL_ERROR | Reason::NO_ERROR) {
+            self.try_tick_reset()?;
         }
+
+        self.queue.push(Message::Reset { stream_id: id, reason });
+        Ok(())
     }
 
     fn handle_data(&mut self, data: Data) -> Result<(), Error> {
@@ -304,7 +324,11 @@ impl FlowControl {
             .try_set_reset(StreamError::InternalError);
     }
 
-    fn go_away(&mut self, reason: Reason) -> bool {
+    fn go_away(&mut self, err: Error) -> bool {
+        let Error::GoAway(reason) = err else {
+            unreachable!("Error::Reset MUST not be handled as GO_AWAY frame")
+        };
+
         if let Some(last_stream_id) = self.last_stream_id.try_go_away() {
             self.queue.push(Message::GoAway { last_stream_id, reason });
         }
@@ -324,6 +348,14 @@ impl FlowControl {
         }
         self.queue.keepalive_ping = KeepalivePing::Pending;
         Ok(())
+    }
+
+    fn try_tick_reset(&mut self) -> Result<(), Error> {
+        if self.reset_counter.tick() {
+            Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -410,6 +442,7 @@ pub(super) struct WriterQueue {
     /// Always overwritten by the latest client PING; poll_encode takes and
     /// clears it after encoding the ACK.
     pending_client_ping: Option<[u8; 8]>,
+    waker: Option<Waker>,
 }
 
 pub(super) type Shared = Rc<RefCell<FlowControl>>;
@@ -423,6 +456,7 @@ impl WriterQueue {
             pending_conn_window: 0,
             keepalive_ping: KeepalivePing::Idle,
             pending_client_ping: None,
+            waker: None,
         }
     }
 
@@ -485,6 +519,23 @@ impl WriterQueue {
 
     fn is_closed(&self) -> bool {
         self.closed
+    }
+
+    fn register(&mut self, cx: &mut Context<'_>) {
+        if self
+            .waker
+            .as_ref()
+            .filter(|waker| waker.will_wake(cx.waker()))
+            .is_none()
+        {
+            self.waker = Some(cx.waker().clone());
+        }
+    }
+
+    fn wake(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
     }
 }
 
@@ -888,7 +939,7 @@ impl<'a> EncodeContext<'a> {
         }
     }
 
-    fn poll_encode(&mut self, write_buf: &mut BytesMut) -> Poll<bool> {
+    fn poll_encode(&mut self, write_buf: &mut BytesMut, cx: &mut Context<'_>) -> Poll<bool> {
         let mut flow = self.ctx.borrow_mut();
 
         // remote_setting can contain updated states for following encoding
@@ -947,6 +998,7 @@ impl<'a> EncodeContext<'a> {
         } else if flow.queue.is_closed() {
             Poll::Ready(false)
         } else {
+            flow.queue.register(cx);
             Poll::Pending
         }
     }
@@ -958,26 +1010,45 @@ async fn response_task<S, ReqB, ResB, ResBE>(
     service: &S,
     ctx: &Shared,
     date: &DateTimeHandle,
-) where
+) -> Result<(), ()>
+where
     S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
     ReqB: From<RequestBody>,
     ResB: Body<Data = Bytes, Error = ResBE>,
     ResBE: fmt::Debug,
 {
-    let guard = StreamGuard { stream_id, ctx };
+    _response_task(req, stream_id, service, ctx, date)
+        .await
+        .unwrap_or_else(|_| {
+            let mut flow = ctx.borrow_mut();
+            flow.reset(&stream_id);
+            flow
+        })
+        .response_task_done(stream_id)
+}
 
+// clippy is dumb
+#[allow(clippy::await_holding_refcell_ref)]
+async fn _response_task<'a, S, ReqB, ResB, ResBE>(
+    req: Request<RequestExt<RequestBody>>,
+    stream_id: StreamId,
+    service: &S,
+    ctx: &'a Shared,
+    date: &DateTimeHandle,
+) -> Result<RefMut<'a, FlowControl>, ()>
+where
+    S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
+    S::Error: fmt::Debug,
+    ReqB: From<RequestBody>,
+    ResB: Body<Data = Bytes, Error = ResBE>,
+    ResBE: fmt::Debug,
+{
     let req = req.map(|ext| ext.map_body(From::from));
 
     let head_method = req.method() == Method::HEAD;
 
-    let res = match service.call(req).await {
-        Ok(res) => res,
-        Err(_) => {
-            ctx.borrow_mut().reset(&stream_id);
-            return;
-        }
-    };
+    let res = service.call(req).await.map_err(|_| ())?;
 
     let (mut parts, body) = res.into_parts();
 
@@ -1006,38 +1077,61 @@ async fn response_task<S, ReqB, ResB, ResBE>(
         headers.set_end_stream();
     }
 
-    ctx.borrow_mut().queue.push(Message::Head(headers));
+    let mut flow = ctx.borrow_mut();
+
+    flow.queue.push(Message::Head(headers));
 
     if !end_stream {
+        drop(flow);
+
         let mut body = pin!(body);
 
-        loop {
+        flow = loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-                None => break ctx.borrow_mut().queue.push_end_stream(guard.stream_id),
+                None => {
+                    let mut flow = ctx.borrow_mut();
+                    flow.queue.push_end_stream(stream_id);
+                    break flow;
+                }
                 Some(Err(e)) => {
                     error!("body error: {:?}", e);
-                    break guard.reset();
+                    return Err(());
                 }
                 Some(Ok(Frame::Data(bytes))) => {
-                    if guard.send_data(bytes, body.is_end_stream()).await {
-                        break;
+                    if let Some(flow) = send_data(stream_id, bytes, body.is_end_stream(), ctx).await {
+                        break flow;
                     }
                 }
-                Some(Ok(Frame::Trailers(trailers))) => break guard.send_trailers(trailers),
+                Some(Ok(Frame::Trailers(trailers))) => {
+                    let mut flow = ctx.borrow_mut();
+                    flow.queue.push_trailers(stream_id, trailers);
+                    break flow;
+                }
             }
         }
     }
+
+    Ok(flow)
 }
 
-struct StreamGuard<'a> {
+async fn send_data(
     stream_id: StreamId,
-    ctx: &'a Shared,
-}
-
-impl Drop for StreamGuard<'_> {
-    fn drop(&mut self) {
-        self.ctx.borrow_mut().stream_guard_drop(self.stream_id);
+    data: Bytes,
+    end_stream: bool,
+    ctx: &Shared,
+) -> Option<RefMut<'_, FlowControl>> {
+    if data.is_empty() && !end_stream {
+        tracing::warn!("response body should not yield empty Frame::Data unless it's the last chunk of Body");
+        return None;
     }
+
+    SendData {
+        data,
+        end_stream,
+        stream_id,
+        flow: ctx,
+    }
+    .await
 }
 
 struct SendData<'a> {
@@ -1047,26 +1141,28 @@ struct SendData<'a> {
     flow: &'a Shared,
 }
 
-impl Future for SendData<'_> {
-    type Output = bool;
+impl<'a> Future for SendData<'a> {
+    type Output = Option<RefMut<'a, FlowControl>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
-        let flow = &mut *this.flow.borrow_mut();
+        let mut flow = this.flow.borrow_mut();
 
         loop {
             let len = this.data.len();
+
+            let window = flow.send_connection_window;
 
             let opt = ready!(
                 flow.stream_map
                     .get_mut(&this.stream_id)
                     .expect(STREAM_MUST_EXIST)
-                    .poll_send_window(len, flow.send_connection_window, cx)
+                    .poll_send_window(len, window, cx)
             );
 
             let Some(Ok(aval)) = opt else {
-                return Poll::Ready(true);
+                return Poll::Ready(Some(flow));
             };
 
             flow.send_connection_window -= aval;
@@ -1084,37 +1180,11 @@ impl Future for SendData<'_> {
             flow.queue.push_data(this.stream_id, payload, end_stream);
 
             if end_stream {
-                return Poll::Ready(true);
+                return Poll::Ready(Some(flow));
             } else if all_consumed {
-                return Poll::Ready(false);
+                return Poll::Ready(None);
             }
         }
-    }
-}
-
-impl StreamGuard<'_> {
-    // return true to inform outer loop to break
-    async fn send_data(&self, data: Bytes, end_stream: bool) -> bool {
-        if data.is_empty() && !end_stream {
-            tracing::warn!("response body should not yield empty Frame::Data unless it's the last chunk of Body");
-            return false;
-        }
-
-        SendData {
-            data,
-            end_stream,
-            stream_id: self.stream_id,
-            flow: self.ctx,
-        }
-        .await
-    }
-
-    fn send_trailers(&self, trailers: HeaderMap) {
-        self.ctx.borrow_mut().queue.push_trailers(self.stream_id, trailers);
-    }
-
-    fn reset(&self) {
-        self.ctx.borrow_mut().reset(&self.stream_id);
     }
 }
 
@@ -1207,7 +1277,7 @@ where
         let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
 
         let mut write_task = pin!(async {
-            while poll_fn(|_| enc.poll_encode(&mut write_buf)).await {
+            while poll_fn(|cx| enc.poll_encode(&mut write_buf, cx)).await {
                 let (res, buf) = io.write(write_buf).await;
 
                 write_buf = buf;
@@ -1227,7 +1297,10 @@ where
                 .as_mut()
                 .select(async {
                     loop {
-                        let _ = queue.next().await;
+                        let res: Result<(), ()> = queue.next().await;
+                        if res.is_err() {
+                            break;
+                        }
                     }
                 })
                 .select(write_task.as_mut())
@@ -1242,14 +1315,10 @@ where
                             match ctx.try_decode(&mut read_buf) {
                                 Ok(Some((req, id))) => {
                                     queue.push(response_task(req, id, ctx.service, ctx.ctx, ctx.date));
-                                    continue;
                                 }
                                 Ok(None) => break,
-                                Err(Error::Reset(_)) => unreachable!(
-                                    "reset error must be handled at scope where it's associated StreamId exsits"
-                                ),
-                                Err(Error::GoAway(reason)) => {
-                                    if ctx.ctx.borrow_mut().go_away(reason) {
+                                Err(err) => {
+                                    if ctx.ctx.borrow_mut().go_away(err) {
                                         break 'body ShutDown::ReadClosed(Ok(()));
                                     }
                                 }
@@ -1260,10 +1329,10 @@ where
 
                     read_task.set(read_io(read_buf, &io));
                 }
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break 'body ShutDown::ReadClosed(Ok(())),
                 SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
                 SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
                 SelectOutput::B(Ok(_)) => {}
-                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => unreachable!(),
             }
         };
 
@@ -1313,7 +1382,11 @@ where
                     .select(ping_pong.tick())
                     .await
                 {
-                    SelectOutput::A(SelectOutput::A(_)) => {}
+                    SelectOutput::A(SelectOutput::A(_)) => {
+                        // response_task already ran response_task_done before
+                        // returning. An Err(()) here means a second GoAway was
+                        // escalated — moot, we're already draining.
+                    }
                     SelectOutput::A(SelectOutput::B(res)) => {
                         res?;
                         break io_res;

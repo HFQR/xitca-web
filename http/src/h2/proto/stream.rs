@@ -215,7 +215,7 @@ impl Stream {
     }
 
     /// Record a reset caused by a protocol error or server error.
-    /// Sets recv error (so RequestBody sees it), send error (so StreamGuard's
+    /// Sets recv error (so RequestBody sees it), send error (so response_task's
     /// send_data exits), and pending_reset (so the lifecycle sends RST_STREAM).
     pub(crate) fn try_set_reset(&mut self, err: StreamError) {
         self.try_set_pending_error(err);
@@ -225,7 +225,7 @@ impl Stream {
 
     /// Set an error on both sides without scheduling an outgoing RST_STREAM.
     /// Used for peer-initiated RST_STREAM where both RequestBody and
-    /// StreamGuard must observe the error and exit, but we must not echo
+    /// response_task must observe the error and exit, but we must not echo
     /// back a RST_STREAM.
     pub(crate) fn try_set_peer_reset(&mut self) {
         self.try_set_reset(StreamError::PeerReset);
