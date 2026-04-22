@@ -180,6 +180,8 @@ impl FlowControl {
     // A RST_STREAM is "premature" if the stream is still tracked — either
     // the response task is running or the request body is still being
     // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
+    #[cold]
+    #[inline(never)]
     fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
         self.try_tick_reset()?;
 
@@ -259,6 +261,8 @@ impl FlowControl {
         res
     }
 
+    #[cold]
+    #[inline(never)]
     fn try_push_reset(&mut self, id: StreamId, reason: Reason) -> Result<(), Error> {
         // Count client-caused resets (protocol errors, flow-control
         // violations, content-length mismatches) toward the sliding
@@ -317,6 +321,8 @@ impl FlowControl {
         Ok(())
     }
 
+    #[cold]
+    #[inline(never)]
     fn reset(&mut self, id: &StreamId) {
         self.stream_map
             .get_mut(id)
@@ -324,6 +330,8 @@ impl FlowControl {
             .try_set_reset(StreamError::InternalError);
     }
 
+    #[cold]
+    #[inline(never)]
     fn go_away(&mut self, err: Error) -> bool {
         let Error::GoAway(reason) = err else {
             unreachable!("Error::Reset MUST not be handled as GO_AWAY frame")
@@ -367,6 +375,8 @@ struct RemoteSettings {
 impl RemoteSettings {
     // Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
     // previous SETTINGS has not yet been ACKed (CVE-2019-9515).
+    #[cold]
+    #[inline(never)]
     fn try_update(&mut self, settings: Settings) -> Result<(), Error> {
         // Only one in flight peer settings is allowed. This is over restricted according
         // to RFC and multiple settings on wire should be allowed. That said in practice
@@ -1094,7 +1104,7 @@ where
                     break flow;
                 }
                 Some(Err(e)) => {
-                    error!("body error: {:?}", e);
+                    error!("body error: {e:?}");
                     return Err(());
                 }
                 Some(Ok(Frame::Data(bytes))) => {
