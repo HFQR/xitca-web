@@ -1308,6 +1308,7 @@ where
                 .select(async {
                     loop {
                         let res: Result<(), ()> = queue.next().await;
+                        // error case means connection going away. enter shutdown
                         if res.is_err() {
                             break;
                         }
@@ -1339,7 +1340,7 @@ where
 
                     read_task.set(read_io(read_buf, &io));
                 }
-                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break 'body ShutDown::ReadClosed(Ok(())),
+                SelectOutput::A(SelectOutput::A(SelectOutput::B(_))) => break ShutDown::ReadClosed(Ok(())),
                 SelectOutput::A(SelectOutput::B(res)) => break ShutDown::WriteClosed(res),
                 SelectOutput::B(Err(e)) => break ShutDown::Timeout(e),
                 SelectOutput::B(Ok(_)) => {}
@@ -1348,28 +1349,20 @@ where
 
         Box::pin(async {
             let (io_res, want_write) = match shutdown {
-                ShutDown::WriteClosed(res) => {
-                    {
-                        let mut flow = shared.borrow_mut();
-                        for state in flow.stream_map.values_mut() {
-                            state.try_set_peer_reset();
-                        }
-                    }
-
-                    (res, false)
-                }
+                ShutDown::WriteClosed(res) => (res, false),
                 ShutDown::Timeout(err) => return Err(err),
-                ShutDown::ReadClosed(res) => {
-                    {
-                        let mut flow = shared.borrow_mut();
-                        for state in flow.stream_map.values_mut() {
-                            state.try_set_peer_reset();
-                        }
-                    }
-
-                    (res, true)
-                }
+                ShutDown::ReadClosed(res) => (res, true)
             };
+
+            let stream_err = if io_res.is_ok() {
+                StreamError::GoAway
+            } else {
+                StreamError::Io
+            };
+
+            for stream in ctx.ctx.borrow_mut().stream_map.values_mut() {
+                stream.try_set_reset(stream_err);
+            }
 
             loop {
                 if queue.is_empty() {

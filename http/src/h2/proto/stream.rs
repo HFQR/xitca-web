@@ -203,7 +203,7 @@ impl Stream {
     pub(crate) fn try_remove(&mut self) -> TryRemove {
         match (&self.recv.state, &self.send.state) {
             (State::Close, State::Close) => match self.pending_error.take() {
-                Some(err) if !matches!(err, StreamError::PeerReset) => TryRemove::ResetRemove(err),
+                Some(err) if err.transportable() => TryRemove::ResetRemove(err),
                 _ => TryRemove::Remove,
             },
             (State::Cancel, State::Close) => match self.pending_error.take() {
@@ -435,14 +435,16 @@ pub(crate) enum StreamError {
     ContentLengthUnderflow,
     FlowControlOverflow,
     NoError,
-    /// Peer sent RST_STREAM.
-    PeerReset,
     /// WINDOW_UPDATE with zero increment (RFC 7540 §6.9.1).
     WindowUpdateZeroIncrement,
     /// WINDOW_UPDATE caused stream window overflow.
     WindowUpdateOverflow,
     /// Server-side error (service error, response body error, etc.).
     InternalError,
+    /// Peer sent RST_STREAM.
+    PeerReset,
+    Io,
+    GoAway,
 }
 
 impl StreamError {
@@ -450,8 +452,16 @@ impl StreamError {
         match self {
             Self::FlowControlOverflow | Self::WindowUpdateOverflow => Reason::FLOW_CONTROL_ERROR,
             Self::PeerReset | Self::NoError => Reason::NO_ERROR,
-            Self::InternalError => Reason::INTERNAL_ERROR,
+            Self::InternalError | Self::Io | Self::GoAway => Reason::INTERNAL_ERROR,
             _ => Reason::PROTOCOL_ERROR,
+        }
+    }
+
+    // certain StreamError variants are not meant to be sent to peer
+    fn transportable(&self) -> bool {
+        match self {
+            Self::PeerReset | Self::Io | Self::GoAway => false,
+            _ => true,
         }
     }
 }
@@ -468,7 +478,9 @@ impl From<StreamError> for io::Error {
             StreamError::PeerReset => "h2 stream reset by peer",
             StreamError::WindowUpdateZeroIncrement => "WINDOW_UPDATE with zero increment",
             StreamError::WindowUpdateOverflow => "WINDOW_UPDATE caused window overflow",
-            StreamError::InternalError => "ineternal error",
+            StreamError::InternalError => "internal error",
+            StreamError::Io => return io::Error::new(io::ErrorKind::ConnectionAborted, "socket I/O error"),
+            StreamError::GoAway => return io::Error::new(io::ErrorKind::ConnectionAborted, "connection is going away"),
         };
         io::Error::new(io::ErrorKind::InvalidData, msg)
     }
