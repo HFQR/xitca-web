@@ -326,7 +326,7 @@ async fn h2_forceful_goaway_on_rapid_reset_drains_delayed_stream() -> Result<(),
             "/delayed" => {
                 let (_, mut body) = req.into_parts();
                 while let Some(chunk) = body.frame().await {
-                    if let Err(_) = chunk {
+                    if chunk.is_err() {
                         return Ok(Response::builder()
                             .status(StatusCode::IM_A_TEAPOT)
                             .body(Bytes::from_static(b"delayed-done").into())
