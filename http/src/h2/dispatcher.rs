@@ -1509,6 +1509,7 @@ async fn prefix_check<const LIMIT: usize>(
 #[inline(never)]
 async fn lingering_read(io: &impl AsyncBufRead, mut ka: Pin<&mut KeepAlive>, date: &DateTimeHandle) -> io::Result<()> {
     ka.as_mut().update(date.now() + Duration::from_secs(5));
+    ka.as_mut().reset();
 
     let mut read_buf = BytesMut::with_capacity(4096);
 
