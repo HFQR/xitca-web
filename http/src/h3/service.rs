@@ -1,8 +1,10 @@
 use core::{fmt, net::SocketAddr};
 
+use std::sync::Arc;
+
 use crate::body::Body;
 use xitca_io::net::QuicStream;
-use xitca_service::{Service, ready::ReadyService};
+use xitca_service::{Service, ready::ReadyService, shutdown::ShutdownToken};
 
 use crate::{
     bytes::Bytes,
@@ -24,7 +26,7 @@ impl<S> H3Service<S> {
     }
 }
 
-impl<S, ResB, BE> Service<(QuicStream, SocketAddr)> for H3Service<S>
+impl<S, ResB, BE> Service<((QuicStream, SocketAddr), Arc<ShutdownToken>)> for H3Service<S>
 where
     S: Service<Request<RequestExt<RequestBody>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
@@ -33,10 +35,13 @@ where
 {
     type Response = ();
     type Error = HttpServiceError<S::Error, BE>;
-    async fn call(&self, (stream, addr): (QuicStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+    async fn call(
+        &self,
+        ((stream, addr), st): ((QuicStream, SocketAddr), Arc<ShutdownToken>),
+    ) -> Result<Self::Response, Self::Error> {
         let dispatcher = Dispatcher::new(stream, addr, &self.service);
 
-        dispatcher.run().await?;
+        dispatcher.run(st.as_ref()).await?;
 
         Ok(())
     }

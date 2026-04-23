@@ -12,8 +12,11 @@ readme= "README.md"
 [lints]
 workspace = true
 
+[dependencies]
+spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex"], optional = true }
+
 [features]
-alloc = []
+alloc = ["dep:spin"]
 
 [dev-dependencies]
 xitca-unsafe-collection = "0.2.0"

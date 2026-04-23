@@ -36,6 +36,9 @@ pub mod middleware;
 pub mod pipeline;
 pub mod ready;
 
+#[cfg(feature = "alloc")]
+pub mod shutdown;
+
 pub use self::{
     middleware::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, MapErrorBuilder},
     service::{FnService, Service, ServiceExt, fn_build, fn_service},
