@@ -21,7 +21,7 @@ use crate::{
     date::DateTime,
     h1::error::Error,
     http::{StatusCode, response::Response},
-    util::timer::{KeepAlive, Timeout},
+    util::timer::{KeepAlive, KeepAliveOutput, Timeout},
 };
 
 use super::{
@@ -98,7 +98,8 @@ where
                         break Ok(());
                     }
                 }
-                Err(_) => break Err(dispatcher.timer.map_to_err()),
+                Err(KeepAliveOutput::Cancel) => break Ok(()),
+                Err(KeepAliveOutput::Expire) => break Err(dispatcher.timer.map_to_err()),
             }
         };
 

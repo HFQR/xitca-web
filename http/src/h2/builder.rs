@@ -71,6 +71,6 @@ where
     async fn call(&self, res: Result<S, E>) -> Result<Self::Response, Self::Error> {
         let service = res.map_err(|e| Box::new(e) as Error)?;
         let tls_acceptor = self.tls_factory.call(()).await.map_err(|e| Box::new(e) as Error)?;
-        Ok(H2Service::new(self.config, service, tls_acceptor))
+        Ok(H2Service::new(self.config.clone(), service, tls_acceptor))
     }
 }

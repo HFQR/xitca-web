@@ -28,7 +28,7 @@ pin_project! {
 }
 
 impl<F: Future> Future for TimeoutFuture<'_, F> {
-    type Output = Result<F::Output, ()>;
+    type Output = Result<F::Output, KeepAliveOutput>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -79,17 +79,25 @@ impl KeepAlive {
 }
 
 impl Future for KeepAlive {
-    type Output = ();
+    type Output = KeepAliveOutput;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_mut().project();
         ready!(this.timer.poll(cx));
 
         if self.is_expired() {
-            Poll::Ready(())
+            Poll::Ready(KeepAliveOutput::Expire)
         } else {
             self.as_mut().reset();
             self.poll(cx)
         }
     }
+}
+
+/// return type of timer when it's finished
+pub enum KeepAliveOutput {
+    /// Timer is canceled by foreign input
+    Cancel,
+    /// Timer is explired
+    Expire,
 }
