@@ -9,7 +9,7 @@ use xitca_http::{
     body::{Body, BodyExt, ResponseBody, SizeHint},
     bytes::{Bytes, BytesMut},
     h2,
-    http::{HeaderMap, Method, Request, RequestExt, Response, Version, header, uri::Uri},
+    http::{HeaderMap, Method, Request, RequestExt, Response, StatusCode, Version, header, uri::Uri},
 };
 use xitca_service::fn_service;
 use xitca_test::{Error, test_h2_server};
@@ -307,20 +307,37 @@ async fn h2_shutdown_drains_delayed_stream_on_client_eof() -> Result<(), Error> 
 /// `go_away()` promotes to a fatal queued GOAWAY and breaks to
 /// `ShutDown::ReadClosed`.
 ///
+/// A `/delayed` stream is opened first and left parked inside
+/// `RequestBody::poll_frame`. Once the forceful GOAWAY fires, the shutdown
+/// drain must:
+///
 /// * actually emit the GOAWAY frame to the peer with reason
 ///   `ENHANCE_YOUR_CALM` — asserted on the client side.
+/// * apply `StreamError::GoAway` to the delayed stream so its `poll_frame`
+///   wakes with "connection is going away" — asserted via a oneshot from
+///   the handler.
 /// * drop the service Rc promptly so the subsequent graceful `stop(true)`
 ///   returns fast.
 #[tokio::test]
 async fn h2_forceful_goaway_on_rapid_reset_drains_delayed_stream() -> Result<(), Error> {
-    let svc = {
-        fn_service(move |req: Request<RequestExt<h2::RequestBody>>| async move {
-            match req.uri().path() {
-                "/normal" => Ok::<Response<ResponseBody>, Error>(Response::new(Bytes::from_static(b"normal").into())),
-                p => Err(format!("unexpected path {p}").into()),
+    let svc = fn_service(move |req: Request<RequestExt<h2::RequestBody>>| async move {
+        match req.uri().path() {
+            "/normal" => Ok::<Response<ResponseBody>, Error>(Response::new(Bytes::from_static(b"normal").into())),
+            "/delayed" => {
+                let (_, mut body) = req.into_parts();
+                while let Some(chunk) = body.frame().await {
+                    if let Err(_) = chunk {
+                        return Ok(Response::builder()
+                            .status(StatusCode::IM_A_TEAPOT)
+                            .body(Bytes::from_static(b"delayed-done").into())
+                            .unwrap());
+                    }
+                }
+                unreachable!("delayed stream should be going away");
             }
-        })
-    };
+            p => Err(format!("unexpected path {p}").into()),
+        }
+    });
 
     let mut server = test_h2_server(svc)?;
     let addr = server.addr();
@@ -333,19 +350,33 @@ async fn h2_forceful_goaway_on_rapid_reset_drains_delayed_stream() -> Result<(),
     let mut send = send.ready().await?;
 
     let uri = |path: &str| -> Uri { format!("http://{addr}{path}").parse().unwrap() };
-
-    // Fire 21 open+reset pairs. Server-side RESET_MAX is 20, so the 21st
-    // RST_STREAM trips try_tick_reset → GoAway(ENHANCE_YOUR_CALM).
-    for _ in 0..21 {
-        let req = Request::builder()
-            .method(Method::GET)
-            .uri(uri("/normal"))
+    {
+        // Park a /delayed stream inside body.frame() on the server.
+        let req_delayed = Request::builder()
+            .method(Method::POST)
+            .uri(uri("/delayed"))
             .version(Version::HTTP_2)
             .body(())
             .unwrap();
-        let (_resp, mut stream) = send.send_request(req, false)?;
-        tokio::task::yield_now().await;
-        stream.send_reset(::h2::Reason::CANCEL);
+        let (resp_delayed, mut stream_delayed) = send.send_request(req_delayed, false)?;
+        stream_delayed.send_data(Bytes::from_static(b"partial"), false)?;
+
+        // Fire 21 open+reset pairs. Server-side RESET_MAX is 20, so the 21st
+        // RST_STREAM trips try_tick_reset → GoAway(ENHANCE_YOUR_CALM).
+        for _ in 0..21 {
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri(uri("/normal"))
+                .version(Version::HTTP_2)
+                .body(())
+                .unwrap();
+            let (_resp, mut stream) = send.send_request(req, false)?;
+            tokio::task::yield_now().await;
+            stream.send_reset(::h2::Reason::CANCEL);
+        }
+
+        let res = resp_delayed.await?.status();
+        assert_eq!(res, StatusCode::IM_A_TEAPOT);
     }
 
     // Wait for the server's GOAWAY to reach us. The client's Connection
