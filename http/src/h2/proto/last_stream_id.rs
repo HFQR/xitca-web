@@ -1,9 +1,6 @@
 use core::mem;
 
-use super::{
-    error::Error,
-    frame::{reason::Reason, stream_id::StreamId},
-};
+use super::{error::Error, frame::stream_id::StreamId};
 
 /// Tracks the highest stream id we've accepted from the peer plus whether
 /// the boundary is still open to advancement.
@@ -42,9 +39,7 @@ impl LastStreamId {
     pub(crate) fn try_set(&mut self, id: StreamId) -> Result<Option<()>, Error> {
         match self {
             Self::GoAway(_) => Ok(None),
-            Self::Incrementable(last_id) if !id.is_client_initiated() || id <= *last_id => {
-                Err(Error::GoAway(Reason::PROTOCOL_ERROR))
-            }
+            Self::Incrementable(last_id) if !id.is_client_initiated() || id <= *last_id => Err(Error::InvalidStreamId),
             Self::Incrementable(last_id) => {
                 *last_id = id;
                 Ok(Some(()))

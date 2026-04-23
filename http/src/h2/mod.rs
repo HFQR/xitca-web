@@ -15,7 +15,7 @@ pub use self::service::H2Service;
 
 use crate::http::header::{CONNECTION, HeaderMap, HeaderName, TE, TRANSFER_ENCODING, UPGRADE};
 
-const STREAM_MUST_EXIST: &str = "Stream MUST NOT be removed while RequestBody or StreamGuard is still alive";
+const STREAM_MUST_EXIST: &str = "Stream MUST NOT be removed while RequestBody or response_task is still alive";
 
 const CONNECTION_HEADERS: [HeaderName; 4] = [
     HeaderName::from_static("keep-alive"),

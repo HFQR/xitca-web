@@ -6,7 +6,6 @@ use xitca_io::bytes::{BufMut, BytesMut};
 use super::{
     super::error::Error,
     head::{Head, Kind},
-    reason,
     stream_id::StreamId,
     unpack_octets_4,
 };
@@ -141,7 +140,7 @@ impl Settings {
         use self::Setting::*;
 
         if !head.stream_id().is_zero() {
-            return Err(Error::MalformedMessage);
+            return Err(Error::InvalidStreamId);
         }
 
         // Load the flag
@@ -150,7 +149,7 @@ impl Settings {
         if flag.is_ack() {
             // Ensure that the payload is empty
             if !payload.is_empty() {
-                return Err(Error::MalformedMessage);
+                return Err(Error::InvalidPayloadLength);
             }
 
             // Return the ACK frame
@@ -160,7 +159,7 @@ impl Settings {
         // Ensure the payload length is correct, each setting is 6 bytes long.
         if payload.len() % 6 != 0 {
             tracing::debug!("invalid settings payload length; len={:?}", payload.len());
-            return Err(Error::MalformedMessage);
+            return Err(Error::InvalidPayloadAckSettings);
         }
 
         let mut settings = Settings::default();
@@ -175,7 +174,7 @@ impl Settings {
                     0 | 1 => {
                         settings.enable_push = Some(val);
                     }
-                    _ => return Err(Error::MalformedMessage),
+                    _ => return Err(Error::InvalidSettingValue),
                 },
                 Some(MaxConcurrentStreams(val)) => {
                     settings.max_concurrent_streams = Some(val);
@@ -184,13 +183,13 @@ impl Settings {
                     if val as usize > MAX_INITIAL_WINDOW_SIZE {
                         // RFC 7540 §6.5.2: SETTINGS_INITIAL_WINDOW_SIZE exceeding
                         // 2^31-1 is a connection error FLOW_CONTROL_ERROR.
-                        return Err(Error::GoAway(reason::Reason::FLOW_CONTROL_ERROR));
+                        return Err(Error::InitialWindowOverflow);
                     }
                     settings.initial_window_size = Some(val);
                 }
                 Some(MaxFrameSize(val)) => {
                     if !(DEFAULT_MAX_FRAME_SIZE..=MAX_MAX_FRAME_SIZE).contains(&val) {
-                        return Err(Error::MalformedMessage);
+                        return Err(Error::InvalidSettingValue);
                     }
                     settings.max_frame_size = Some(val);
                 }
@@ -201,7 +200,7 @@ impl Settings {
                     0 | 1 => {
                         settings.enable_connect_protocol = Some(val);
                     }
-                    _ => return Err(Error::MalformedMessage),
+                    _ => return Err(Error::InvalidSettingValue),
                 },
                 None => {}
             }
