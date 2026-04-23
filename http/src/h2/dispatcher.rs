@@ -1327,13 +1327,8 @@ where
             match read_task
                 .as_mut()
                 .select(async {
-                    loop {
-                        let res: Result<(), ()> = queue.next().await;
-                        // error case means connection going away. enter shutdown
-                        if res.is_err() {
-                            break;
-                        }
-                    }
+                    while let Ok::<_, ()>(()) = queue.next().await {}
+                    // error case means connection going away. enter shutdown
                 })
                 .select(write_task.as_mut())
                 .select(ping_pong.tick())
