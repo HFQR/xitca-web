@@ -359,7 +359,7 @@ async fn h2_forceful_goaway_on_rapid_reset_drains_delayed_stream() -> Result<(),
     let (send, conn) = ::h2::client::handshake(tcp).await?;
     // Keep the connection future running so we can observe GOAWAY from the
     // server. Its Err result carries the reason the peer advertised.
-    let conn_task = tokio::spawn(async move { conn.await });
+    let conn_task = tokio::spawn(conn);
     let mut send = send.ready().await?;
 
     let uri = |path: &str| -> Uri { format!("http://{addr}{path}").parse().unwrap() };
