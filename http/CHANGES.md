@@ -1,3 +1,13 @@
+# 0.9.3
+## Change
+- strip response body for HEAD request for HTTP/2
+- improve HTTP/2 stream error handling
+
+## Fix
+- remove response headers that are forbid in HTTP/2
+- fix HTTP/2 padded Data frame handling
+- fix HTTP/2 dispatcher GoAway shutdown handling
+
 # 0.9.2
 ## Fix
 - fix HTTP/2 RST_STREAM lifecycle
