@@ -384,6 +384,7 @@ async fn h2_forceful_goaway_on_rapid_reset_drains_delayed_stream() -> Result<(),
             .body(())
             .unwrap();
         let (_resp, mut stream) = send.send_request(req, false)?;
+        tokio::task::yield_now().await;
         stream.send_reset(::h2::Reason::CANCEL);
     }
 

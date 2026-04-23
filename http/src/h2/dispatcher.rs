@@ -1281,7 +1281,7 @@ where
     let mut enc = EncodeContext::new(&shared);
 
     let mut queue = Queue::new();
-    let mut ping_pong = PingPong::new(ka, &shared, date, config.keep_alive_timeout);
+    let mut ping_pong = PingPong::new(ka.as_mut(), &shared, date, config.keep_alive_timeout);
 
     let res = {
         let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
@@ -1401,9 +1401,12 @@ where
         .await
     };
 
+    lingering_read(&io, ka, date).await?;
+
     // Send FIN so the peer sees a clean connection
     // close rather than RST (RFC 7540 §6.8).
     let _ = io.shutdown(Shutdown::Write).await;
+
     res
 }
 
@@ -1500,4 +1503,27 @@ async fn prefix_check<const LIMIT: usize>(
     };
 
     (read_buf, res)
+}
+
+#[cold]
+#[inline(never)]
+async fn lingering_read(io: &impl AsyncBufRead, mut ka: Pin<&mut KeepAlive>, date: &DateTimeHandle) -> io::Result<()> {
+    ka.as_mut().update(date.now() + Duration::from_secs(5));
+
+    let mut read_buf = BytesMut::with_capacity(4096);
+
+    loop {
+        read_buf.clear();
+
+        match io.read(read_buf).timeout(ka.as_mut()).await {
+            Ok((res, buf)) => {
+                read_buf = buf;
+
+                if res? == 0 {
+                    return Ok(());
+                }
+            }
+            Err(_) => return Ok(()),
+        }
+    }
 }
