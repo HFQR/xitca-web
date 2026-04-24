@@ -186,16 +186,9 @@ impl<S> _DecodeContext<'_, S> {
                     }
                     (incr, id) => {
                         let incr = incr as i64;
-                        let window = flow.send_connection_window;
-                        if let Some(state) = flow.stream_map.get_mut(&id) {
-                            if state.send.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                state.try_set_reset(StreamError::WindowUpdateOverflow);
-                            } else {
-                                state.send.window += incr;
-                                if window > 0 {
-                                    state.send.wake();
-                                }
-                            }
+                        let conn_window_positive = flow.send_connection_window > 0;
+                        if let Some(stream) = flow.stream_map.get_mut(&id) {
+                            stream.try_send_window_update(incr, conn_window_positive);
                         }
                     }
                 }
@@ -488,12 +481,9 @@ impl FlowControl {
     /// now have a positive window. Use `delta = 0` to wake without changing
     /// windows (e.g. after a connection-level WINDOW_UPDATE).
     fn update_and_wake_send_streams(&mut self, delta: i64) {
-        for state in self.stream_map.values_mut() {
-            let sf = &mut state.send;
-            sf.window += delta;
-            if sf.window > 0 {
-                sf.wake();
-            }
+        let conn_window_positive = self.send_connection_window > 0;
+        for stream in self.stream_map.values_mut() {
+            stream.send_window_update(delta, conn_window_positive);
         }
     }
 
@@ -701,12 +691,10 @@ impl FlowControl {
             self.send_stream_initial_window = new_window;
 
             if delta > 0 {
-                let overflow = self
-                    .stream_map
-                    .values()
-                    .any(|s| s.send.window + delta > settings::MAX_INITIAL_WINDOW_SIZE as i64);
-                if overflow {
-                    return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
+                for stream in self.stream_map.values() {
+                    stream
+                        .send_window_check(delta)
+                        .map_err(|err| Error::GoAway(err.reason()))?;
                 }
             }
 
@@ -718,8 +706,8 @@ impl FlowControl {
         if let Some(frame_size) = setting.max_frame_size() {
             let frame_size = frame_size as usize;
             self.max_frame_size = frame_size;
-            for state in self.stream_map.values_mut() {
-                state.send.frame_size = frame_size;
+            for stream in self.stream_map.values_mut() {
+                stream.send_frame_size_update(frame_size);
             }
         }
 
