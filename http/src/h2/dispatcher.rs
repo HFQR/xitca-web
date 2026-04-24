@@ -71,12 +71,13 @@ use super::{
     },
 };
 
-struct DecodeContext<'a, S> {
-    ctx: _DecodeContext<'a, S>,
+struct Decoder<'a, S> {
+    ctx: DecodeContext<'a, S>,
     flow: &'a Shared,
 }
 
-struct _DecodeContext<'a, S> {
+struct DecodeContext<'a, S> {
+    max_frame_size: usize,
     max_header_list_size: usize,
     max_concurrent_streams: usize,
     recv_threshold: StreamRecvWindowThreshold,
@@ -88,7 +89,7 @@ struct _DecodeContext<'a, S> {
     date: &'a DateTimeHandle,
 }
 
-impl<S> _DecodeContext<'_, S> {
+impl<S> DecodeContext<'_, S> {
     fn try_decode(&mut self, buf: &mut BytesMut, flow: &mut FlowControl) -> Result<Option<Decoded>, Error> {
         loop {
             if self.next_frame_len == 0 {
@@ -96,7 +97,7 @@ impl<S> _DecodeContext<'_, S> {
                     return Ok(None);
                 }
                 let payload_len = buf.get_uint(3) as usize;
-                if payload_len > settings::DEFAULT_MAX_FRAME_SIZE as usize {
+                if payload_len > self.max_frame_size {
                     return Err(Error::GoAway(Reason::FRAME_SIZE_ERROR));
                 }
                 self.next_frame_len = payload_len + 6;
@@ -140,87 +141,41 @@ impl<S> _DecodeContext<'_, S> {
         frame: BytesMut,
         flow: &mut FlowControl,
     ) -> Result<Option<Decoded>, Error> {
-        match (head.kind(), &self.continuation) {
-            (head::Kind::Continuation, _) => return self.handle_continuation(head, frame, flow),
-            // RFC 7540 §6.10: while a header block is in progress, the peer
-            // MUST NOT send any frame type other than CONTINUATION.  Any
-            // other frame on any stream is a connection error PROTOCOL_ERROR.
-            (_, Some(_)) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-            (head::Kind::Headers, _) => {
+        if self.continuation.is_some() && !matches!(head.kind(), head::Kind::Continuation) {
+            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+        }
+
+        match head.kind() {
+            head::Kind::Headers => {
                 let (headers, payload) = headers::Headers::load(head, frame)?;
                 let is_end_headers = headers.is_end_headers();
-                return self.handle_headers(headers, payload, is_end_headers, flow);
+                return self.handle_header(headers, payload, is_end_headers, flow);
             }
-            (head::Kind::Data, _) => {
+            head::Kind::Data => {
                 let data = Data::load(head, frame.freeze())?;
                 flow.handle_data(data)?;
             }
-            (head::Kind::WindowUpdate, _) => {
+            head::Kind::WindowUpdate => {
                 let window = WindowUpdate::load(head, frame.as_ref())?;
-
-                let id = window.stream_id();
-                flow.check_not_idle(id)?;
-
-                match (window.size_increment(), id) {
-                    (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-                    (0, id) => {
-                        if let Some(state) = flow.stream_map.get_mut(&id) {
-                            state.try_set_reset(StreamError::WindowUpdateZeroIncrement);
-                        }
-                    }
-                    (incr, StreamId::ZERO) => {
-                        let incr = incr as usize;
-
-                        if flow.send_connection_window + incr > settings::MAX_INITIAL_WINDOW_SIZE {
-                            return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
-                        }
-
-                        let was_zero = flow.send_connection_window == 0;
-                        flow.send_connection_window += incr;
-
-                        // Only wake streams if the connection window just became
-                        // available — if it was already >0, no stream was blocked on it.
-                        if was_zero {
-                            flow.update_and_wake_send_streams(0);
-                        }
-                    }
-                    (incr, id) => {
-                        let incr = incr as i64;
-                        let conn_window_positive = flow.send_connection_window > 0;
-                        if let Some(stream) = flow.stream_map.get_mut(&id) {
-                            stream.try_send_window_update(incr, conn_window_positive);
-                        }
-                    }
-                }
+                flow.handle_window_update(window)?;
             }
-            (head::Kind::Ping, _) => {
+            head::Kind::Ping => {
                 let ping = Ping::load(head, frame.as_ref())?;
-                if ping.is_ack {
-                    // ACK for our keepalive PING: return to Idle so `PingPong::tick`
-                    // does not time out on the next tick.
-                    flow.queue.keepalive_ping = KeepalivePing::Idle;
-                } else {
-                    // Client-initiated PING: always overwrite; we reply with ACK.
-                    flow.queue.pending_client_ping = Some(ping.payload);
-                }
+                flow.handle_ping(ping);
             }
-            (head::Kind::Reset, _) => {
+            head::Kind::Reset => {
                 let reset = Reset::load(head, frame.as_ref())?;
-                let id = reset.stream_id();
-                if id.is_zero() {
-                    return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
-                }
-                flow.check_not_idle(id)?;
-                flow.try_reset_stream(id)?;
+                flow.handle_reset(reset)?;
             }
-            (head::Kind::GoAway, _) => {
+            head::Kind::GoAway => {
                 let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
                 return Err(Error::GoAway(go_away.reason()));
             }
-            (head::Kind::Priority, _) => handle_priority(head.stream_id(), &frame)?,
-            (head::Kind::PushPromise, _) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-            (head::Kind::Settings, _) => flow.handle_settings(head, &frame)?,
-            (head::Kind::Unknown, _) => {}
+            head::Kind::Continuation => return self.handle_continuation(head, frame, flow),
+            head::Kind::Priority => handle_priority(head.stream_id(), &frame)?,
+            head::Kind::PushPromise => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            head::Kind::Settings => flow.handle_settings(head, &frame)?,
+            head::Kind::Unknown => {}
         }
         Ok(None)
     }
@@ -244,10 +199,10 @@ impl<S> _DecodeContext<'_, S> {
         }
 
         payload.unsplit(frame);
-        self.handle_headers(headers, payload, is_end_headers, flow)
+        self.handle_header(headers, payload, is_end_headers, flow)
     }
 
-    fn handle_headers(
+    fn handle_header(
         &mut self,
         mut headers: headers::Headers,
         mut payload: BytesMut,
@@ -281,119 +236,18 @@ impl<S> _DecodeContext<'_, S> {
         }
 
         let id = headers.stream_id();
-        self.handle_header_frame(id, headers, flow)
-    }
 
-    fn handle_header_frame(
-        &mut self,
-        id: StreamId,
-        headers: headers::Headers,
-        flow: &mut FlowControl,
-    ) -> Result<Option<Decoded>, Error> {
-        let end_stream = headers.is_end_stream();
-
-        let (pseudo, headers) = headers.into_parts();
-
-        if !flow.last_stream_id.check_idle(id) {
-            let stream = flow
-                .stream_map
-                .get_mut(&id)
-                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
-
-            // pseudo is not checked for legitmacy and ignored when receiving trailers.
-
-            match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
-                RecvData::Queued(_) => {}
-                _ => flow.inline_remove_stream(id)?,
-            }
-            return Ok(None);
-        }
-
-        // Validate and advance the stream-ID boundary before any
-        // application-level checks. This ensures protocol violations
-        // (non-client-initiated, non-monotonic) produce GOAWAY rather
-        // than being masked by REFUSED_STREAM.
-        // Saturated (post-GOAWAY): silently drop the frame.
-        if flow.last_stream_id.try_set(id)?.is_none() {
-            return Ok(None);
-        }
-
-        // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
-        // stream_map holds streams in open / half-closed states — exactly
-        // those that count toward the concurrent-stream limit.
-        if flow.stream_map.len() >= self.max_concurrent_streams {
-            return Err(Error::Reset(Reason::REFUSED_STREAM));
-        }
-
-        // RFC 7540 §8.1.2.6: parse content-length before headers are moved into the request.
-        // Only meaningful when there will be DATA frames (not end_stream).
-        // Malformed content-length → RST_STREAM PROTOCOL_ERROR per §8.1.2.6.
-        let content_length =
-            BodySize::from_header(&headers, end_stream).map_err(|_| Error::Reset(Reason::PROTOCOL_ERROR))?;
-
-        // :method is required; stream was seen so the boundary must
-        // advance (no-op once saturated, but the saturation gate
-        // above already returned in that case).
-        let method = pseudo.method.ok_or(Error::Reset(Reason::PROTOCOL_ERROR))?;
-
-        let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
-
-        // RFC 8441 §4: extended CONNECT follows normal request rules.
-        let is_strict_connect = method == Method::CONNECT && protocol.is_none();
-
-        // Validate and build URI from pseudo-headers in one pass.
-        // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme or :path.
-        // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme and non-empty :path.
-        let mut uri_parts = uri::Parts::default();
-
-        if let Some(authority) = pseudo.authority {
-            if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
-                uri_parts.authority = Some(a);
-            }
-        }
-
-        match (is_strict_connect, pseudo.scheme) {
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme.
-            // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme.
-            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
-            (false, Some(scheme)) if uri_parts.authority.is_some() => {
-                if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
-                    uri_parts.scheme = Some(s);
-                }
-            }
-            _ => {}
-        }
-
-        match (is_strict_connect, pseudo.path) {
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :path.
-            // RFC 7540 §8.3: regular CONNECT MUST NOT include :path.
-            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
-            (_, Some(path)) if !path.is_empty() => {
-                if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
-                    uri_parts.path_and_query = Some(pq);
-                }
-            }
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include non empty :path.
-            (false, _) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)), // empty :path
-            _ => {}
-        }
-
-        let ext = Extension::with_protocol(self.addr, protocol);
-
-        let mut req = Request::new(RequestExt::from_parts((), ext));
-        *req.version_mut() = Version::HTTP_2;
-        *req.headers_mut() = headers;
-        *req.method_mut() = method;
-
-        if let Ok(uri) = Uri::from_parts(uri_parts) {
-            *req.uri_mut() = uri;
-        }
-
-        flow.insert_stream(id, end_stream, content_length);
-
-        let req = req.map(|ext| ext.map_body(|_| (id, content_length)));
-
-        Ok(Some((req, id)))
+        flow.handle_header(id, headers, self.max_concurrent_streams).map(|opt| {
+            opt.map(|req| {
+                (
+                    req.map(|(size, protocol)| {
+                        let ext = Extension::with_protocol(self.addr, protocol);
+                        RequestExt::from_parts((id, size), ext)
+                    }),
+                    id,
+                )
+            })
+        })
     }
 }
 
@@ -416,6 +270,8 @@ enum KeepalivePing {
     Pending,
     InFlight,
 }
+
+type DecodedRequest = Request<(SizeHint, Option<Protocol>)>;
 
 pub(super) struct FlowControl {
     /// Remaining bytes we may send on the whole connection.
@@ -485,23 +341,6 @@ impl FlowControl {
         for stream in self.stream_map.values_mut() {
             stream.send_window_update(delta, conn_window_positive);
         }
-    }
-
-    // A RST_STREAM is "premature" if the stream is still tracked — either
-    // the response task is running or the request body is still being
-    // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
-    #[cold]
-    #[inline(never)]
-    fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
-        self.try_tick_reset()?;
-
-        let Some(stream) = self.stream_map.get_mut(&id) else {
-            return Ok(());
-        };
-
-        stream.try_set_peer_reset();
-
-        self.inline_remove_stream(id)
     }
 
     pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
@@ -589,6 +428,108 @@ impl FlowControl {
         Ok(())
     }
 
+    fn handle_header(
+        &mut self,
+        id: StreamId,
+        headers: headers::Headers,
+        max_concurrent_streams: usize,
+    ) -> Result<Option<DecodedRequest>, Error> {
+        let end_stream = headers.is_end_stream();
+
+        let (pseudo, headers) = headers.into_parts();
+
+        if !self.last_stream_id.check_idle(id) {
+            let stream = self
+                .stream_map
+                .get_mut(&id)
+                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
+
+            // pseudo is not checked for legitmacy and ignored when receiving trailers.
+
+            match stream.try_recv_trailers(&mut self.frame_buf, headers, end_stream)? {
+                RecvData::Queued(_) => {}
+                _ => self.inline_remove_stream(id)?,
+            }
+            return Ok(None);
+        }
+
+        // Validate and advance the stream-ID boundary before any
+        // application-level checks. This ensures protocol violations
+        // (non-client-initiated, non-monotonic) produce GOAWAY rather
+        // than being masked by REFUSED_STREAM.
+        // Saturated (post-GOAWAY): silently drop the frame.
+        if self.last_stream_id.try_set(id)?.is_none() {
+            return Ok(None);
+        }
+
+        if self.stream_map.len() >= max_concurrent_streams {
+            return Err(Error::Reset(Reason::REFUSED_STREAM));
+        }
+
+        let content_length =
+            BodySize::from_header(&headers, end_stream).map_err(|_| Error::Reset(Reason::PROTOCOL_ERROR))?;
+
+        // :method is required; stream was seen so the boundary must
+        // advance (no-op once saturated, but the saturation gate
+        // above already returned in that case).
+        let method = pseudo.method.ok_or(Error::Reset(Reason::PROTOCOL_ERROR))?;
+
+        let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
+
+        // RFC 8441 §4: extended CONNECT follows normal request rules.
+        let is_strict_connect = method == Method::CONNECT && protocol.is_none();
+
+        // Validate and build URI from pseudo-headers in one pass.
+        // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme or :path.
+        // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme and non-empty :path.
+        let mut uri_parts = uri::Parts::default();
+
+        if let Some(authority) = pseudo.authority {
+            if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
+                uri_parts.authority = Some(a);
+            }
+        }
+
+        match (is_strict_connect, pseudo.scheme) {
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme.
+            // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme.
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
+            (false, Some(scheme)) if uri_parts.authority.is_some() => {
+                if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
+                    uri_parts.scheme = Some(s);
+                }
+            }
+            _ => {}
+        }
+
+        match (is_strict_connect, pseudo.path) {
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :path.
+            // RFC 7540 §8.3: regular CONNECT MUST NOT include :path.
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
+            (_, Some(path)) if !path.is_empty() => {
+                if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
+                    uri_parts.path_and_query = Some(pq);
+                }
+            }
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include non empty :path.
+            (false, _) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)), // empty :path
+            _ => {}
+        }
+
+        let mut req = Request::new((content_length, protocol));
+        *req.version_mut() = Version::HTTP_2;
+        *req.headers_mut() = headers;
+        *req.method_mut() = method;
+
+        if let Ok(uri) = Uri::from_parts(uri_parts) {
+            *req.uri_mut() = uri;
+        }
+
+        self.insert_stream(id, end_stream, content_length);
+
+        Ok(Some(req))
+    }
+
     fn handle_data(&mut self, data: Data) -> Result<(), Error> {
         let id = data.stream_id();
         self.check_not_idle(id)?;
@@ -631,9 +572,84 @@ impl FlowControl {
         Ok(())
     }
 
+    fn handle_window_update(&mut self, window: WindowUpdate) -> Result<(), Error> {
+        let id = window.stream_id();
+        self.check_not_idle(id)?;
+
+        match (window.size_increment(), id) {
+            (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            (0, id) => {
+                if let Some(state) = self.stream_map.get_mut(&id) {
+                    state.try_set_reset(StreamError::WindowUpdateZeroIncrement);
+                }
+            }
+            (incr, StreamId::ZERO) => {
+                let incr = incr as usize;
+
+                if self.send_connection_window + incr > settings::MAX_INITIAL_WINDOW_SIZE {
+                    return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
+                }
+
+                let was_zero = self.send_connection_window == 0;
+                self.send_connection_window += incr;
+
+                // Only wake streams if the connection window just became
+                // available — if it was already >0, no stream was blocked on it.
+                if was_zero {
+                    self.update_and_wake_send_streams(0);
+                }
+            }
+            (incr, id) => {
+                let incr = incr as i64;
+                let conn_window_positive = self.send_connection_window > 0;
+                if let Some(stream) = self.stream_map.get_mut(&id) {
+                    stream.try_send_window_update(incr, conn_window_positive);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_ping(&mut self, ping: Ping) {
+        if ping.is_ack {
+            // ACK for our keepalive PING: return to Idle so `PingPong::tick`
+            // does not time out on the next tick.
+            self.queue.keepalive_ping = KeepalivePing::Idle;
+        } else {
+            // Client-initiated PING: always overwrite; we reply with ACK.
+            self.queue.pending_client_ping = Some(ping.payload);
+        }
+    }
+
     #[cold]
     #[inline(never)]
-    fn reset(&mut self, id: &StreamId) {
+    fn handle_reset(&mut self, reset: Reset) -> Result<(), Error> {
+        let id = reset.stream_id();
+
+        if id.is_zero() {
+            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+        }
+
+        self.check_not_idle(id)?;
+
+        // A RST_STREAM is "premature" if the stream is still tracked — either
+        // the response task is running or the request body is still being
+        // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
+        self.try_tick_reset()?;
+
+        let Some(stream) = self.stream_map.get_mut(&id) else {
+            return Ok(());
+        };
+
+        stream.try_set_peer_reset();
+
+        self.inline_remove_stream(id)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn internal_reset(&mut self, id: &StreamId) {
         self.stream_map
             .get_mut(id)
             .expect(STREAM_MUST_EXIST)
@@ -901,17 +917,19 @@ impl WriterQueue {
 
 type Decoded = (Request<RequestExt<(StreamId, SizeHint)>>, StreamId);
 
-impl<'a, S> DecodeContext<'a, S> {
+impl<'a, S> Decoder<'a, S> {
     fn new(
         flow: &'a Shared,
         service: &'a S,
+        max_frame_size: usize,
         max_concurrent_streams: usize,
         recv_threshold: StreamRecvWindowThreshold,
         addr: SocketAddr,
         date: &'a DateTimeHandle,
     ) -> Self {
         Self {
-            ctx: _DecodeContext {
+            ctx: DecodeContext {
+                max_frame_size,
                 max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
                 max_concurrent_streams,
                 recv_threshold,
@@ -1041,7 +1059,7 @@ where
         .await
         .unwrap_or_else(|_| {
             let mut flow = ctx.borrow_mut();
-            flow.reset(&stream_id);
+            flow.internal_reset(&stream_id);
             flow
         })
         .response_task_done(stream_id)
@@ -1262,6 +1280,7 @@ where
     settings.set_max_header_list_size(Some(config.h2_max_header_list_size));
     settings.set_enable_connect_protocol(Some(1));
 
+    let max_frame_size = config.h2_max_frame_size as usize;
     let max_concurrent_streams = config.h2_max_concurrent_streams as usize;
 
     let mut flow = FlowControl {
@@ -1286,7 +1305,15 @@ where
     let shared = Rc::new(RefCell::new(flow));
 
     let recv_threshold = StreamRecvWindowThreshold::from(&settings);
-    let mut ctx = DecodeContext::new(&shared, service, max_concurrent_streams, recv_threshold, addr, date);
+    let mut ctx = Decoder::new(
+        &shared,
+        service,
+        max_frame_size,
+        max_concurrent_streams,
+        recv_threshold,
+        addr,
+        date,
+    );
     let mut enc = EncodeContext::new(&shared);
 
     let mut queue = Queue::new();

@@ -1,3 +1,8 @@
+# unreleased
+## Fix
+- fix HTTP/2 stream send window update
+- fix HTTP/2 stream recv frame size
+
 # 0.9.3
 ## Change
 - strip response body for HEAD request for HTTP/2
