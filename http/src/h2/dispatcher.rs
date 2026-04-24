@@ -71,17 +71,183 @@ use super::{
     },
 };
 
+struct Decoder<'a, S> {
+    ctx: DecodeContext<'a, S>,
+    flow: &'a Shared,
+}
+
 struct DecodeContext<'a, S> {
+    max_frame_size: usize,
     max_header_list_size: usize,
     max_concurrent_streams: usize,
-    recv_threshold: StreamRecvWindowThreshold,
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
     service: &'a S,
-    ctx: &'a Shared,
     addr: SocketAddr,
     date: &'a DateTimeHandle,
+}
+
+impl<S> DecodeContext<'_, S> {
+    fn try_decode(&mut self, buf: &mut BytesMut, flow: &mut FlowControl) -> Result<Option<Decoded>, Error> {
+        loop {
+            if self.next_frame_len == 0 {
+                if buf.len() < 3 {
+                    return Ok(None);
+                }
+                let payload_len = buf.get_uint(3) as usize;
+                if payload_len > self.max_frame_size {
+                    return Err(Error::GoAway(Reason::FRAME_SIZE_ERROR));
+                }
+                self.next_frame_len = payload_len + 6;
+            }
+
+            if buf.len() < self.next_frame_len {
+                return Ok(None);
+            }
+
+            let len = mem::replace(&mut self.next_frame_len, 0);
+            let mut frame = buf.split_to(len);
+            let head = head::Head::parse(&frame);
+
+            // TODO: Make Head::parse auto advance the frame?
+            frame.advance(6);
+
+            if let Some(decoded) = self.decode_frame(head, frame, flow)? {
+                return Ok(Some(decoded));
+            }
+        }
+    }
+
+    fn decode_frame(
+        &mut self,
+        head: head::Head,
+        frame: BytesMut,
+        flow: &mut FlowControl,
+    ) -> Result<Option<Decoded>, Error> {
+        match self._decode_frame(head, frame, flow) {
+            Err(Error::Reset(reason)) => {
+                flow.try_push_reset(head.stream_id(), reason)?;
+                Ok(None)
+            }
+            res => res,
+        }
+    }
+
+    fn _decode_frame(
+        &mut self,
+        head: head::Head,
+        frame: BytesMut,
+        flow: &mut FlowControl,
+    ) -> Result<Option<Decoded>, Error> {
+        if self.continuation.is_some() && !matches!(head.kind(), head::Kind::Continuation) {
+            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+        }
+
+        match head.kind() {
+            head::Kind::Headers => {
+                let (headers, payload) = headers::Headers::load(head, frame)?;
+                let is_end_headers = headers.is_end_headers();
+                return self.handle_header(headers, payload, is_end_headers, flow);
+            }
+            head::Kind::Data => {
+                let data = Data::load(head, frame.freeze())?;
+                flow.handle_data(data)?;
+            }
+            head::Kind::WindowUpdate => {
+                let window = WindowUpdate::load(head, frame.as_ref())?;
+                flow.handle_window_update(window)?;
+            }
+            head::Kind::Ping => {
+                let ping = Ping::load(head, frame.as_ref())?;
+                flow.handle_ping(ping);
+            }
+            head::Kind::Reset => {
+                let reset = Reset::load(head, frame.as_ref())?;
+                flow.handle_reset(reset)?;
+            }
+            head::Kind::GoAway => {
+                let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
+                return Err(Error::GoAway(go_away.reason()));
+            }
+            head::Kind::Continuation => return self.handle_continuation(head, frame, flow),
+            head::Kind::Priority => handle_priority(head.stream_id(), &frame)?,
+            head::Kind::PushPromise => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            head::Kind::Settings => flow.handle_settings(head, &frame)?,
+            head::Kind::Unknown => {}
+        }
+        Ok(None)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn handle_continuation(
+        &mut self,
+        head: head::Head,
+        frame: BytesMut,
+        flow: &mut FlowControl,
+    ) -> Result<Option<Decoded>, Error> {
+        let is_end_headers = (head.flag() & 0x4) == 0x4;
+
+        let (headers, mut payload) = self.continuation.take().ok_or(Error::GoAway(Reason::PROTOCOL_ERROR))?;
+
+        // RFC 7540 §6.10: CONTINUATION without a preceding incomplete HEADERS
+        // is a connection error PROTOCOL_ERROR
+        if headers.stream_id() != head.stream_id() {
+            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+        }
+
+        payload.unsplit(frame);
+        self.handle_header(headers, payload, is_end_headers, flow)
+    }
+
+    fn handle_header(
+        &mut self,
+        mut headers: headers::Headers,
+        mut payload: BytesMut,
+        is_end_headers: bool,
+        flow: &mut FlowControl,
+    ) -> Result<Option<Decoded>, Error> {
+        if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
+            return match e {
+                // NeedMore on a multi-frame header block is normal; accumulate and wait
+                // for CONTINUATION frames (RFC 7540 §6.10).
+                ProtoError::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
+                    self.continuation = Some((headers, payload));
+                    Ok(None)
+                }
+                // Pseudo-header validation errors are stream-level (RFC 7540 §8.1.2).
+                // The HPACK context was decoded successfully so no compression error.
+                ProtoError::MalformedMessage => {
+                    let id = headers.stream_id();
+                    if flow.last_stream_id.try_set(id)?.is_none() {
+                        return Ok(None);
+                    }
+                    Err(Error::Reset(Reason::PROTOCOL_ERROR))
+                }
+                _ => Err(Error::GoAway(Reason::COMPRESSION_ERROR)),
+            };
+        }
+
+        if !is_end_headers {
+            self.continuation = Some((headers, payload));
+            return Ok(None);
+        }
+
+        let id = headers.stream_id();
+
+        flow.handle_header(id, headers, self.max_concurrent_streams).map(|opt| {
+            opt.map(|req| {
+                (
+                    req.map(|(size, protocol)| {
+                        let ext = Extension::with_protocol(self.addr, protocol);
+                        RequestExt::from_parts((id, size), ext)
+                    }),
+                    id,
+                )
+            })
+        })
+    }
 }
 
 pub(super) type Frame = crate::body::Frame<Bytes>;
@@ -104,6 +270,8 @@ enum KeepalivePing {
     InFlight,
 }
 
+type DecodedRequest = Request<(SizeHint, Option<Protocol>)>;
+
 pub(super) struct FlowControl {
     /// Remaining bytes we may send on the whole connection.
     send_connection_window: usize,
@@ -115,6 +283,7 @@ pub(super) struct FlowControl {
     recv_stream_initial_window: usize,
     /// Remaining bytes we are willing to receive on the whole connection.
     recv_connection_window: usize,
+    recv_threshold: StreamRecvWindowThreshold,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
     pub(super) stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
@@ -168,30 +337,10 @@ impl FlowControl {
     /// now have a positive window. Use `delta = 0` to wake without changing
     /// windows (e.g. after a connection-level WINDOW_UPDATE).
     fn update_and_wake_send_streams(&mut self, delta: i64) {
-        for state in self.stream_map.values_mut() {
-            let sf = &mut state.send;
-            sf.window += delta;
-            if sf.window > 0 {
-                sf.wake();
-            }
+        let conn_window_positive = self.send_connection_window > 0;
+        for stream in self.stream_map.values_mut() {
+            stream.send_window_update(delta, conn_window_positive);
         }
-    }
-
-    // A RST_STREAM is "premature" if the stream is still tracked — either
-    // the response task is running or the request body is still being
-    // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
-    #[cold]
-    #[inline(never)]
-    fn try_reset_stream(&mut self, id: StreamId) -> Result<(), Error> {
-        self.try_tick_reset()?;
-
-        let Some(stream) = self.stream_map.get_mut(&id) else {
-            return Ok(());
-        };
-
-        stream.try_set_peer_reset();
-
-        self.inline_remove_stream(id)
     }
 
     pub(super) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
@@ -279,6 +428,108 @@ impl FlowControl {
         Ok(())
     }
 
+    fn handle_header(
+        &mut self,
+        id: StreamId,
+        headers: headers::Headers,
+        max_concurrent_streams: usize,
+    ) -> Result<Option<DecodedRequest>, Error> {
+        let end_stream = headers.is_end_stream();
+
+        let (pseudo, headers) = headers.into_parts();
+
+        if !self.last_stream_id.check_idle(id) {
+            let stream = self
+                .stream_map
+                .get_mut(&id)
+                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
+
+            // pseudo is not checked for legitmacy and ignored when receiving trailers.
+
+            match stream.try_recv_trailers(&mut self.frame_buf, headers, end_stream)? {
+                RecvData::Queued(_) => {}
+                _ => self.inline_remove_stream(id)?,
+            }
+            return Ok(None);
+        }
+
+        // Validate and advance the stream-ID boundary before any
+        // application-level checks. This ensures protocol violations
+        // (non-client-initiated, non-monotonic) produce GOAWAY rather
+        // than being masked by REFUSED_STREAM.
+        // Saturated (post-GOAWAY): silently drop the frame.
+        if self.last_stream_id.try_set(id)?.is_none() {
+            return Ok(None);
+        }
+
+        if self.stream_map.len() >= max_concurrent_streams {
+            return Err(Error::Reset(Reason::REFUSED_STREAM));
+        }
+
+        let content_length =
+            BodySize::from_header(&headers, end_stream).map_err(|_| Error::Reset(Reason::PROTOCOL_ERROR))?;
+
+        // :method is required; stream was seen so the boundary must
+        // advance (no-op once saturated, but the saturation gate
+        // above already returned in that case).
+        let method = pseudo.method.ok_or(Error::Reset(Reason::PROTOCOL_ERROR))?;
+
+        let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
+
+        // RFC 8441 §4: extended CONNECT follows normal request rules.
+        let is_strict_connect = method == Method::CONNECT && protocol.is_none();
+
+        // Validate and build URI from pseudo-headers in one pass.
+        // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme or :path.
+        // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme and non-empty :path.
+        let mut uri_parts = uri::Parts::default();
+
+        if let Some(authority) = pseudo.authority {
+            if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
+                uri_parts.authority = Some(a);
+            }
+        }
+
+        match (is_strict_connect, pseudo.scheme) {
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme.
+            // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme.
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
+            (false, Some(scheme)) if uri_parts.authority.is_some() => {
+                if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
+                    uri_parts.scheme = Some(s);
+                }
+            }
+            _ => {}
+        }
+
+        match (is_strict_connect, pseudo.path) {
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :path.
+            // RFC 7540 §8.3: regular CONNECT MUST NOT include :path.
+            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
+            (_, Some(path)) if !path.is_empty() => {
+                if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
+                    uri_parts.path_and_query = Some(pq);
+                }
+            }
+            // RFC 7540 §8.1.2.3: non-CONNECT MUST include non empty :path.
+            (false, _) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)), // empty :path
+            _ => {}
+        }
+
+        let mut req = Request::new((content_length, protocol));
+        *req.version_mut() = Version::HTTP_2;
+        *req.headers_mut() = headers;
+        *req.method_mut() = method;
+
+        if let Ok(uri) = Uri::from_parts(uri_parts) {
+            *req.uri_mut() = uri;
+        }
+
+        self.insert_stream(id, end_stream, content_length);
+
+        Ok(Some(req))
+    }
+
     fn handle_data(&mut self, data: Data) -> Result<(), Error> {
         let id = data.stream_id();
         self.check_not_idle(id)?;
@@ -321,9 +572,84 @@ impl FlowControl {
         Ok(())
     }
 
+    fn handle_window_update(&mut self, window: WindowUpdate) -> Result<(), Error> {
+        let id = window.stream_id();
+        self.check_not_idle(id)?;
+
+        match (window.size_increment(), id) {
+            (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
+            (0, id) => {
+                if let Some(state) = self.stream_map.get_mut(&id) {
+                    state.try_set_reset(StreamError::WindowUpdateZeroIncrement);
+                }
+            }
+            (incr, StreamId::ZERO) => {
+                let incr = incr as usize;
+
+                if self.send_connection_window + incr > settings::MAX_INITIAL_WINDOW_SIZE {
+                    return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
+                }
+
+                let was_zero = self.send_connection_window == 0;
+                self.send_connection_window += incr;
+
+                // Only wake streams if the connection window just became
+                // available — if it was already >0, no stream was blocked on it.
+                if was_zero {
+                    self.update_and_wake_send_streams(0);
+                }
+            }
+            (incr, id) => {
+                let incr = incr as i64;
+                let conn_window_positive = self.send_connection_window > 0;
+                if let Some(stream) = self.stream_map.get_mut(&id) {
+                    stream.try_send_window_update(incr, conn_window_positive);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_ping(&mut self, ping: Ping) {
+        if ping.is_ack {
+            // ACK for our keepalive PING: return to Idle so `PingPong::tick`
+            // does not time out on the next tick.
+            self.queue.keepalive_ping = KeepalivePing::Idle;
+        } else {
+            // Client-initiated PING: always overwrite; we reply with ACK.
+            self.queue.pending_client_ping = Some(ping.payload);
+        }
+    }
+
     #[cold]
     #[inline(never)]
-    fn reset(&mut self, id: &StreamId) {
+    fn handle_reset(&mut self, reset: Reset) -> Result<(), Error> {
+        let id = reset.stream_id();
+
+        if id.is_zero() {
+            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
+        }
+
+        self.check_not_idle(id)?;
+
+        // A RST_STREAM is "premature" if the stream is still tracked — either
+        // the response task is running or the request body is still being
+        // received. Count these to detect rapid-reset abuse (CVE-2023-44487).
+        self.try_tick_reset()?;
+
+        let Some(stream) = self.stream_map.get_mut(&id) else {
+            return Ok(());
+        };
+
+        stream.try_set_peer_reset();
+
+        self.inline_remove_stream(id)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn internal_reset(&mut self, id: &StreamId) {
         self.stream_map
             .get_mut(id)
             .expect(STREAM_MUST_EXIST)
@@ -350,6 +676,36 @@ impl FlowControl {
         fatal
     }
 
+    pub(super) fn poll_stream_frame(
+        &mut self,
+        id: &StreamId,
+        pending_window: &mut usize,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame, StreamError>>> {
+        let stream = self.stream_map.get_mut(id).expect(STREAM_MUST_EXIST);
+
+        stream.poll_frame(&mut self.frame_buf, cx).map_ok(|frame| {
+            if let Some(bytes) = frame.data_ref() {
+                *pending_window += bytes.len();
+
+                if *pending_window >= self.recv_threshold {
+                    let window = mem::replace(pending_window, 0);
+                    stream.recv_window_update(window);
+                    self.queue.connection_window_update(window);
+                    self.queue.messages.push_back(Message::WindowUpdate {
+                        stream_id: *id,
+                        size: window,
+                    });
+                }
+            }
+            frame
+        })
+    }
+
+    pub(super) fn is_recv_end_stream(&self, id: &StreamId) -> bool {
+        self.stream_map.get(id).expect(STREAM_MUST_EXIST).is_recv_end_stream()
+    }
+
     pub(super) fn try_set_pending_ping(&mut self) -> io::Result<()> {
         if self.queue.keepalive_ping != KeepalivePing::Idle {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout"));
@@ -363,6 +719,113 @@ impl FlowControl {
             Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM))
         } else {
             Ok(())
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn handle_settings(&mut self, head: head::Head, frame: &BytesMut) -> Result<(), Error> {
+        let setting = Settings::load(head, frame)?;
+
+        if setting.is_ack() {
+            return Ok(());
+        }
+
+        if let Some(new_window) = setting.initial_window_size() {
+            let new_window = new_window as i64;
+            let delta = new_window - self.send_stream_initial_window;
+            self.send_stream_initial_window = new_window;
+
+            if delta > 0 {
+                for stream in self.stream_map.values() {
+                    stream
+                        .send_window_check(delta)
+                        .map_err(|err| Error::GoAway(err.reason()))?;
+                }
+            }
+
+            if delta != 0 {
+                self.update_and_wake_send_streams(delta);
+            }
+        }
+
+        if let Some(frame_size) = setting.max_frame_size() {
+            let frame_size = frame_size as usize;
+            self.max_frame_size = frame_size;
+            for stream in self.stream_map.values_mut() {
+                stream.send_frame_size_update(frame_size);
+            }
+        }
+
+        // Record the pending ACK. A second SETTINGS before the first is ACKed
+        // is a protocol violation and returns ENHANCE_YOUR_CALM (CVE-2019-9515).
+        self.queue.pending_settings.try_update(setting)
+    }
+
+    fn poll_encode(
+        &mut self,
+        write_buf: &mut BytesMut,
+        encoder: &mut hpack::Encoder,
+        cx: &mut Context<'_>,
+    ) -> Poll<bool> {
+        // remote_setting can contain updated states for following encoding
+        self.queue.pending_settings.encode(encoder, write_buf);
+
+        while let Some(msg) = self.queue.try_recv() {
+            match msg {
+                Message::Head(headers) => {
+                    let frame_size = self.max_frame_size;
+                    let mut cont = headers.encode(encoder, &mut write_buf.limit(frame_size));
+                    while let Some(c) = cont {
+                        cont = c.encode(&mut write_buf.limit(frame_size));
+                    }
+                }
+                Message::Trailer(headers) => {
+                    let frame_size = self.max_frame_size;
+                    let mut cont = headers.encode(encoder, &mut write_buf.limit(frame_size));
+                    while let Some(c) = cont {
+                        cont = c.encode(&mut write_buf.limit(frame_size));
+                    }
+                }
+                Message::Data(mut data) => data.encode_chunk(write_buf),
+                Message::Reset { stream_id, reason } => Reset::new(stream_id, reason).encode(write_buf),
+                Message::WindowUpdate { stream_id, size } => WindowUpdate::new(stream_id, size as _).encode(write_buf),
+                Message::GoAway { last_stream_id, reason } => {
+                    GoAway::new(last_stream_id, reason).encode(write_buf);
+                    // GoAway may be graceful (queue stays open to drain in-flight frames)
+                    // or forceful (queue closed). The pusher decides via FlowControl::go_away;
+                    // we keep draining either way.
+                }
+            }
+        }
+
+        let pending = mem::replace(&mut self.queue.pending_conn_window, 0);
+        if pending > 0 {
+            self.recv_connection_window += pending;
+            WindowUpdate::new(StreamId::zero(), pending as _).encode(write_buf);
+        }
+
+        // Encode a client PING ACK if one is waiting (take-and-clear).
+        if let Some(payload) = self.queue.pending_client_ping.take() {
+            head::Head::new(head::Kind::Ping, 0x1, StreamId::zero()).encode(8, write_buf);
+            write_buf.put_slice(&payload);
+        }
+
+        // Encode our keepalive PING if it is queued but not yet sent, then
+        // transition to InFlight so we do not re-send it on the next pass.
+        if self.queue.keepalive_ping == KeepalivePing::Pending {
+            head::Head::new(head::Kind::Ping, 0x0, StreamId::zero()).encode(8, write_buf);
+            write_buf.put_slice(&[0u8; 8]);
+            self.queue.keepalive_ping = KeepalivePing::InFlight;
+        }
+
+        if !write_buf.is_empty() {
+            Poll::Ready(true)
+        } else if self.queue.is_closed() {
+            Poll::Ready(false)
+        } else {
+            self.queue.register(cx);
+            Poll::Pending
         }
     }
 }
@@ -549,372 +1012,31 @@ impl WriterQueue {
     }
 }
 
-type Decoded = (Request<RequestExt<RequestBody>>, StreamId);
+type Decoded = (Request<RequestExt<(StreamId, SizeHint)>>, StreamId);
 
-impl<'a, S> DecodeContext<'a, S> {
+impl<'a, S> Decoder<'a, S> {
     fn new(
-        ctx: &'a Shared,
+        flow: &'a Shared,
         service: &'a S,
+        max_frame_size: usize,
         max_concurrent_streams: usize,
-        recv_threshold: StreamRecvWindowThreshold,
         addr: SocketAddr,
         date: &'a DateTimeHandle,
     ) -> Self {
         Self {
-            max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
-            max_concurrent_streams,
-            recv_threshold,
-            decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
-            next_frame_len: 0,
-            continuation: None,
-            ctx,
-            service,
-            addr,
-            date,
+            ctx: DecodeContext {
+                max_frame_size,
+                max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
+                max_concurrent_streams,
+                decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
+                next_frame_len: 0,
+                continuation: None,
+                service,
+                addr,
+                date,
+            },
+            flow,
         }
-    }
-
-    fn try_decode(&mut self, buf: &mut BytesMut) -> Result<Option<Decoded>, Error> {
-        loop {
-            if self.next_frame_len == 0 {
-                if buf.len() < 3 {
-                    return Ok(None);
-                }
-                let payload_len = buf.get_uint(3) as usize;
-                if payload_len > settings::DEFAULT_MAX_FRAME_SIZE as usize {
-                    return Err(Error::GoAway(Reason::FRAME_SIZE_ERROR));
-                }
-                self.next_frame_len = payload_len + 6;
-            }
-
-            if buf.len() < self.next_frame_len {
-                return Ok(None);
-            }
-
-            let len = mem::replace(&mut self.next_frame_len, 0);
-            let mut frame = buf.split_to(len);
-            let head = head::Head::parse(&frame);
-
-            // TODO: Make Head::parse auto advance the frame?
-            frame.advance(6);
-
-            if let Some(decoded) = self.decode_frame(head, frame)? {
-                return Ok(Some(decoded));
-            }
-        }
-    }
-
-    fn decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
-        match self._decode_frame(head, frame) {
-            Err(Error::Reset(reason)) => {
-                self.ctx.borrow_mut().try_push_reset(head.stream_id(), reason)?;
-                Ok(None)
-            }
-            res => res,
-        }
-    }
-
-    fn _decode_frame(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
-        match (head.kind(), &self.continuation) {
-            (head::Kind::Continuation, _) => return self.handle_continuation(head, frame),
-            // RFC 7540 §6.10: while a header block is in progress, the peer
-            // MUST NOT send any frame type other than CONTINUATION.  Any
-            // other frame on any stream is a connection error PROTOCOL_ERROR.
-            (_, Some(_)) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-            (head::Kind::Headers, _) => {
-                let (headers, payload) = headers::Headers::load(head, frame)?;
-                let is_end_headers = headers.is_end_headers();
-                return self.handle_headers(headers, payload, is_end_headers);
-            }
-            (head::Kind::Data, _) => {
-                let data = Data::load(head, frame.freeze())?;
-                self.ctx.borrow_mut().handle_data(data)?;
-            }
-            (head::Kind::WindowUpdate, _) => {
-                let window = WindowUpdate::load(head, frame.as_ref())?;
-
-                let flow = &mut self.ctx.borrow_mut();
-
-                let id = window.stream_id();
-                flow.check_not_idle(id)?;
-
-                match (window.size_increment(), id) {
-                    (0, StreamId::ZERO) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-                    (0, id) => {
-                        if let Some(state) = flow.stream_map.get_mut(&id) {
-                            state.try_set_reset(StreamError::WindowUpdateZeroIncrement);
-                        }
-                    }
-                    (incr, StreamId::ZERO) => {
-                        let incr = incr as usize;
-
-                        if flow.send_connection_window + incr > settings::MAX_INITIAL_WINDOW_SIZE {
-                            return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
-                        }
-
-                        let was_zero = flow.send_connection_window == 0;
-                        flow.send_connection_window += incr;
-
-                        // Only wake streams if the connection window just became
-                        // available — if it was already >0, no stream was blocked on it.
-                        if was_zero {
-                            flow.update_and_wake_send_streams(0);
-                        }
-                    }
-                    (incr, id) => {
-                        let incr = incr as i64;
-                        let window = flow.send_connection_window;
-                        if let Some(state) = flow.stream_map.get_mut(&id) {
-                            if state.send.window + incr > settings::MAX_INITIAL_WINDOW_SIZE as i64 {
-                                state.try_set_reset(StreamError::WindowUpdateOverflow);
-                            } else {
-                                state.send.window += incr;
-                                if window > 0 {
-                                    state.send.wake();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            (head::Kind::Ping, _) => {
-                let ping = Ping::load(head, frame.as_ref())?;
-                if ping.is_ack {
-                    // ACK for our keepalive PING: return to Idle so `PingPong::tick`
-                    // does not time out on the next tick.
-                    self.ctx.borrow_mut().queue.keepalive_ping = KeepalivePing::Idle;
-                } else {
-                    // Client-initiated PING: always overwrite; we reply with ACK.
-                    self.ctx.borrow_mut().queue.pending_client_ping = Some(ping.payload);
-                }
-            }
-            (head::Kind::Reset, _) => {
-                let reset = Reset::load(head, frame.as_ref())?;
-                let id = reset.stream_id();
-                if id.is_zero() {
-                    return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
-                }
-                let mut inner = self.ctx.borrow_mut();
-                inner.check_not_idle(id)?;
-                inner.try_reset_stream(id)?;
-            }
-            (head::Kind::GoAway, _) => {
-                let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
-                return Err(Error::GoAway(go_away.reason()));
-            }
-            (head::Kind::Priority, _) => handle_priority(head.stream_id(), &frame)?,
-            (head::Kind::PushPromise, _) => return Err(Error::GoAway(Reason::PROTOCOL_ERROR)),
-            (head::Kind::Settings, _) => self.handle_settings(head, &frame)?,
-            (head::Kind::Unknown, _) => {}
-        }
-        Ok(None)
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn handle_continuation(&mut self, head: head::Head, frame: BytesMut) -> Result<Option<Decoded>, Error> {
-        let is_end_headers = (head.flag() & 0x4) == 0x4;
-
-        let (headers, mut payload) = self.continuation.take().ok_or(Error::GoAway(Reason::PROTOCOL_ERROR))?;
-
-        // RFC 7540 §6.10: CONTINUATION without a preceding incomplete HEADERS
-        // is a connection error PROTOCOL_ERROR
-        if headers.stream_id() != head.stream_id() {
-            return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
-        }
-
-        payload.unsplit(frame);
-        self.handle_headers(headers, payload, is_end_headers)
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn handle_settings(&mut self, head: head::Head, frame: &BytesMut) -> Result<(), Error> {
-        let setting = Settings::load(head, frame)?;
-
-        if setting.is_ack() {
-            return Ok(());
-        }
-
-        let mut flow = self.ctx.borrow_mut();
-
-        if let Some(new_window) = setting.initial_window_size() {
-            let new_window = new_window as i64;
-            let delta = new_window - flow.send_stream_initial_window;
-            flow.send_stream_initial_window = new_window;
-
-            if delta > 0 {
-                let overflow = flow
-                    .stream_map
-                    .values()
-                    .any(|s| s.send.window + delta > settings::MAX_INITIAL_WINDOW_SIZE as i64);
-                if overflow {
-                    return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
-                }
-            }
-
-            if delta != 0 {
-                flow.update_and_wake_send_streams(delta);
-            }
-        }
-
-        if let Some(frame_size) = setting.max_frame_size() {
-            let frame_size = frame_size as usize;
-            flow.max_frame_size = frame_size;
-            for state in flow.stream_map.values_mut() {
-                state.send.frame_size = frame_size;
-            }
-        }
-
-        // Record the pending ACK. A second SETTINGS before the first is ACKed
-        // is a protocol violation and returns ENHANCE_YOUR_CALM (CVE-2019-9515).
-        flow.queue.pending_settings.try_update(setting)
-    }
-
-    fn handle_headers(
-        &mut self,
-        mut headers: headers::Headers,
-        mut payload: BytesMut,
-        is_end_headers: bool,
-    ) -> Result<Option<Decoded>, Error> {
-        if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
-            return match e {
-                // NeedMore on a multi-frame header block is normal; accumulate and wait
-                // for CONTINUATION frames (RFC 7540 §6.10).
-                ProtoError::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
-                    self.continuation = Some((headers, payload));
-                    Ok(None)
-                }
-                // Pseudo-header validation errors are stream-level (RFC 7540 §8.1.2).
-                // The HPACK context was decoded successfully so no compression error.
-                ProtoError::MalformedMessage => {
-                    let id = headers.stream_id();
-                    if self.ctx.borrow_mut().last_stream_id.try_set(id)?.is_none() {
-                        return Ok(None);
-                    }
-                    Err(Error::Reset(Reason::PROTOCOL_ERROR))
-                }
-                _ => Err(Error::GoAway(Reason::COMPRESSION_ERROR)),
-            };
-        }
-
-        if !is_end_headers {
-            self.continuation = Some((headers, payload));
-            return Ok(None);
-        }
-
-        let id = headers.stream_id();
-        self.handle_header_frame(id, headers)
-    }
-
-    fn handle_header_frame(&mut self, id: StreamId, headers: headers::Headers) -> Result<Option<Decoded>, Error> {
-        let end_stream = headers.is_end_stream();
-
-        let (pseudo, headers) = headers.into_parts();
-
-        let flow = &mut *self.ctx.borrow_mut();
-        if !flow.last_stream_id.check_idle(id) {
-            let stream = flow
-                .stream_map
-                .get_mut(&id)
-                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
-
-            // pseudo is not checked for legitmacy and ignored when receiving trailers.
-
-            match stream.try_recv_trailers(&mut flow.frame_buf, headers, end_stream)? {
-                RecvData::Queued(_) => {}
-                _ => flow.inline_remove_stream(id)?,
-            }
-            return Ok(None);
-        }
-
-        // Validate and advance the stream-ID boundary before any
-        // application-level checks. This ensures protocol violations
-        // (non-client-initiated, non-monotonic) produce GOAWAY rather
-        // than being masked by REFUSED_STREAM.
-        // Saturated (post-GOAWAY): silently drop the frame.
-        if flow.last_stream_id.try_set(id)?.is_none() {
-            return Ok(None);
-        }
-
-        // RFC 7540 §5.1.2: refuse new streams beyond the advertised limit.
-        // stream_map holds streams in open / half-closed states — exactly
-        // those that count toward the concurrent-stream limit.
-        if flow.stream_map.len() >= self.max_concurrent_streams {
-            return Err(Error::Reset(Reason::REFUSED_STREAM));
-        }
-
-        // RFC 7540 §8.1.2.6: parse content-length before headers are moved into the request.
-        // Only meaningful when there will be DATA frames (not end_stream).
-        // Malformed content-length → RST_STREAM PROTOCOL_ERROR per §8.1.2.6.
-        let content_length =
-            BodySize::from_header(&headers, end_stream).map_err(|_| Error::Reset(Reason::PROTOCOL_ERROR))?;
-
-        // :method is required; stream was seen so the boundary must
-        // advance (no-op once saturated, but the saturation gate
-        // above already returned in that case).
-        let method = pseudo.method.ok_or(Error::Reset(Reason::PROTOCOL_ERROR))?;
-
-        let protocol = pseudo.protocol.map(|proto| Protocol::from_str(&proto));
-
-        // RFC 8441 §4: extended CONNECT follows normal request rules.
-        let is_strict_connect = method == Method::CONNECT && protocol.is_none();
-
-        // Validate and build URI from pseudo-headers in one pass.
-        // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme or :path.
-        // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme and non-empty :path.
-        let mut uri_parts = uri::Parts::default();
-
-        if let Some(authority) = pseudo.authority {
-            if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
-                uri_parts.authority = Some(a);
-            }
-        }
-
-        match (is_strict_connect, pseudo.scheme) {
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme.
-            // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme.
-            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
-            (false, Some(scheme)) if uri_parts.authority.is_some() => {
-                if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
-                    uri_parts.scheme = Some(s);
-                }
-            }
-            _ => {}
-        }
-
-        match (is_strict_connect, pseudo.path) {
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :path.
-            // RFC 7540 §8.3: regular CONNECT MUST NOT include :path.
-            (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
-            (_, Some(path)) if !path.is_empty() => {
-                if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
-                    uri_parts.path_and_query = Some(pq);
-                }
-            }
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include non empty :path.
-            (false, _) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)), // empty :path
-            _ => {}
-        }
-
-        let ext = Extension::with_protocol(self.addr, protocol);
-
-        let mut req = Request::new(RequestExt::from_parts((), ext));
-        *req.version_mut() = Version::HTTP_2;
-        *req.headers_mut() = headers;
-        *req.method_mut() = method;
-
-        if let Ok(uri) = Uri::from_parts(uri_parts) {
-            *req.uri_mut() = uri;
-        }
-
-        let body = RequestBody::new(id, content_length, Rc::clone(self.ctx), self.recv_threshold);
-
-        flow.insert_stream(id, end_stream, content_length);
-
-        let req = req.map(|ext| ext.map_body(|_| body));
-
-        Ok(Some((req, id)))
     }
 }
 
@@ -950,67 +1072,7 @@ impl<'a> EncodeContext<'a> {
     }
 
     fn poll_encode(&mut self, write_buf: &mut BytesMut, cx: &mut Context<'_>) -> Poll<bool> {
-        let mut flow = self.ctx.borrow_mut();
-
-        // remote_setting can contain updated states for following encoding
-        flow.queue.pending_settings.encode(&mut self.encoder, write_buf);
-
-        while let Some(msg) = flow.queue.try_recv() {
-            match msg {
-                Message::Head(headers) => {
-                    let frame_size = flow.max_frame_size;
-                    let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
-                    while let Some(c) = cont {
-                        cont = c.encode(&mut write_buf.limit(frame_size));
-                    }
-                }
-                Message::Trailer(headers) => {
-                    let frame_size = flow.max_frame_size;
-                    let mut cont = headers.encode(&mut self.encoder, &mut write_buf.limit(frame_size));
-                    while let Some(c) = cont {
-                        cont = c.encode(&mut write_buf.limit(frame_size));
-                    }
-                }
-                Message::Data(mut data) => data.encode_chunk(write_buf),
-                Message::Reset { stream_id, reason } => Reset::new(stream_id, reason).encode(write_buf),
-                Message::WindowUpdate { stream_id, size } => WindowUpdate::new(stream_id, size as _).encode(write_buf),
-                Message::GoAway { last_stream_id, reason } => {
-                    GoAway::new(last_stream_id, reason).encode(write_buf);
-                    // GoAway may be graceful (queue stays open to drain in-flight frames)
-                    // or forceful (queue closed). The pusher decides via FlowControl::go_away;
-                    // we keep draining either way.
-                }
-            }
-        }
-
-        let pending = mem::replace(&mut flow.queue.pending_conn_window, 0);
-        if pending > 0 {
-            flow.recv_connection_window += pending;
-            WindowUpdate::new(StreamId::zero(), pending as _).encode(write_buf);
-        }
-
-        // Encode a client PING ACK if one is waiting (take-and-clear).
-        if let Some(payload) = flow.queue.pending_client_ping.take() {
-            head::Head::new(head::Kind::Ping, 0x1, StreamId::zero()).encode(8, write_buf);
-            write_buf.put_slice(&payload);
-        }
-
-        // Encode our keepalive PING if it is queued but not yet sent, then
-        // transition to InFlight so we do not re-send it on the next pass.
-        if flow.queue.keepalive_ping == KeepalivePing::Pending {
-            head::Head::new(head::Kind::Ping, 0x0, StreamId::zero()).encode(8, write_buf);
-            write_buf.put_slice(&[0u8; 8]);
-            flow.queue.keepalive_ping = KeepalivePing::InFlight;
-        }
-
-        if !write_buf.is_empty() {
-            Poll::Ready(true)
-        } else if flow.queue.is_closed() {
-            Poll::Ready(false)
-        } else {
-            flow.queue.register(cx);
-            Poll::Pending
-        }
+        self.ctx.borrow_mut().poll_encode(write_buf, &mut self.encoder, cx)
     }
 }
 
@@ -1032,7 +1094,7 @@ where
         .await
         .unwrap_or_else(|_| {
             let mut flow = ctx.borrow_mut();
-            flow.reset(&stream_id);
+            flow.internal_reset(&stream_id);
             flow
         })
         .response_task_done(stream_id)
@@ -1253,7 +1315,10 @@ where
     settings.set_max_header_list_size(Some(config.h2_max_header_list_size));
     settings.set_enable_connect_protocol(Some(1));
 
+    let max_frame_size = config.h2_max_frame_size as usize;
     let max_concurrent_streams = config.h2_max_concurrent_streams as usize;
+
+    let recv_threshold = StreamRecvWindowThreshold::from(&settings);
 
     let mut flow = FlowControl {
         // Send windows start at RFC 7540 §6.9.2 default (65535) until the
@@ -1263,6 +1328,7 @@ where
         max_frame_size: settings::DEFAULT_MAX_FRAME_SIZE as usize,
         recv_stream_initial_window: config.h2_initial_window_size as usize,
         recv_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
+        recv_threshold,
         stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
         reset_counter: ResetCounter::new(RESET_MAX, RESET_WINDOW),
         last_stream_id: LastStreamId::new(),
@@ -1276,8 +1342,7 @@ where
 
     let shared = Rc::new(RefCell::new(flow));
 
-    let recv_threshold = StreamRecvWindowThreshold::from(&settings);
-    let mut ctx = DecodeContext::new(&shared, service, max_concurrent_streams, recv_threshold, addr, date);
+    let mut ctx = Decoder::new(&shared, service, max_frame_size, max_concurrent_streams, addr, date);
     let mut enc = EncodeContext::new(&shared);
 
     let mut queue = Queue::new();
@@ -1306,13 +1371,8 @@ where
             match read_task
                 .as_mut()
                 .select(async {
-                    loop {
-                        let res: Result<(), ()> = queue.next().await;
-                        // error case means connection going away. enter shutdown
-                        if res.is_err() {
-                            break;
-                        }
-                    }
+                    while let Ok::<_, ()>(()) = queue.next().await {}
+                    // error case means connection going away. enter shutdown
                 })
                 .select(write_task.as_mut())
                 .select(ping_pong.tick())
@@ -1322,19 +1382,25 @@ where
                     read_buf = buf;
 
                     match res {
-                        Ok(n) if n > 0 => loop {
-                            match ctx.try_decode(&mut read_buf) {
-                                Ok(Some((req, id))) => {
-                                    queue.push(response_task(req, id, ctx.service, ctx.ctx, ctx.date));
-                                }
-                                Ok(None) => break,
-                                Err(err) => {
-                                    if ctx.ctx.borrow_mut().go_away(err) {
-                                        break 'body ShutDown::ReadClosed(Ok(()));
+                        Ok(n) if n > 0 => {
+                            let flow = &mut *ctx.flow.borrow_mut();
+                            loop {
+                                match ctx.ctx.try_decode(&mut read_buf, flow) {
+                                    Ok(Some((req, id))) => {
+                                        let req = req.map(|ext| {
+                                            ext.map_body(|(id, size)| RequestBody::new(id, size, ctx.flow.clone()))
+                                        });
+                                        queue.push(response_task(req, id, ctx.ctx.service, ctx.flow, ctx.ctx.date));
+                                    }
+                                    Ok(None) => break,
+                                    Err(err) => {
+                                        if flow.go_away(err) {
+                                            break 'body ShutDown::ReadClosed(Ok(()));
+                                        }
                                     }
                                 }
                             }
-                        },
+                        }
                         res => break ShutDown::ReadClosed(res.map(|_| ())),
                     };
 
@@ -1360,7 +1426,7 @@ where
                 StreamError::Io
             };
 
-            for stream in ctx.ctx.borrow_mut().stream_map.values_mut() {
+            for stream in ctx.flow.borrow_mut().stream_map.values_mut() {
                 stream.try_set_reset(stream_err);
             }
 

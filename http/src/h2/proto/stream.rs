@@ -8,7 +8,6 @@ use std::io;
 use crate::{
     body::SizeHint,
     bytes::Bytes,
-    error::BodyError,
     h2::{
         dispatcher::{Frame, FrameBuffer},
         util::Deque,
@@ -16,11 +15,15 @@ use crate::{
     http::HeaderMap,
 };
 
-use super::{error::Error, frame::reason::Reason, size::BodySize};
+use super::{
+    error::Error,
+    frame::{reason::Reason, settings::MAX_INITIAL_WINDOW_SIZE},
+    size::BodySize,
+};
 
 pub(crate) struct Stream {
-    pub(crate) recv: Recv,
-    pub(crate) send: Send,
+    recv: Recv,
+    send: Send,
     pending_error: Option<StreamError>,
 }
 
@@ -117,16 +120,46 @@ impl Stream {
         Ok(recv)
     }
 
+    pub(crate) fn send_window_check(&self, size: i64) -> Result<(), StreamError> {
+        if self.send.window + size > MAX_INITIAL_WINDOW_SIZE as i64 {
+            Err(StreamError::WindowUpdateOverflow)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn try_send_window_update(&mut self, size: i64, conn_window_positive: bool) {
+        match self.send_window_check(size) {
+            Ok(_) => self.send_window_update(size, conn_window_positive),
+            Err(err) => self.try_set_reset(err),
+        }
+    }
+
+    pub(crate) fn send_window_update(&mut self, size: i64, conn_window_positive: bool) {
+        self.send.window += size;
+        if conn_window_positive && self.send.window > 0 {
+            self.send.wake();
+        }
+    }
+
+    pub(crate) fn recv_window_update(&mut self, size: usize) {
+        self.recv.window += size;
+    }
+
+    pub(crate) fn send_frame_size_update(&mut self, size: usize) {
+        self.send.frame_size = size;
+    }
+
     pub(crate) fn poll_frame(
         &mut self,
         buffer: &mut FrameBuffer,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame, BodyError>>> {
+    ) -> Poll<Option<Result<Frame, StreamError>>> {
         let opt = if let Some(frame) = self.recv.queue.pop_front(buffer) {
             Some(Ok(frame))
         } else {
             match self.recv.state {
-                State::Error => self.pending_error.map(|err| Err(BodyError::from(io::Error::from(err)))),
+                State::Error => self.pending_error.map(Err),
                 State::Eof => None,
                 _ => {
                     self.recv.waker = Some(cx.waker().clone());
