@@ -8,7 +8,6 @@ use std::io;
 use crate::{
     body::SizeHint,
     bytes::Bytes,
-    error::BodyError,
     h2::{
         dispatcher::{Frame, FrameBuffer},
         util::Deque,
@@ -23,7 +22,7 @@ use super::{
 };
 
 pub(crate) struct Stream {
-    pub(crate) recv: Recv,
+    recv: Recv,
     send: Send,
     pending_error: Option<StreamError>,
 }
@@ -143,6 +142,10 @@ impl Stream {
         }
     }
 
+    pub(crate) fn recv_window_update(&mut self, size: usize) {
+        self.recv.window += size;
+    }
+
     pub(crate) fn send_frame_size_update(&mut self, size: usize) {
         self.send.frame_size = size;
     }
@@ -151,12 +154,12 @@ impl Stream {
         &mut self,
         buffer: &mut FrameBuffer,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame, BodyError>>> {
+    ) -> Poll<Option<Result<Frame, StreamError>>> {
         let opt = if let Some(frame) = self.recv.queue.pop_front(buffer) {
             Some(Ok(frame))
         } else {
             match self.recv.state {
-                State::Error => self.pending_error.map(|err| Err(BodyError::from(io::Error::from(err)))),
+                State::Error => self.pending_error.map(Err),
                 State::Eof => None,
                 _ => {
                     self.recv.waker = Some(cx.waker().clone());

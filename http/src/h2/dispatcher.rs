@@ -80,7 +80,6 @@ struct DecodeContext<'a, S> {
     max_frame_size: usize,
     max_header_list_size: usize,
     max_concurrent_streams: usize,
-    recv_threshold: StreamRecvWindowThreshold,
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
@@ -284,6 +283,7 @@ pub(super) struct FlowControl {
     recv_stream_initial_window: usize,
     /// Remaining bytes we are willing to receive on the whole connection.
     recv_connection_window: usize,
+    recv_threshold: StreamRecvWindowThreshold,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
     pub(super) stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
@@ -676,6 +676,36 @@ impl FlowControl {
         fatal
     }
 
+    pub(super) fn poll_stream_frame(
+        &mut self,
+        id: &StreamId,
+        pending_window: &mut usize,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame, StreamError>>> {
+        let stream = self.stream_map.get_mut(id).expect(STREAM_MUST_EXIST);
+
+        stream.poll_frame(&mut self.frame_buf, cx).map_ok(|frame| {
+            if let Some(bytes) = frame.data_ref() {
+                *pending_window += bytes.len();
+
+                if *pending_window >= self.recv_threshold {
+                    let window = mem::replace(pending_window, 0);
+                    stream.recv_window_update(window);
+                    self.queue.connection_window_update(window);
+                    self.queue.messages.push_back(Message::WindowUpdate {
+                        stream_id: *id,
+                        size: window,
+                    });
+                }
+            }
+            frame
+        })
+    }
+
+    pub(super) fn is_recv_end_stream(&self, id: &StreamId) -> bool {
+        self.stream_map.get(id).expect(STREAM_MUST_EXIST).is_recv_end_stream()
+    }
+
     pub(super) fn try_set_pending_ping(&mut self) -> io::Result<()> {
         if self.queue.keepalive_ping != KeepalivePing::Idle {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout"));
@@ -923,7 +953,6 @@ impl<'a, S> Decoder<'a, S> {
         service: &'a S,
         max_frame_size: usize,
         max_concurrent_streams: usize,
-        recv_threshold: StreamRecvWindowThreshold,
         addr: SocketAddr,
         date: &'a DateTimeHandle,
     ) -> Self {
@@ -932,7 +961,6 @@ impl<'a, S> Decoder<'a, S> {
                 max_frame_size,
                 max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
                 max_concurrent_streams,
-                recv_threshold,
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
                 next_frame_len: 0,
                 continuation: None,
@@ -1283,6 +1311,8 @@ where
     let max_frame_size = config.h2_max_frame_size as usize;
     let max_concurrent_streams = config.h2_max_concurrent_streams as usize;
 
+    let recv_threshold = StreamRecvWindowThreshold::from(&settings);
+
     let mut flow = FlowControl {
         // Send windows start at RFC 7540 §6.9.2 default (65535) until the
         // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
@@ -1291,6 +1321,7 @@ where
         max_frame_size: settings::DEFAULT_MAX_FRAME_SIZE as usize,
         recv_stream_initial_window: config.h2_initial_window_size as usize,
         recv_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
+        recv_threshold,
         stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
         reset_counter: ResetCounter::new(RESET_MAX, RESET_WINDOW),
         last_stream_id: LastStreamId::new(),
@@ -1304,16 +1335,7 @@ where
 
     let shared = Rc::new(RefCell::new(flow));
 
-    let recv_threshold = StreamRecvWindowThreshold::from(&settings);
-    let mut ctx = Decoder::new(
-        &shared,
-        service,
-        max_frame_size,
-        max_concurrent_streams,
-        recv_threshold,
-        addr,
-        date,
-    );
+    let mut ctx = Decoder::new(&shared, service, max_frame_size, max_concurrent_streams, addr, date);
     let mut enc = EncodeContext::new(&shared);
 
     let mut queue = Queue::new();
@@ -1359,9 +1381,7 @@ where
                                 match ctx.ctx.try_decode(&mut read_buf, flow) {
                                     Ok(Some((req, id))) => {
                                         let req = req.map(|ext| {
-                                            ext.map_body(|(id, size)| {
-                                                RequestBody::new(id, size, ctx.flow.clone(), ctx.ctx.recv_threshold)
-                                            })
+                                            ext.map_body(|(id, size)| RequestBody::new(id, size, ctx.flow.clone()))
                                         });
                                         queue.push(response_task(req, id, ctx.ctx.service, ctx.flow, ctx.ctx.date));
                                     }
