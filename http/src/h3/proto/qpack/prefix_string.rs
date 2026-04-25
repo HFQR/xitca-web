@@ -16,7 +16,7 @@ pub use self::{
 };
 
 use super::prefix_int::{self, Error as IntegerError};
-use crate::proto::coding::BufMutExt;
+use crate::h3::proto::coding::BufMutExt;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

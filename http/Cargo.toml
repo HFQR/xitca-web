@@ -21,7 +21,7 @@ http1 = ["runtime", "dep:httparse", "dep:itoa"]
 # http2 specific feature.
 http2 = ["runtime", "dep:fnv", "futures-util/alloc"]
 # http3 specific feature.
-http3 = ["runtime", "xitca-io/quic", "futures-util/alloc", "dep:h3", "dep:h3-quinn"]
+http3 = ["runtime", "xitca-io/quic", "futures-util/alloc", "dep:h3", "dep:h3-quinn", "dep:quinn"]
 # openssl as server side tls.
 openssl = ["__tls", "runtime", "xitca-tls/openssl"]
 # rustls as server side tls.
@@ -63,6 +63,7 @@ futures-util = { version = "0.3.17", default-features = false, optional = true }
 # http/3 support
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
+quinn = { version = "0.11", default-features = false, features = ["ring"], optional = true }
 
 # async runtime support.
 tokio = { workspace = true, features = ["rt", "time"], optional = true }

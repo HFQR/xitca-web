@@ -11,12 +11,12 @@ use crate::{
     error::BodyError,
 };
 
-use super::{dispatcher::Shared, proto::frame::stream_id::StreamId};
+use super::{dispatcher::FLowControlClone, proto::frame::stream_id::StreamId};
 
 pub struct RequestBody {
     id: StreamId,
     size: SizeHint,
-    ctx: Shared,
+    ctx: FLowControlClone,
     /// Bytes consumed but not yet reported back as a WINDOW_UPDATE.
     /// Flushed as a single message when the channel has no more items
     /// ready, batching updates across consecutive chunks.
@@ -24,7 +24,7 @@ pub struct RequestBody {
 }
 
 impl RequestBody {
-    pub(super) fn new(id: StreamId, size: SizeHint, ctx: Shared) -> Self {
+    pub(super) fn new(id: StreamId, size: SizeHint, ctx: FLowControlClone) -> Self {
         Self {
             id,
             size,

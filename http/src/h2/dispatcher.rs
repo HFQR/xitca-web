@@ -72,24 +72,23 @@ use super::{
 };
 
 struct Decoder<'a, S> {
-    ctx: DecodeContext<'a, S>,
-    flow: &'a Shared,
+    ctx: DecodeContext,
+    flow: &'a FLowControlClone,
+    service: &'a S,
+    date: &'a DateTimeHandle,
+    addr: SocketAddr,
 }
 
-struct DecodeContext<'a, S> {
+struct DecodeContext {
     max_frame_size: usize,
     max_header_list_size: usize,
-    max_concurrent_streams: usize,
     decoder: hpack::Decoder,
     next_frame_len: usize,
     continuation: Option<(headers::Headers, BytesMut)>,
-    service: &'a S,
-    addr: SocketAddr,
-    date: &'a DateTimeHandle,
 }
 
-impl<S> DecodeContext<'_, S> {
-    fn try_decode(&mut self, buf: &mut BytesMut, flow: &mut FlowControl) -> Result<Option<Decoded>, Error> {
+impl DecodeContext {
+    fn try_decode(&mut self, buf: &mut BytesMut, flow: &mut FlowControl) -> Result<Option<DecodedRequest>, Error> {
         loop {
             if self.next_frame_len == 0 {
                 if buf.len() < 3 {
@@ -124,7 +123,7 @@ impl<S> DecodeContext<'_, S> {
         head: head::Head,
         frame: BytesMut,
         flow: &mut FlowControl,
-    ) -> Result<Option<Decoded>, Error> {
+    ) -> Result<Option<DecodedRequest>, Error> {
         match self._decode_frame(head, frame, flow) {
             Err(Error::Reset(reason)) => {
                 flow.try_push_reset(head.stream_id(), reason)?;
@@ -139,7 +138,7 @@ impl<S> DecodeContext<'_, S> {
         head: head::Head,
         frame: BytesMut,
         flow: &mut FlowControl,
-    ) -> Result<Option<Decoded>, Error> {
+    ) -> Result<Option<DecodedRequest>, Error> {
         if self.continuation.is_some() && !matches!(head.kind(), head::Kind::Continuation) {
             return Err(Error::GoAway(Reason::PROTOCOL_ERROR));
         }
@@ -186,7 +185,7 @@ impl<S> DecodeContext<'_, S> {
         head: head::Head,
         frame: BytesMut,
         flow: &mut FlowControl,
-    ) -> Result<Option<Decoded>, Error> {
+    ) -> Result<Option<DecodedRequest>, Error> {
         let is_end_headers = (head.flag() & 0x4) == 0x4;
 
         let (headers, mut payload) = self.continuation.take().ok_or(Error::GoAway(Reason::PROTOCOL_ERROR))?;
@@ -207,7 +206,7 @@ impl<S> DecodeContext<'_, S> {
         mut payload: BytesMut,
         is_end_headers: bool,
         flow: &mut FlowControl,
-    ) -> Result<Option<Decoded>, Error> {
+    ) -> Result<Option<DecodedRequest>, Error> {
         if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
             return match e {
                 // NeedMore on a multi-frame header block is normal; accumulate and wait
@@ -236,17 +235,7 @@ impl<S> DecodeContext<'_, S> {
 
         let id = headers.stream_id();
 
-        flow.handle_header(id, headers, self.max_concurrent_streams).map(|opt| {
-            opt.map(|req| {
-                (
-                    req.map(|(size, protocol)| {
-                        let ext = Extension::with_protocol(self.addr, protocol);
-                        RequestExt::from_parts((id, size), ext)
-                    }),
-                    id,
-                )
-            })
-        })
+        flow.handle_header(id, headers)
     }
 }
 
@@ -270,9 +259,10 @@ enum KeepalivePing {
     InFlight,
 }
 
-type DecodedRequest = Request<(SizeHint, Option<Protocol>)>;
+type DecodedRequest = (Request<(SizeHint, Option<Protocol>)>, StreamId);
 
 pub(super) struct FlowControl {
+    max_concurrent_streams: usize,
     /// Remaining bytes we may send on the whole connection.
     send_connection_window: usize,
     /// Default send-window for new streams (RFC 7540 §6.9.2).
@@ -286,7 +276,7 @@ pub(super) struct FlowControl {
     recv_threshold: StreamRecvWindowThreshold,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
-    pub(super) stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
+    stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
     /// Sliding-window counter for client-caused resets (CVE-2023-44487).
     /// Counts both peer-initiated RST_STREAM and server-generated RST_STREAM
     /// in response to client protocol errors within a time window.
@@ -298,13 +288,36 @@ pub(super) struct FlowControl {
     /// and signals the dispatcher's main loop that the graceful drain
     /// can terminate when the in-flight queue empties.
     last_stream_id: LastStreamId,
-    pub(super) queue: WriterQueue,
+    queue: WriterQueue,
     /// Shared slab backing all per-stream recv frame deques, avoiding
     /// per-stream `VecDeque` allocations.
-    pub(super) frame_buf: FrameBuffer,
+    frame_buf: FrameBuffer,
 }
 
 impl FlowControl {
+    fn new(settings: &settings::Settings) -> Self {
+        let recv_stream_initial_window = settings.initial_window_size().unwrap() as _;
+        let max_concurrent_streams = settings.max_concurrent_streams().unwrap() as _;
+        let recv_threshold = StreamRecvWindowThreshold::from(settings);
+
+        Self {
+            max_concurrent_streams,
+            // Send windows start at RFC 7540 §6.9.2 default (65535) until the
+            // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
+            send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
+            send_stream_initial_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
+            max_frame_size: settings::DEFAULT_MAX_FRAME_SIZE as usize,
+            recv_stream_initial_window,
+            recv_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
+            recv_threshold,
+            stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
+            reset_counter: ResetCounter::new(RESET_MAX, RESET_WINDOW),
+            last_stream_id: LastStreamId::new(),
+            queue: WriterQueue::new(),
+            frame_buf: FrameBuffer::new(),
+        }
+    }
+
     fn insert_stream(&mut self, id: StreamId, end_stream: bool, content_length: SizeHint) {
         let stream = Stream::new(
             self.send_stream_initial_window,
@@ -428,12 +441,7 @@ impl FlowControl {
         Ok(())
     }
 
-    fn handle_header(
-        &mut self,
-        id: StreamId,
-        headers: headers::Headers,
-        max_concurrent_streams: usize,
-    ) -> Result<Option<DecodedRequest>, Error> {
+    fn handle_header(&mut self, id: StreamId, headers: headers::Headers) -> Result<Option<DecodedRequest>, Error> {
         let end_stream = headers.is_end_stream();
 
         let (pseudo, headers) = headers.into_parts();
@@ -442,7 +450,7 @@ impl FlowControl {
             let stream = self
                 .stream_map
                 .get_mut(&id)
-                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
+                .ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
 
             // pseudo is not checked for legitmacy and ignored when receiving trailers.
 
@@ -462,7 +470,7 @@ impl FlowControl {
             return Ok(None);
         }
 
-        if self.stream_map.len() >= max_concurrent_streams {
+        if self.stream_map.len() >= self.max_concurrent_streams {
             return Err(Error::Reset(Reason::REFUSED_STREAM));
         }
 
@@ -527,7 +535,7 @@ impl FlowControl {
 
         self.insert_stream(id, end_stream, content_length);
 
-        Ok(Some(req))
+        Ok(Some((req, id)))
     }
 
     fn handle_data(&mut self, data: Data) -> Result<(), Error> {
@@ -918,7 +926,8 @@ pub(super) struct WriterQueue {
     waker: Option<Waker>,
 }
 
-pub(super) type Shared = Rc<RefCell<FlowControl>>;
+pub(super) type FLowControlClone = Rc<FlowControlLock>;
+pub(super) type FlowControlLock = RefCell<FlowControl>;
 
 impl WriterQueue {
     fn new() -> Self {
@@ -1012,30 +1021,27 @@ impl WriterQueue {
     }
 }
 
-type Decoded = (Request<RequestExt<(StreamId, SizeHint)>>, StreamId);
-
 impl<'a, S> Decoder<'a, S> {
     fn new(
-        flow: &'a Shared,
+        flow: &'a FLowControlClone,
         service: &'a S,
         max_frame_size: usize,
-        max_concurrent_streams: usize,
+        max_header_list_size: usize,
         addr: SocketAddr,
         date: &'a DateTimeHandle,
     ) -> Self {
         Self {
             ctx: DecodeContext {
                 max_frame_size,
-                max_header_list_size: settings::DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE,
-                max_concurrent_streams,
+                max_header_list_size,
                 decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
                 next_frame_len: 0,
                 continuation: None,
-                service,
-                addr,
-                date,
             },
             flow,
+            service,
+            date,
+            addr,
         }
     }
 }
@@ -1058,21 +1064,21 @@ async fn write_io(buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, By
     (res, buf)
 }
 
-struct EncodeContext<'a> {
+struct Encoder<'a> {
     encoder: hpack::Encoder,
-    ctx: &'a Shared,
+    flow: &'a FlowControlLock,
 }
 
-impl<'a> EncodeContext<'a> {
-    fn new(ctx: &'a Shared) -> Self {
+impl<'a> Encoder<'a> {
+    fn new(flow: &'a FlowControlLock) -> Self {
         Self {
-            encoder: hpack::Encoder::new(65535, 4096),
-            ctx,
+            encoder: hpack::Encoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE, 4096),
+            flow,
         }
     }
 
     fn poll_encode(&mut self, write_buf: &mut BytesMut, cx: &mut Context<'_>) -> Poll<bool> {
-        self.ctx.borrow_mut().poll_encode(write_buf, &mut self.encoder, cx)
+        self.flow.borrow_mut().poll_encode(write_buf, &mut self.encoder, cx)
     }
 }
 
@@ -1080,7 +1086,7 @@ async fn response_task<S, ReqB, ResB, ResBE>(
     req: Request<RequestExt<RequestBody>>,
     stream_id: StreamId,
     service: &S,
-    ctx: &Shared,
+    ctx: &FLowControlClone,
     date: &DateTimeHandle,
 ) -> Result<(), ()>
 where
@@ -1106,7 +1112,7 @@ async fn _response_task<'a, S, ReqB, ResB, ResBE>(
     req: Request<RequestExt<RequestBody>>,
     stream_id: StreamId,
     service: &S,
-    ctx: &'a Shared,
+    ctx: &'a FLowControlClone,
     date: &DateTimeHandle,
 ) -> Result<RefMut<'a, FlowControl>, ()>
 where
@@ -1190,7 +1196,7 @@ async fn send_data(
     stream_id: StreamId,
     data: Bytes,
     end_stream: bool,
-    ctx: &Shared,
+    ctx: &FLowControlClone,
 ) -> Option<RefMut<'_, FlowControl>> {
     if data.is_empty() && !end_stream {
         tracing::warn!("response body should not yield empty Frame::Data unless it's the last chunk of Body");
@@ -1210,7 +1216,7 @@ struct SendData<'a> {
     data: Bytes,
     end_stream: bool,
     stream_id: StreamId,
-    flow: &'a Shared,
+    flow: &'a FLowControlClone,
 }
 
 impl<'a> Future for SendData<'a> {
@@ -1316,37 +1322,21 @@ where
     settings.set_enable_connect_protocol(Some(1));
 
     let max_frame_size = config.h2_max_frame_size as usize;
-    let max_concurrent_streams = config.h2_max_concurrent_streams as usize;
+    let max_header_list_size = config.h2_max_header_list_size as usize;
 
-    let recv_threshold = StreamRecvWindowThreshold::from(&settings);
-
-    let mut flow = FlowControl {
-        // Send windows start at RFC 7540 §6.9.2 default (65535) until the
-        // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
-        send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
-        send_stream_initial_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
-        max_frame_size: settings::DEFAULT_MAX_FRAME_SIZE as usize,
-        recv_stream_initial_window: config.h2_initial_window_size as usize,
-        recv_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
-        recv_threshold,
-        stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
-        reset_counter: ResetCounter::new(RESET_MAX, RESET_WINDOW),
-        last_stream_id: LastStreamId::new(),
-        queue: WriterQueue::new(),
-        frame_buf: FrameBuffer::new(),
-    };
+    let mut flow = FlowControl::new(&settings);
 
     let (mut read_buf, mut write_buf) = flow
         .handshake::<READ_BUF_LIMIT>(&io, read_buf, &settings, ka.as_mut())
         .await?;
 
-    let shared = Rc::new(RefCell::new(flow));
+    let flow = Rc::new(RefCell::new(flow));
 
-    let mut ctx = Decoder::new(&shared, service, max_frame_size, max_concurrent_streams, addr, date);
-    let mut enc = EncodeContext::new(&shared);
+    let mut ctx = Decoder::new(&flow, service, max_frame_size, max_header_list_size, addr, date);
+    let mut enc = Encoder::new(&flow);
 
     let mut queue = Queue::new();
-    let mut ping_pong = PingPong::new(ka.as_mut(), &shared, date, config.keep_alive_timeout);
+    let mut ping_pong = PingPong::new(ka.as_mut(), &flow, date, config.keep_alive_timeout);
 
     let res = {
         let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
@@ -1387,10 +1377,12 @@ where
                             loop {
                                 match ctx.ctx.try_decode(&mut read_buf, flow) {
                                     Ok(Some((req, id))) => {
-                                        let req = req.map(|ext| {
-                                            ext.map_body(|(id, size)| RequestBody::new(id, size, ctx.flow.clone()))
+                                        let req = req.map(|(size, protocol)| {
+                                            let body = RequestBody::new(id, size, ctx.flow.clone());
+                                            let ext = Extension::with_protocol(ctx.addr, protocol);
+                                            RequestExt::from_parts(body, ext)
                                         });
-                                        queue.push(response_task(req, id, ctx.ctx.service, ctx.flow, ctx.ctx.date));
+                                        queue.push(response_task(req, id, ctx.service, ctx.flow, ctx.date));
                                     }
                                     Ok(None) => break,
                                     Err(err) => {
@@ -1432,7 +1424,7 @@ where
 
             loop {
                 if queue.is_empty() {
-                    shared.borrow_mut().queue.close();
+                    ctx.flow.borrow_mut().queue.close();
 
                     if !want_write {
                         break io_res;

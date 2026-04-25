@@ -334,7 +334,7 @@ mod tests {
         trailers.insert("trailer", "value".parse().unwrap());
         trailers.insert("trailer2", "value2".parse().unwrap());
         let mut buf = crate::bytes::BytesMut::new();
-        let _ = encode_stateless(&mut buf, super::headers::Header::trailer(trailers));
+        let _ = encode_stateless(&mut buf, crate::h3::proto::headers::Header::trailer(trailers));
         let result = decode_stateless(&mut buf, 2);
         assert_eq!(result, Err(DecoderError::HeaderTooLong(44)));
     }

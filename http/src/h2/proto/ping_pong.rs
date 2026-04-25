@@ -5,11 +5,11 @@ use std::io;
 use crate::date::DateTime;
 use crate::util::timer::KeepAlive;
 
-use crate::{date::DateTimeHandle, h2::dispatcher::Shared};
+use crate::{date::DateTimeHandle, h2::dispatcher::FlowControlLock};
 
 pub(crate) struct PingPong<'a> {
     timer: Pin<&'a mut KeepAlive>,
-    ctx: &'a Shared,
+    flow: &'a FlowControlLock,
     date: &'a DateTimeHandle,
     ka_dur: Duration,
 }
@@ -17,13 +17,13 @@ pub(crate) struct PingPong<'a> {
 impl<'a> PingPong<'a> {
     pub(crate) fn new(
         timer: Pin<&'a mut KeepAlive>,
-        ctx: &'a Shared,
+        flow: &'a FlowControlLock,
         date: &'a DateTimeHandle,
         ka_dur: Duration,
     ) -> Self {
         Self {
             timer,
-            ctx,
+            flow,
             date,
             ka_dur,
         }
@@ -32,7 +32,7 @@ impl<'a> PingPong<'a> {
     pub(crate) async fn tick(&mut self) -> io::Result<()> {
         self.timer.as_mut().await;
 
-        self.ctx.borrow_mut().try_set_pending_ping()?;
+        self.flow.borrow_mut().try_set_pending_ping()?;
 
         self.timer.as_mut().update(self.date.now() + self.ka_dur);
 

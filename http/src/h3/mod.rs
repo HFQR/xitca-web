@@ -1,6 +1,8 @@
 //! http/2 specific module for types and protocol utilities.
 
 mod body;
+#[allow(dead_code)]
+mod body_v2;
 mod builder;
 mod error;
 mod proto;
