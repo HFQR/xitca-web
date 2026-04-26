@@ -449,7 +449,7 @@ impl FlowControl {
             let stream = self
                 .stream_map
                 .get_mut(&id)
-                .ok_or(Error::Reset(Reason::STREAM_CLOSED))?;
+                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
 
             // pseudo is not checked for legitmacy and ignored when receiving trailers.
 
