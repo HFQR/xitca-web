@@ -321,7 +321,6 @@ impl FlowControl {
     fn insert_stream(&mut self, id: StreamId, end_stream: bool, content_length: SizeHint) {
         let stream = Stream::new(
             self.send_stream_initial_window,
-            self.max_frame_size,
             self.recv_stream_initial_window,
             content_length,
             end_stream,
@@ -758,11 +757,7 @@ impl FlowControl {
         }
 
         if let Some(frame_size) = setting.max_frame_size() {
-            let frame_size = frame_size as usize;
-            self.max_frame_size = frame_size;
-            for stream in self.stream_map.values_mut() {
-                stream.send_frame_size_update(frame_size);
-            }
+            self.max_frame_size = frame_size as usize;
         }
 
         // Record the pending ACK. A second SETTINGS before the first is ACKed
@@ -1230,13 +1225,13 @@ impl<'a> Future for SendData<'a> {
         loop {
             let len = this.data.len();
 
-            let window = flow.send_connection_window;
+            let cap = core::cmp::min(flow.send_connection_window, flow.max_frame_size);
 
             let opt = ready!(
                 flow.stream_map
                     .get_mut(&this.stream_id)
                     .expect(STREAM_MUST_EXIST)
-                    .poll_send_window(len, window, cx)
+                    .poll_send_window(len, cap, cx)
             );
 
             let Some(Ok(aval)) = opt else {
