@@ -10,7 +10,11 @@ use crate::{
     http::{Request, RequestExt, Response},
 };
 
-use super::{body::RequestBody, proto::Dispatcher};
+use super::{
+    body::RequestBody,
+    body_v2::RequestBodyV2,
+    proto::{Dispatcher, DispatcherV2},
+};
 
 pub struct H3Service<S> {
     service: S,
@@ -43,6 +47,52 @@ where
 }
 
 impl<S> ReadyService for H3Service<S>
+where
+    S: ReadyService,
+{
+    type Ready = S::Ready;
+
+    #[inline]
+    async fn ready(&self) -> Self::Ready {
+        self.service.ready().await
+    }
+}
+
+/// Http/3 service backed by the homebrew dispatcher (v2).
+///
+/// Functionally parallel to [`H3Service`] but drives the in-tree HTTP/3
+/// implementation in `proto::dispatcher_v2` and feeds requests through
+/// [`RequestBodyV2`] instead of the h3-crate-backed [`RequestBody`].
+pub struct H3ServiceV2<S> {
+    service: S,
+}
+
+impl<S> H3ServiceV2<S> {
+    /// Construct new Http3Service running on the homebrew dispatcher.
+    pub fn new(service: S) -> Self {
+        Self { service }
+    }
+}
+
+impl<S, ResB, BE> Service<(QuicStream, SocketAddr)> for H3ServiceV2<S>
+where
+    S: Service<Request<RequestExt<RequestBodyV2>>, Response = Response<ResB>>,
+    S::Error: fmt::Debug,
+    ResB: Body<Data = Bytes, Error = BE>,
+    BE: fmt::Debug,
+{
+    type Response = ();
+    type Error = HttpServiceError<S::Error, BE>;
+    async fn call(&self, (stream, addr): (QuicStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+        let dispatcher = DispatcherV2::new(stream, addr, &self.service);
+
+        dispatcher.run().await?;
+
+        Ok(())
+    }
+}
+
+impl<S> ReadyService for H3ServiceV2<S>
 where
     S: ReadyService,
 {

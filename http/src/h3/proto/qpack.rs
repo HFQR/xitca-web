@@ -1,7 +1,8 @@
 pub use self::{
-    decoder::{Decoded, DecoderError, decode_stateless},
-    encoder::{EncoderError, encode_stateless},
+    decoder::{Decoded, Decoder, DecoderError, decode_stateless},
+    encoder::{Encoder, EncoderError, encode_stateless},
     field::HeaderField,
+    stream::{HeaderAck, StreamCancel},
 };
 
 mod block;

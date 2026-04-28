@@ -47,7 +47,30 @@ pub struct Encoder {
     table: DynamicTable,
 }
 
+impl Default for Encoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Encoder {
+    pub fn new() -> Self {
+        Self {
+            table: DynamicTable::new(),
+        }
+    }
+
+    /// Configure the maximum dynamic table size we're willing to use when
+    /// encoding outbound headers. This must not exceed the peer's advertised
+    /// `QPACK_MAX_TABLE_CAPACITY`.
+    pub fn set_max_table_size(&mut self, size: usize) -> Result<(), DynamicTableError> {
+        self.table.set_max_size(size)
+    }
+
+    pub fn set_max_blocked_streams(&mut self, max: usize) -> Result<(), DynamicTableError> {
+        self.table.set_max_blocked(max)
+    }
+
     pub fn encode<W, T, H>(
         &mut self,
         stream_id: u64,
@@ -171,14 +194,6 @@ impl Encoder {
             },
         };
         Ok(reference)
-    }
-}
-
-impl Default for Encoder {
-    fn default() -> Self {
-        Self {
-            table: DynamicTable::new(),
-        }
     }
 }
 

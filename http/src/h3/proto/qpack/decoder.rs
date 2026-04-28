@@ -82,7 +82,32 @@ pub struct Decoder {
     table: DynamicTable,
 }
 
+impl Default for Decoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Decoder {
+    pub fn new() -> Self {
+        Self {
+            table: DynamicTable::new(),
+        }
+    }
+
+    /// Configure the maximum dynamic table size we're willing to accept on
+    /// inbound encoder-stream instructions. This is the same value we
+    /// advertise to the peer via `QPACK_MAX_TABLE_CAPACITY`.
+    pub fn set_max_table_size(&mut self, size: usize) -> Result<(), DynamicTableError> {
+        self.table.set_max_size(size)
+    }
+
+    /// Configure the maximum number of streams we're willing to keep blocked
+    /// waiting for dynamic-table inserts. Mirrors `QPACK_MAX_BLOCKED_STREAMS`.
+    pub fn set_max_blocked_streams(&mut self, max: usize) -> Result<(), DynamicTableError> {
+        self.table.set_max_blocked(max)
+    }
+
     // Decode field lines received on Request of Push stream.
     // https://www.rfc-editor.org/rfc/rfc9204.html#name-field-line-representations
     pub fn decode_header<T: Buf>(&self, buf: &mut T) -> Result<Decoded, DecoderError> {

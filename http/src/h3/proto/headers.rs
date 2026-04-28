@@ -11,7 +11,9 @@ use http::{
     uri::{self, Authority, Parts, PathAndQuery, Scheme, Uri},
 };
 
-use super::{ext::Protocol, qpack::HeaderField};
+use crate::http::Protocol;
+
+use super::qpack::HeaderField;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Clone))]
@@ -52,6 +54,25 @@ impl Header {
     }
 
     pub fn into_request_parts(self) -> Result<(Method, Uri, Option<Protocol>, HeaderMap), HeaderError> {
+        let method = self.pseudo.method.clone().ok_or(HeaderError::MissingMethod)?;
+
+        // RFC 9114 §4.4 + RFC 9220: classify the request shape so we can
+        // validate the pseudo-header set.
+        // - strict CONNECT  (CONNECT, no :protocol): MUST omit :scheme and :path.
+        // - extended CONNECT (CONNECT, with :protocol) and regular requests:
+        //   MUST include :scheme and :path.
+        let is_strict_connect = method == Method::CONNECT && self.pseudo.protocol.is_none();
+        match (is_strict_connect, self.pseudo.scheme.is_some()) {
+            (true, true) => return Err(HeaderError::ConnectWithScheme),
+            (false, false) => return Err(HeaderError::MissingScheme),
+            _ => {}
+        }
+        match (is_strict_connect, self.pseudo.path.is_some()) {
+            (true, true) => return Err(HeaderError::ConnectWithPath),
+            (false, false) => return Err(HeaderError::MissingPath),
+            _ => {}
+        }
+
         let mut uri = Uri::builder();
 
         if let Some(path) = self.pseudo.path {
@@ -86,7 +107,7 @@ impl Header {
         }
 
         Ok((
-            self.pseudo.method.ok_or(HeaderError::MissingMethod)?,
+            method,
             // When empty host field is built into an uri it fails
             //= https://www.rfc-editor.org/rfc/rfc9114#section-4.3.1
             //# If these fields are present, they MUST NOT be
@@ -95,6 +116,17 @@ impl Header {
             self.pseudo.protocol,
             self.fields,
         ))
+    }
+
+    /// Interpret a decoded HTTP/3 header block as trailers.
+    //= https://www.rfc-editor.org/rfc/rfc9114#section-4.3
+    //# Pseudo-header fields MUST NOT appear in trailer
+    //# sections.
+    pub fn try_into_trailers(self) -> Result<HeaderMap, HeaderError> {
+        if self.pseudo.len > 0 {
+            return Err(HeaderError::PseudoInTrailer);
+        }
+        Ok(self.fields)
     }
 
     pub fn into_response_parts(self) -> Result<(StatusCode, HeaderMap), HeaderError> {
@@ -196,42 +228,44 @@ impl TryFrom<Vec<HeaderField>> for Header {
     fn try_from(headers: Vec<HeaderField>) -> Result<Self, Self::Error> {
         let mut fields = HeaderMap::with_capacity(headers.len());
         let mut pseudo = Pseudo::default();
+        let mut seen_regular = false;
 
         for field in headers.into_iter() {
             let (name, value) = field.into_inner();
-            match Field::parse(name, value)? {
-                Field::Method(m) => {
-                    pseudo.method = Some(m);
-                    pseudo.len += 1;
-                }
-                Field::Scheme(s) => {
-                    pseudo.scheme = Some(s);
-                    pseudo.len += 1;
-                }
-                Field::Authority(a) => {
-                    pseudo.authority = Some(a);
-                    pseudo.len += 1;
-                }
-                Field::Path(p) => {
-                    pseudo.path = Some(p);
-                    pseudo.len += 1;
-                }
-                Field::Status(s) => {
-                    pseudo.status = Some(s);
-                    pseudo.len += 1;
-                }
+            let parsed = Field::parse(name, value)?;
+
+            // Pseudo-header fields MUST appear before regular header fields
+            // (RFC 9114 §4.3). Once we've seen a regular field, any further
+            // pseudo is malformed.
+            if !matches!(parsed, Field::Header(_)) && seen_regular {
+                return Err(HeaderError::PseudoAfterRegular);
+            }
+
+            match parsed {
+                Field::Method(m) => set_once(&mut pseudo.method, m, ":method", &mut pseudo.len)?,
+                Field::Scheme(s) => set_once(&mut pseudo.scheme, s, ":scheme", &mut pseudo.len)?,
+                Field::Authority(a) => set_once(&mut pseudo.authority, a, ":authority", &mut pseudo.len)?,
+                Field::Path(p) => set_once(&mut pseudo.path, p, ":path", &mut pseudo.len)?,
+                Field::Status(s) => set_once(&mut pseudo.status, s, ":status", &mut pseudo.len)?,
+                Field::Protocol(p) => set_once(&mut pseudo.protocol, p, ":protocol", &mut pseudo.len)?,
                 Field::Header((n, v)) => {
+                    seen_regular = true;
                     fields.append(n, v);
-                }
-                Field::Protocol(p) => {
-                    pseudo.protocol = Some(p);
-                    pseudo.len += 1;
                 }
             }
         }
 
         Ok(Header { pseudo, fields })
     }
+}
+
+fn set_once<T>(slot: &mut Option<T>, value: T, name: &'static str, len: &mut usize) -> Result<(), HeaderError> {
+    if slot.is_some() {
+        return Err(HeaderError::DuplicatePseudo(name));
+    }
+    *slot = Some(value);
+    *len += 1;
+    Ok(())
 }
 
 enum Field {
@@ -271,6 +305,24 @@ impl Field {
         //# treated as malformed.
 
         if name[0] != b':' {
+            //= https://www.rfc-editor.org/rfc/rfc9114#section-4.2.2
+            //# An endpoint MUST NOT generate an HTTP/3 field section containing
+            //# connection-specific fields; any message containing connection-
+            //# specific fields MUST be treated as malformed.
+            if is_connection_specific(name) {
+                return Err(HeaderError::ConnectionSpecific(
+                    String::from_utf8_lossy(name).into_owned(),
+                ));
+            }
+
+            //= https://www.rfc-editor.org/rfc/rfc9114#section-4.2.2
+            //# The only exception to this is the TE header field, which MAY
+            //# be present in an HTTP/3 request; when it is, it MUST NOT
+            //# contain any value other than "trailers".
+            if name == b"te" && value.as_ref() != b"trailers" {
+                return Err(HeaderError::InvalidTeValue);
+            }
+
             return Ok(Field::Header((
                 HeaderName::from_lowercase(name).map_err(|_| HeaderError::invalid_name(name))?,
                 HeaderValue::from_bytes(value.as_ref()).map_err(|_| HeaderError::invalid_value(name, value))?,
@@ -294,6 +346,13 @@ impl Field {
             _ => return Err(HeaderError::invalid_name(name)),
         })
     }
+}
+
+fn is_connection_specific(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"connection" | b"keep-alive" | b"proxy-connection" | b"transfer-encoding" | b"upgrade"
+    )
 }
 
 fn try_value<N, V, R>(name: N, value: V) -> Result<R, HeaderError>
@@ -433,6 +492,15 @@ pub enum HeaderError {
     MissingStatus,
     MissingAuthority,
     ContradictedAuthority,
+    ConnectionSpecific(String),
+    InvalidTeValue,
+    DuplicatePseudo(&'static str),
+    PseudoAfterRegular,
+    PseudoInTrailer,
+    MissingScheme,
+    MissingPath,
+    ConnectWithScheme,
+    ConnectWithPath,
 }
 
 impl HeaderError {
@@ -470,6 +538,21 @@ impl fmt::Display for HeaderError {
             HeaderError::ContradictedAuthority => {
                 write!(f, "uri and authority field are in contradiction")
             }
+            HeaderError::ConnectionSpecific(n) => {
+                write!(f, "connection-specific header field {} is forbidden in HTTP/3", n)
+            }
+            HeaderError::InvalidTeValue => {
+                write!(f, "te header field MUST only carry \"trailers\" in HTTP/3")
+            }
+            HeaderError::DuplicatePseudo(n) => write!(f, "pseudo-header {} appears more than once", n),
+            HeaderError::PseudoAfterRegular => write!(f, "pseudo-header field appears after a regular field"),
+            HeaderError::PseudoInTrailer => write!(f, "pseudo-header field appears in a trailer section"),
+            HeaderError::MissingScheme => write!(f, "request is missing the :scheme pseudo-header"),
+            HeaderError::MissingPath => write!(f, "request is missing the :path pseudo-header"),
+            HeaderError::ConnectWithScheme => {
+                write!(f, "CONNECT request without :protocol must not include :scheme")
+            }
+            HeaderError::ConnectWithPath => write!(f, "CONNECT request without :protocol must not include :path"),
         }
     }
 }
@@ -487,7 +570,12 @@ mod tests {
         //# mandatory authority component (including "http" and "https"), the
         //# request MUST contain either an :authority pseudo-header field or a
         //# Host header field.
-        let headers = Header::try_from(vec![(b":method", Method::GET.as_str()).into()]).unwrap();
+        let headers = Header::try_from(vec![
+            (b":method", Method::GET.as_str()).into(),
+            (b":scheme", b"https").into(),
+            (b":path", b"/").into(),
+        ])
+        .unwrap();
         assert!(headers.pseudo.authority.is_none());
         assert_matches!(headers.into_request_parts(), Err(HeaderError::MissingAuthority));
     }
@@ -513,7 +601,13 @@ mod tests {
         //= type=test
         //# If these fields are present, they MUST NOT be
         //# empty.
-        let headers = Header::try_from(vec![(b":method", Method::GET.as_str()).into(), (b"host", b"").into()]).unwrap();
+        let headers = Header::try_from(vec![
+            (b":method", Method::GET.as_str()).into(),
+            (b":scheme", b"https").into(),
+            (b":path", b"/").into(),
+            (b"host", b"").into(),
+        ])
+        .unwrap();
         assert_matches!(headers.into_request_parts(), Err(HeaderError::InvalidRequest(_)));
     }
 
@@ -527,7 +621,9 @@ mod tests {
         //# Host header field.
         let headers = Header::try_from(vec![
             (b":method", Method::GET.as_str()).into(),
+            (b":scheme", b"https").into(),
             (b":authority", b"test.com").into(),
+            (b":path", b"/").into(),
         ])
         .unwrap();
         assert_matches!(headers.into_request_parts(), Ok(_));
@@ -543,6 +639,8 @@ mod tests {
         //# Host header field.
         let headers = Header::try_from(vec![
             (b":method", Method::GET.as_str()).into(),
+            (b":scheme", b"https").into(),
+            (b":path", b"/").into(),
             (b"host", b"test.com").into(),
         ])
         .unwrap();
@@ -557,7 +655,9 @@ mod tests {
         //# If both fields are present, they MUST contain the same value.
         let headers = Header::try_from(vec![
             (b":method", Method::GET.as_str()).into(),
+            (b":scheme", b"https").into(),
             (b":authority", b"test.com").into(),
+            (b":path", b"/").into(),
             (b"host", b"test.com").into(),
         ])
         .unwrap();
@@ -570,11 +670,142 @@ mod tests {
         //# If both fields are present, they MUST contain the same value.
         let headers = Header::try_from(vec![
             (b":method", Method::GET.as_str()).into(),
+            (b":scheme", b"https").into(),
             (b":authority", b"authority.com").into(),
+            (b":path", b"/").into(),
             (b"host", b"host.com").into(),
         ])
         .unwrap();
         assert_matches!(headers.into_request_parts(), Err(HeaderError::ContradictedAuthority));
+    }
+
+    #[test]
+    fn rejects_connection_specific_header() {
+        for name in [
+            b"connection".as_slice(),
+            b"keep-alive",
+            b"proxy-connection",
+            b"transfer-encoding",
+            b"upgrade",
+        ] {
+            assert_matches!(
+                Header::try_from(vec![
+                    (b":method", Method::GET.as_str()).into(),
+                    (b":authority", b"test.com").into(),
+                    (name, b"close").into(),
+                ]),
+                Err(HeaderError::ConnectionSpecific(_))
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_te_trailers_only() {
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::GET.as_str()).into(),
+                (b":authority", b"test.com").into(),
+                (b"te", b"trailers").into(),
+            ]),
+            Ok(_)
+        );
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::GET.as_str()).into(),
+                (b":authority", b"test.com").into(),
+                (b"te", b"gzip").into(),
+            ]),
+            Err(HeaderError::InvalidTeValue)
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_pseudo() {
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::GET.as_str()).into(),
+                (b":method", Method::POST.as_str()).into(),
+                (b":authority", b"test.com").into(),
+            ]),
+            Err(HeaderError::DuplicatePseudo(":method"))
+        );
+    }
+
+    #[test]
+    fn regular_request_requires_scheme_and_path() {
+        // Missing :scheme.
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::GET.as_str()).into(),
+                (b":authority", b"test.com").into(),
+                (b":path", b"/").into(),
+            ])
+            .unwrap()
+            .into_request_parts(),
+            Err(HeaderError::MissingScheme)
+        );
+        // Missing :path.
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::GET.as_str()).into(),
+                (b":scheme", b"https").into(),
+                (b":authority", b"test.com").into(),
+            ])
+            .unwrap()
+            .into_request_parts(),
+            Err(HeaderError::MissingPath)
+        );
+    }
+
+    #[test]
+    fn strict_connect_rejects_scheme_or_path() {
+        // CONNECT with :scheme.
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::CONNECT.as_str()).into(),
+                (b":scheme", b"https").into(),
+                (b":authority", b"test.com:443").into(),
+            ])
+            .unwrap()
+            .into_request_parts(),
+            Err(HeaderError::ConnectWithScheme)
+        );
+        // CONNECT with :path.
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::CONNECT.as_str()).into(),
+                (b":authority", b"test.com:443").into(),
+                (b":path", b"/").into(),
+            ])
+            .unwrap()
+            .into_request_parts(),
+            Err(HeaderError::ConnectWithPath)
+        );
+    }
+
+    #[test]
+    fn strict_connect_accepts_authority_only() {
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::CONNECT.as_str()).into(),
+                (b":authority", b"test.com:443").into(),
+            ])
+            .unwrap()
+            .into_request_parts(),
+            Ok(_)
+        );
+    }
+
+    #[test]
+    fn rejects_pseudo_after_regular() {
+        assert_matches!(
+            Header::try_from(vec![
+                (b":method", Method::GET.as_str()).into(),
+                (b"x-foo", b"bar").into(),
+                (b":authority", b"test.com").into(),
+            ]),
+            Err(HeaderError::PseudoAfterRegular)
+        );
     }
 
     #[test]

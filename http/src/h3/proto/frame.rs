@@ -3,8 +3,6 @@ use std::{
     convert::TryInto,
     fmt::{self, Debug},
 };
-#[cfg(feature = "tracing")]
-use tracing::trace;
 
 use super::{
     coding::{Decode, Encode},
@@ -84,10 +82,7 @@ impl Frame<PayloadLen> {
 
         let mut payload = buf.take(len as usize);
 
-        #[cfg(feature = "tracing")]
-        trace!("frame ty: {:?}", ty);
-
-        let frame = match ty {
+        match ty {
             FrameType::HEADERS => Ok(Frame::Headers(payload.copy_to_bytes(len as usize))),
             FrameType::SETTINGS => Ok(Frame::Settings(Settings::decode(&mut payload)?)),
             FrameType::CANCEL_PUSH => Ok(Frame::CancelPush(payload.get_var()?.try_into()?)),
@@ -109,13 +104,7 @@ impl Frame<PayloadLen> {
                 //# NOT consider these frames to have any meaning upon receipt.
                 Err(FrameError::UnknownFrame(ty.0))
             }
-        };
-
-        if let Ok(_frame) = &frame {
-            #[cfg(feature = "tracing")]
-            trace!("got frame {:?}, len: {}, remaining: {}", _frame, len, buf.remaining());
         }
-        frame
     }
 }
 
@@ -482,8 +471,6 @@ impl Settings {
                 //= https://www.rfc-editor.org/rfc/rfc9114#section-7.2.4.1
                 //# Endpoints MUST NOT consider such settings to have
                 //# any meaning upon receipt.
-                #[cfg(feature = "tracing")]
-                tracing::debug!("Unsupported setting: {:#x?}", identifier);
             }
         }
         Ok(settings)
