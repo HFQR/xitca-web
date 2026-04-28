@@ -5,18 +5,11 @@ use core::{
 
 use std::io;
 
-use crate::{
-    body::SizeHint,
-    bytes::Bytes,
-    h2::{
-        dispatcher::{Frame, FrameBuffer},
-        util::Deque,
-    },
-    http::HeaderMap,
-};
+use crate::{body::SizeHint, bytes::Bytes, h2::util::Deque, http::HeaderMap};
 
 use super::{
     error::Error,
+    flow::{Frame, FrameBuffer},
     frame::{reason::Reason, settings::MAX_INITIAL_WINDOW_SIZE},
     size::BodySize,
 };

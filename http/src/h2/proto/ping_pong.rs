@@ -2,10 +2,12 @@ use core::{pin::Pin, time::Duration};
 
 use std::io;
 
-use crate::date::DateTime;
-use crate::util::timer::KeepAlive;
+use crate::{
+    date::{DateTime, DateTimeHandle},
+    util::timer::KeepAlive,
+};
 
-use crate::{date::DateTimeHandle, h2::dispatcher::FlowControlLock};
+use super::flow::FlowControlLock;
 
 pub(crate) struct PingPong<'a> {
     timer: Pin<&'a mut KeepAlive>,
