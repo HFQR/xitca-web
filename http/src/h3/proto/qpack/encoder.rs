@@ -47,7 +47,30 @@ pub struct Encoder {
     table: DynamicTable,
 }
 
+impl Default for Encoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Encoder {
+    pub fn new() -> Self {
+        Self {
+            table: DynamicTable::new(),
+        }
+    }
+
+    /// Configure the maximum dynamic table size we're willing to use when
+    /// encoding outbound headers. This must not exceed the peer's advertised
+    /// `QPACK_MAX_TABLE_CAPACITY`.
+    pub fn set_max_table_size(&mut self, size: usize) -> Result<(), DynamicTableError> {
+        self.table.set_max_size(size)
+    }
+
+    pub fn set_max_blocked_streams(&mut self, max: usize) -> Result<(), DynamicTableError> {
+        self.table.set_max_blocked(max)
+    }
+
     pub fn encode<W, T, H>(
         &mut self,
         stream_id: u64,
@@ -171,14 +194,6 @@ impl Encoder {
             },
         };
         Ok(reference)
-    }
-}
-
-impl Default for Encoder {
-    fn default() -> Self {
-        Self {
-            table: DynamicTable::new(),
-        }
     }
 }
 
@@ -349,7 +364,7 @@ mod tests {
     #[test]
     fn encode_static_nameref_indexed_in_dynamic() {
         let field = HeaderField::new("location", "/bar");
-        check_encode_field(&[field.clone()], &[field], &|mut b, e| {
+        check_encode_field(std::slice::from_ref(&field.clone()), &[field], &|mut b, e| {
             assert_eq!(Indexed::decode(&mut b), Ok(Indexed::Dynamic(0)));
             assert_eq!(e.get_ref().len(), 0);
         });
@@ -400,12 +415,12 @@ mod tests {
         table.set_max_size(63).unwrap();
         let field = HeaderField::new("foo", "bar");
 
-        check_encode_field_table(&mut table, &[], &[field.clone()], 1, &|mut b, _| {
+        check_encode_field_table(&mut table, &[], std::slice::from_ref(&field), 1, &|mut b, _| {
             assert_eq!(IndexedWithPostBase::decode(&mut b), Ok(IndexedWithPostBase(0)));
         });
         check_encode_field_table(
             &mut table,
-            &[field.clone()],
+            std::slice::from_ref(&field),
             &[field.with_value("quxx")],
             2,
             &|mut b, e| {

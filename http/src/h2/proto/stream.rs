@@ -5,18 +5,11 @@ use core::{
 
 use std::io;
 
-use crate::{
-    body::SizeHint,
-    bytes::Bytes,
-    h2::{
-        dispatcher::{Frame, FrameBuffer},
-        util::Deque,
-    },
-    http::HeaderMap,
-};
+use crate::{body::SizeHint, bytes::Bytes, h2::util::Deque, http::HeaderMap};
 
 use super::{
     error::Error,
+    flow::{Frame, FrameBuffer},
     frame::{reason::Reason, settings::MAX_INITIAL_WINDOW_SIZE},
     size::BodySize,
 };
@@ -24,33 +17,30 @@ use super::{
 pub(crate) struct Stream {
     recv: Recv,
     send: Send,
+    recv_state: State,
+    send_state: State,
     pending_error: Option<StreamError>,
 }
 
+const _: () = assert!(core::mem::size_of::<Stream>() == 80, "Stream size regression");
+
 impl Stream {
-    pub(crate) fn new(
-        send_window: i64,
-        send_frame_size: usize,
-        recv_window: usize,
-        content_length: SizeHint,
-        end_stream: bool,
-    ) -> Self {
-        let state = if end_stream { State::Eof } else { State::Open };
+    pub(crate) fn new(send_window: i64, recv_window: usize, content_length: SizeHint, end_stream: bool) -> Self {
+        let recv_state = if end_stream { State::Eof } else { State::Open };
 
         Self {
             recv: Recv {
                 queue: Deque::new(),
                 waker: None,
                 window: recv_window,
-                state,
                 content_length,
             },
             send: Send {
                 window: send_window,
-                frame_size: send_frame_size,
                 waker: None,
-                state: State::Open,
             },
+            recv_state,
+            send_state: State::Open,
             pending_error: None,
         }
     }
@@ -69,13 +59,13 @@ impl Stream {
 
         let recv = match self.data_check(len, flow_len, end_stream) {
             Ok(_) => {
-                if self.recv.state.is_open() {
+                if self.recv_state.is_open() {
                     // RFC 7540 §6.9.1: padding counts toward flow control. The caller
                     // auto-releases `padded_len` on both connection and stream windows
                     // since padding is not body-observable. Mirror that here so
                     // `recv.window` only paces the data portion via body consumption.
                     self.recv.window += padded_len;
-                    self.recv.push_frame(buffer, Frame::Data(data), end_stream);
+                    self.recv_push_frame(buffer, Frame::Data(data), end_stream);
                     RecvData::Queued(padded_len)
                 } else {
                     // Body dropped (Close) or error (Error): discard data, restore
@@ -104,8 +94,8 @@ impl Stream {
 
         let recv = match self.trailers_check(end_stream) {
             Ok(_) => {
-                if self.recv.state.is_open() {
-                    self.recv.push_frame(buffer, Frame::Trailers(trailers), true);
+                if self.recv_state.is_open() {
+                    self.recv_push_frame(buffer, Frame::Trailers(trailers), true);
                     RecvData::Queued(0)
                 } else {
                     RecvData::Discard(0)
@@ -146,10 +136,6 @@ impl Stream {
         self.recv.window += size;
     }
 
-    pub(crate) fn send_frame_size_update(&mut self, size: usize) {
-        self.send.frame_size = size;
-    }
-
     pub(crate) fn poll_frame(
         &mut self,
         buffer: &mut FrameBuffer,
@@ -158,7 +144,7 @@ impl Stream {
         let opt = if let Some(frame) = self.recv.queue.pop_front(buffer) {
             Some(Ok(frame))
         } else {
-            match self.recv.state {
+            match self.recv_state {
                 State::Error => self.pending_error.map(Err),
                 State::Eof => None,
                 _ => {
@@ -174,20 +160,19 @@ impl Stream {
     pub(crate) fn poll_send_window(
         &mut self,
         len: usize,
-        window: usize,
+        cap: usize,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<usize, StreamError>>> {
-        let opt = match self.send.state {
+        let opt = match self.send_state {
             State::Error => self.pending_error.map(Err),
             State::Close => None,
             _ => {
-                if len > 0 && (window == 0 || self.send.window <= 0) {
+                if len > 0 && (cap == 0 || self.send.window <= 0) {
                     self.send.waker = Some(cx.waker().clone());
                     return Poll::Pending;
                 }
 
-                let len = cmp::min(len, self.send.frame_size);
-                let aval = cmp::min(self.send.window as usize, window);
+                let aval = cmp::min(self.send.window as usize, cap);
                 let aval = cmp::min(aval, len);
                 self.send.window -= aval as i64;
 
@@ -199,14 +184,14 @@ impl Stream {
     }
 
     pub(crate) fn promote_cancel_to_close_recv(&mut self) {
-        if matches!(self.recv.state, State::Cancel) {
-            self.recv.state = State::Close;
+        if matches!(self.recv_state, State::Cancel) {
+            self.recv_state = State::Close;
             self.try_revert_cancel_error();
         }
     }
 
     pub(crate) fn close_send(&mut self) {
-        self.send.set_close();
+        self.send_state = State::Close;
     }
 
     pub(crate) fn maybe_close_recv(&mut self, buffer: &mut FrameBuffer) -> usize {
@@ -220,13 +205,13 @@ impl Stream {
 
         self.recv.window += window;
 
-        match self.recv.state {
+        match self.recv_state {
             State::Open => {
-                self.recv.state = State::Cancel;
+                self.recv_state = State::Cancel;
                 self.try_set_pending_error(StreamError::NoError);
             }
             _ => {
-                self.recv.state = State::Close;
+                self.recv_state = State::Close;
             }
         }
 
@@ -234,7 +219,7 @@ impl Stream {
     }
 
     pub(crate) fn try_remove(&mut self) -> TryRemove {
-        match (&self.recv.state, &self.send.state) {
+        match (&self.recv_state, &self.send_state) {
             (State::Close, State::Close) => match self.pending_error.take() {
                 Some(err) if err.transportable() => TryRemove::ResetRemove(err),
                 _ => TryRemove::Remove,
@@ -252,8 +237,8 @@ impl Stream {
     /// send_data exits), and pending_reset (so the lifecycle sends RST_STREAM).
     pub(crate) fn try_set_reset(&mut self, err: StreamError) {
         self.try_set_pending_error(err);
-        self.recv.try_set_err();
-        self.send.try_set_err();
+        self.recv_try_set_err();
+        self.send_try_set_err();
     }
 
     /// Set an error on both sides without scheduling an outgoing RST_STREAM.
@@ -265,11 +250,11 @@ impl Stream {
     }
 
     pub(crate) fn is_recv_end_stream(&self) -> bool {
-        self.recv.is_eof() && self.recv.queue.is_empty()
+        matches!(self.recv_state, State::Eof) && self.recv.queue.is_empty()
     }
 
     fn recvable(&self) -> Result<(), Error> {
-        match (&self.pending_error, &self.recv.state) {
+        match (&self.pending_error, &self.recv_state) {
             (Some(StreamError::PeerReset), _) => Err(Error::FrameAfterReset),
             (_, State::Eof) => Err(Error::FrameAfterEndStream),
             (_, _) => Ok(()),
@@ -333,6 +318,32 @@ impl Stream {
             self.pending_error = None;
         }
     }
+
+    fn recv_try_set_err(&mut self) {
+        match self.recv_state {
+            State::Open => {
+                self.recv_state = State::Error;
+                self.recv.wake();
+            }
+            State::Cancel => self.recv_state = State::Close,
+            _ => {}
+        }
+    }
+
+    fn recv_push_frame(&mut self, buffer: &mut FrameBuffer, frame: Frame, end_stream: bool) {
+        self.recv.queue.push_back(buffer, frame);
+        if end_stream {
+            self.recv_state = State::Eof;
+        }
+        self.recv.wake();
+    }
+
+    fn send_try_set_err(&mut self) {
+        if self.send_state.is_open() {
+            self.send_state = State::Error;
+            self.send.wake();
+        }
+    }
 }
 
 // outcome of Stream::try_remove
@@ -374,38 +385,14 @@ pub(crate) enum RecvData {
     StreamReset(usize),
 }
 
-pub(crate) struct Recv {
-    pub(crate) queue: Deque,
-    pub(crate) waker: Option<Waker>,
-    pub(crate) window: usize,
-    state: State,
+struct Recv {
+    queue: Deque,
+    waker: Option<Waker>,
+    window: usize,
     content_length: SizeHint,
 }
 
 impl Recv {
-    fn try_set_err(&mut self) {
-        match self.state {
-            State::Open => {
-                self.state = State::Error;
-                self.wake();
-            }
-            State::Cancel => self.state = State::Close,
-            _ => {}
-        }
-    }
-
-    fn push_frame(&mut self, buffer: &mut FrameBuffer, frame: Frame, end_stream: bool) {
-        self.queue.push_back(buffer, frame);
-        if end_stream {
-            self.state = State::Eof;
-        }
-        self.wake();
-    }
-
-    fn is_eof(&self) -> bool {
-        matches!(self.state, State::Eof)
-    }
-
     fn wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -413,29 +400,16 @@ impl Recv {
     }
 }
 
-pub(crate) struct Send {
+struct Send {
     /// Remaining send window for this stream. Signed because a SETTINGS change
     /// reducing INITIAL_WINDOW_SIZE can drive it negative; the stream must not
     /// send until WINDOW_UPDATE brings it back above zero (RFC 7540 §6.9.2).
-    pub(crate) window: i64,
-    pub(crate) frame_size: usize,
-    pub(crate) waker: Option<Waker>,
-    state: State,
+    window: i64,
+    waker: Option<Waker>,
 }
 
 impl Send {
-    fn try_set_err(&mut self) {
-        if self.state.is_open() {
-            self.state = State::Error;
-            self.wake();
-        }
-    }
-
-    fn set_close(&mut self) {
-        self.state = State::Close;
-    }
-
-    pub(crate) fn wake(&mut self) {
+    fn wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }

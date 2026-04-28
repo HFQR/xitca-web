@@ -2,7 +2,7 @@ use core::fmt;
 
 use crate::bytes::{Buf, BufMut};
 
-use crate::proto::coding::{self, BufExt, BufMutExt};
+use crate::h3::proto::coding::{self, BufExt, BufMutExt};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

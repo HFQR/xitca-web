@@ -2,6 +2,8 @@
 ## Fix
 - fix HTTP/2 stream send window update
 - fix HTTP/2 stream recv frame size
+- fix HTTP/2 stream closed in trailer/post end_stream is treated as connection level error
+- fix HTTP/2 initial settings not aligned with http service configratuion
 
 # 0.9.3
 ## Change

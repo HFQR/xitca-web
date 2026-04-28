@@ -50,6 +50,20 @@ impl Protocol {
         Self { inner }
     }
 
+    /// Wire-form name of this protocol, suitable for the `:protocol`
+    /// pseudo-header value. Returns `""` for protocols parsed from an
+    /// unrecognised string (round-tripping unknown protocols is not
+    /// supported).
+    pub fn as_str(&self) -> &'static str {
+        match self.inner {
+            _Protocol::WebSocket => "websocket",
+            _Protocol::WebTransport => "webtransport",
+            _Protocol::ConnectIp => "connect-ip",
+            _Protocol::ConnectUdp => "connect-udp",
+            _Protocol::Unknown => "",
+        }
+    }
+
     const fn new(inner: _Protocol) -> Self {
         Self { inner }
     }

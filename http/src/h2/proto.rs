@@ -1,4 +1,5 @@
 pub(super) mod error;
+pub(super) mod flow;
 pub(super) mod frame;
 pub(super) mod hpack;
 pub(super) mod last_stream_id;

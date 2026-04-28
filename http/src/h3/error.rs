@@ -10,6 +10,12 @@ pub enum Error<S, B> {
     Stream(StreamError),
     QuinnConnection(ConnectionError),
     H3Connection(H3ConnectionError),
+    /// Used by the homebrew dispatcher (v2) to surface protocol-level
+    /// connection errors with the RFC 9114 error code and a textual reason.
+    Proto {
+        code: u64,
+        reason: String,
+    },
 }
 
 impl<S, B> From<StreamError> for Error<S, B> {

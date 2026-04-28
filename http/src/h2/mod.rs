@@ -15,8 +15,6 @@ pub use self::service::H2Service;
 
 use crate::http::header::{CONNECTION, HeaderMap, HeaderName, TE, TRANSFER_ENCODING, UPGRADE};
 
-const STREAM_MUST_EXIST: &str = "Stream MUST NOT be removed while RequestBody or response_task is still alive";
-
 const CONNECTION_HEADERS: [HeaderName; 4] = [
     HeaderName::from_static("keep-alive"),
     HeaderName::from_static("proxy-connection"),
@@ -28,8 +26,6 @@ pub fn strip_connection_headers<const IS_REQ: bool>(headers: &mut HeaderMap) {
     for header in &CONNECTION_HEADERS {
         headers.remove(header);
     }
-
-    headers.remove(TE);
 
     if IS_REQ {
         if headers.get(TE).is_some_and(|te_header| te_header != "trailers") {

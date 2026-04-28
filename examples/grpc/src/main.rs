@@ -4,7 +4,7 @@ use xitca_web::{
     App,
     error::{GrpcError, GrpcStatus},
     handler::{grpc::Grpc, handler_service},
-    route::post
+    route::post,
 };
 
 mod hello_world {
@@ -18,6 +18,7 @@ fn main() -> std::io::Result<()> {
         .at("/helloworld.Greeter/SayHello", post(handler_service(say_hello)))
         .serve()
         .worker_threads(1)
+        .h2c_prior_knowledge()
         .bind("localhost:50051")?
         .run()
         .wait()
