@@ -831,6 +831,60 @@ impl FlowControl {
             Poll::Pending
         }
     }
+
+    fn send_headers(&mut self, headers: headers::Headers<ResponsePseudo>) {
+        self.queue.push(Message::Head(headers));
+    }
+
+    fn poll_send_data(
+        &mut self,
+        id: StreamId,
+        data: &mut Bytes,
+        end_stream: bool,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<()>> {
+        let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
+
+        loop {
+            let len = data.len();
+
+            let cap = core::cmp::min(self.send_connection_window, self.max_frame_size);
+
+            let opt = ready!(stream.poll_send_window(len, cap, cx));
+
+            let Some(Ok(aval)) = opt else {
+                return Poll::Ready(Some(()));
+            };
+
+            self.send_connection_window -= aval;
+
+            let all_consumed = aval == len;
+
+            let payload = if all_consumed {
+                mem::take(data)
+            } else {
+                data.split_to(aval)
+            };
+
+            let end_stream = all_consumed && end_stream;
+
+            self.queue.push_data(id, payload, end_stream);
+
+            if end_stream {
+                return Poll::Ready(Some(()));
+            } else if all_consumed {
+                return Poll::Ready(None);
+            }
+        }
+    }
+
+    fn send_trailers(&mut self, id: StreamId, trailers: HeaderMap) {
+        self.queue.push_trailers(id, trailers);
+    }
+
+    fn send_end_stream(&mut self, id: StreamId) {
+        self.queue.push_end_stream(id);
+    }
 }
 
 #[derive(Default)]
@@ -1107,7 +1161,7 @@ async fn _response_task<'a, S, ReqB, ResB, ResBE>(
     req: Request<RequestExt<RequestBody>>,
     stream_id: StreamId,
     service: &S,
-    ctx: &'a FLowControlClone,
+    flow: &'a FlowControlLock,
     date: &DateTimeHandle,
 ) -> Result<RefMut<'a, FlowControl>, ()>
 where
@@ -1150,115 +1204,55 @@ where
         headers.set_end_stream();
     }
 
-    let mut flow = ctx.borrow_mut();
+    let mut f = flow.borrow_mut();
 
-    flow.queue.push(Message::Head(headers));
+    f.send_headers(headers);
 
     if !end_stream {
-        drop(flow);
+        drop(f);
 
         let mut body = pin!(body);
 
-        flow = loop {
+        f = loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
                 None => {
-                    let mut flow = ctx.borrow_mut();
-                    flow.queue.push_end_stream(stream_id);
-                    break flow;
+                    let mut f = flow.borrow_mut();
+                    f.send_end_stream(stream_id);
+                    break f;
                 }
                 Some(Err(e)) => {
                     error!("body error: {e:?}");
                     return Err(());
                 }
-                Some(Ok(Frame::Data(bytes))) => {
-                    if let Some(flow) = send_data(stream_id, bytes, body.is_end_stream(), ctx).await {
+                Some(Ok(Frame::Data(mut data))) => {
+                    if data.is_empty() && !end_stream {
+                        tracing::warn!(
+                            "response body should not yield empty Frame::Data unless it's the last chunk of Body"
+                        );
+                        continue;
+                    }
+
+                    let opt = poll_fn(|cx| {
+                        let mut flow = flow.borrow_mut();
+                        flow.poll_send_data(stream_id, &mut data, end_stream, cx)
+                            .map(|opt| opt.map(|_| flow))
+                    })
+                    .await;
+
+                    if let Some(flow) = opt {
                         break flow;
                     }
                 }
                 Some(Ok(Frame::Trailers(trailers))) => {
-                    let mut flow = ctx.borrow_mut();
-                    flow.queue.push_trailers(stream_id, trailers);
-                    break flow;
+                    let mut f = flow.borrow_mut();
+                    f.send_trailers(stream_id, trailers);
+                    break f;
                 }
             }
         }
     }
 
-    Ok(flow)
-}
-
-async fn send_data(
-    stream_id: StreamId,
-    data: Bytes,
-    end_stream: bool,
-    ctx: &FLowControlClone,
-) -> Option<RefMut<'_, FlowControl>> {
-    if data.is_empty() && !end_stream {
-        tracing::warn!("response body should not yield empty Frame::Data unless it's the last chunk of Body");
-        return None;
-    }
-
-    SendData {
-        data,
-        end_stream,
-        stream_id,
-        flow: ctx,
-    }
-    .await
-}
-
-struct SendData<'a> {
-    data: Bytes,
-    end_stream: bool,
-    stream_id: StreamId,
-    flow: &'a FLowControlClone,
-}
-
-impl<'a> Future for SendData<'a> {
-    type Output = Option<RefMut<'a, FlowControl>>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-
-        let mut flow = this.flow.borrow_mut();
-
-        loop {
-            let len = this.data.len();
-
-            let cap = core::cmp::min(flow.send_connection_window, flow.max_frame_size);
-
-            let opt = ready!(
-                flow.stream_map
-                    .get_mut(&this.stream_id)
-                    .expect(STREAM_MUST_EXIST)
-                    .poll_send_window(len, cap, cx)
-            );
-
-            let Some(Ok(aval)) = opt else {
-                return Poll::Ready(Some(flow));
-            };
-
-            flow.send_connection_window -= aval;
-
-            let all_consumed = aval == len;
-
-            let payload = if all_consumed {
-                mem::take(&mut this.data)
-            } else {
-                this.data.split_to(aval)
-            };
-
-            let end_stream = all_consumed && this.end_stream;
-
-            flow.queue.push_data(this.stream_id, payload, end_stream);
-
-            if end_stream {
-                return Poll::Ready(Some(flow));
-            } else if all_consumed {
-                return Poll::Ready(None);
-            }
-        }
-    }
+    Ok(f)
 }
 
 /// Maximum number of client-caused resets allowed within `RESET_WINDOW`

@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn encode_static_nameref_indexed_in_dynamic() {
         let field = HeaderField::new("location", "/bar");
-        check_encode_field(&[field.clone()], &[field], &|mut b, e| {
+        check_encode_field(std::slice::from_ref(&field.clone()), &[field], &|mut b, e| {
             assert_eq!(Indexed::decode(&mut b), Ok(Indexed::Dynamic(0)));
             assert_eq!(e.get_ref().len(), 0);
         });
@@ -415,12 +415,12 @@ mod tests {
         table.set_max_size(63).unwrap();
         let field = HeaderField::new("foo", "bar");
 
-        check_encode_field_table(&mut table, &[], &[field.clone()], 1, &|mut b, _| {
+        check_encode_field_table(&mut table, &[], std::slice::from_ref(&field), 1, &|mut b, _| {
             assert_eq!(IndexedWithPostBase::decode(&mut b), Ok(IndexedWithPostBase(0)));
         });
         check_encode_field_table(
             &mut table,
-            &[field.clone()],
+            std::slice::from_ref(&field),
             &[field.with_value("quxx")],
             2,
             &|mut b, e| {
