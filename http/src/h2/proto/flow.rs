@@ -1,6 +1,6 @@
 use core::{
     cell::RefCell,
-    mem,
+    cmp, mem,
     task::{Context, Poll, Waker, ready},
     time::Duration,
 };
@@ -77,7 +77,7 @@ pub(crate) struct FlowControl {
     /// causes new-stream HEADERS to be silently dropped (RFC 7540 §6.8)
     /// and signals the dispatcher's main loop that the graceful drain
     /// can terminate when the in-flight queue empties.
-    pub(crate) last_stream_id: LastStreamId,
+    last_stream_id: LastStreamId,
     queue: WriterQueue,
     /// Shared slab backing all per-stream recv frame deques, avoiding
     /// per-stream `VecDeque` allocations.
@@ -263,7 +263,7 @@ impl FlowControl {
         // (non-client-initiated, non-monotonic) produce GOAWAY rather
         // than being masked by REFUSED_STREAM.
         // Saturated (post-GOAWAY): silently drop the frame.
-        if self.last_stream_id.try_set(id)?.is_none() {
+        if self.try_set_last_stream_id(id)?.is_none() {
             return Ok(None);
         }
 
@@ -333,6 +333,10 @@ impl FlowControl {
         self.insert_stream(id, end_stream, content_length);
 
         Ok(Some((req, id)))
+    }
+
+    pub(crate) fn try_set_last_stream_id(&mut self, id: StreamId) -> Result<Option<()>, Error> {
+        self.last_stream_id.try_set(id).map_err(Into::into)
     }
 
     pub(crate) fn recv_data(&mut self, data: Data) -> Result<(), Error> {
@@ -429,7 +433,7 @@ impl FlowControl {
 
     #[cold]
     #[inline(never)]
-    pub(crate) fn handle_reset(&mut self, reset: Reset) -> Result<(), Error> {
+    pub(crate) fn recv_reset(&mut self, reset: Reset) -> Result<(), Error> {
         let id = reset.stream_id();
 
         if id.is_zero() {
@@ -497,10 +501,7 @@ impl FlowControl {
                     let window = mem::replace(pending_window, 0);
                     stream.recv_window_update(window);
                     self.queue.connection_window_update(window);
-                    self.queue.messages.push_back(Message::WindowUpdate {
-                        stream_id: *id,
-                        size: window,
-                    });
+                    self.queue.stream_window_update(*id, window);
                 }
             }
             frame
@@ -511,12 +512,8 @@ impl FlowControl {
         self.stream_map.get(id).expect(STREAM_MUST_EXIST).is_recv_end_stream()
     }
 
-    pub(crate) fn try_set_pending_ping(&mut self) -> io::Result<()> {
-        if self.queue.keepalive_ping != KeepalivePing::Idle {
-            return Err(io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout"));
-        }
-        self.queue.keepalive_ping = KeepalivePing::Pending;
-        Ok(())
+    pub(super) fn try_set_pending_ping(&mut self) -> io::Result<()> {
+        self.queue.keepalive_ping.try_set_pending_ping()
     }
 
     fn try_tick_reset(&mut self) -> Result<(), Error> {
@@ -608,17 +605,10 @@ impl FlowControl {
 
         // Encode a client PING ACK if one is waiting (take-and-clear).
         if let Some(payload) = self.queue.pending_client_ping.take() {
-            head::Head::new(head::Kind::Ping, 0x1, StreamId::zero()).encode(8, write_buf);
-            write_buf.put_slice(&payload);
+            Ping::new(payload, true).encode(write_buf);
         }
 
-        // Encode our keepalive PING if it is queued but not yet sent, then
-        // transition to InFlight so we do not re-send it on the next pass.
-        if self.queue.keepalive_ping == KeepalivePing::Pending {
-            head::Head::new(head::Kind::Ping, 0x0, StreamId::zero()).encode(8, write_buf);
-            write_buf.put_slice(&[0u8; 8]);
-            self.queue.keepalive_ping = KeepalivePing::InFlight;
-        }
+        self.queue.keepalive_ping.encode(write_buf);
 
         if !write_buf.is_empty() {
             Poll::Ready(true)
@@ -646,7 +636,7 @@ impl FlowControl {
         loop {
             let len = data.len();
 
-            let cap = core::cmp::min(self.send_connection_window, self.max_frame_size);
+            let cap = cmp::min(self.send_connection_window, self.max_frame_size);
 
             let opt = ready!(stream.poll_send_window(len, cap, cx));
 
@@ -870,11 +860,29 @@ impl RemoteSettings {
 /// `PingPong::tick` treats both `Pending` and `InFlight` as "not yet ACKed",
 /// so it fires a timeout regardless of whether write_io is stalled (PING
 /// never left) or the peer is silent (PING was sent but no ACK arrived).
-#[derive(PartialEq)]
 enum KeepalivePing {
     Idle,
     Pending,
     InFlight,
+}
+
+impl KeepalivePing {
+    fn encode(&mut self, write_buf: &mut BytesMut) {
+        // Encode our keepalive PING if it is queued but not yet sent, then
+        // transition to InFlight so we do not re-send it on the next pass.
+        if matches!(self, KeepalivePing::Pending) {
+            Ping::new([0u8; 8], false).encode(write_buf);
+            *self = KeepalivePing::InFlight;
+        }
+    }
+
+    fn try_set_pending_ping(&mut self) -> io::Result<()> {
+        if !matches!(self, KeepalivePing::Idle) {
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout"));
+        }
+        *self = KeepalivePing::Pending;
+        Ok(())
+    }
 }
 
 pub(crate) enum Error {
@@ -898,7 +906,7 @@ impl From<StreamError> for Error {
     }
 }
 
-pub(super) enum Message {
+enum Message {
     Head(Headers<ResponsePseudo>),
     Data(Data),
     Trailer(Headers<()>),

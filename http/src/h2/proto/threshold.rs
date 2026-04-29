@@ -7,7 +7,7 @@ use super::frame::settings::{DEFAULT_INITIAL_WINDOW_SIZE, Settings};
 /// is sent. Mirrors nginx's threshold, which is widely deployed and clients
 /// are tuned to work well against.
 #[derive(Clone, Copy)]
-pub(crate) struct StreamRecvWindowThreshold(usize);
+pub(super) struct StreamRecvWindowThreshold(usize);
 
 impl From<&Settings> for StreamRecvWindowThreshold {
     fn from(settings: &Settings) -> Self {

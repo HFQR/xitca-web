@@ -83,3 +83,8 @@ xitca-server = { workspace = true }
 [[bench]]
 name = "h1_decode"
 harness = false
+
+[[bench]]
+name = "h2_hpack"
+harness = false
+required-features = ["http2"]

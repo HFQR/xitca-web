@@ -63,6 +63,7 @@ unreachable_patterns = "allow"
 await_holding_lock = "allow"
 needless_return = "allow"
 new_without_default = "allow"
+len_without_is_empty = "allow"
 
 [workspace.dependencies]
 bytes = "1.11.1"
