@@ -33,33 +33,24 @@ impl Encoder {
     ///
     /// The next call to `encode` will include a dynamic size update frame.
     pub fn update_max_size(&mut self, val: usize) {
-        match self.size_update {
-            Some(SizeUpdate::One(old)) => {
-                if val > old {
-                    if old > self.table.max_size() {
-                        self.size_update = Some(SizeUpdate::One(val));
-                    } else {
-                        self.size_update = Some(SizeUpdate::Two(old, val));
-                    }
+        let size = match self.size_update {
+            Some(SizeUpdate::One(old)) if val > old => {
+                if old > self.table.max_size() {
+                    SizeUpdate::One(val)
                 } else {
-                    self.size_update = Some(SizeUpdate::One(val));
+                    SizeUpdate::Two(old, val)
                 }
             }
-            Some(SizeUpdate::Two(min, _)) => {
-                if val < min {
-                    self.size_update = Some(SizeUpdate::One(val));
-                } else {
-                    self.size_update = Some(SizeUpdate::Two(min, val));
-                }
-            }
-            None => {
-                if val != self.table.max_size() {
-                    // Don't bother writing a frame if the value already matches
-                    // the table's max size.
-                    self.size_update = Some(SizeUpdate::One(val));
-                }
-            }
-        }
+            Some(SizeUpdate::One(_)) => SizeUpdate::One(val),
+            Some(SizeUpdate::Two(min, _)) if val < min => SizeUpdate::One(val),
+            Some(SizeUpdate::Two(min, _)) => SizeUpdate::Two(min, val),
+            // Don't bother writing a frame if the value already matches
+            // the table's max size.
+            None if val != self.table.max_size() => SizeUpdate::One(val),
+            None => return,
+        };
+
+        self.size_update = Some(size);
     }
 
     /// Encode a set of headers into the provide buffer
@@ -87,9 +78,9 @@ impl Encoder {
                 // as the previous entry.
                 Err(value) => {
                     self.encode_header_without_name(
-                        last_index.as_ref().unwrap_or_else(|| {
-                            panic!("encoding header without name, but no previous index to use for name");
-                        }),
+                        last_index
+                            .as_ref()
+                            .expect("encoding header without name, but no previous index to use for name"),
                         &value,
                         dst,
                     );
@@ -99,18 +90,19 @@ impl Encoder {
     }
 
     fn encode_size_updates(&mut self, dst: &mut BytesMut) {
-        match self.size_update.take() {
-            Some(SizeUpdate::One(val)) => {
-                self.table.resize(val);
-                encode_size_update(val, dst);
+        if let Some(size) = self.size_update.take() {
+            match size {
+                SizeUpdate::One(val) => {
+                    self.table.resize(val);
+                    encode_size_update(val, dst);
+                }
+                SizeUpdate::Two(min, max) => {
+                    self.table.resize(min);
+                    self.table.resize(max);
+                    encode_size_update(min, dst);
+                    encode_size_update(max, dst);
+                }
             }
-            Some(SizeUpdate::Two(min, max)) => {
-                self.table.resize(min);
-                self.table.resize(max);
-                encode_size_update(min, dst);
-                encode_size_update(max, dst);
-            }
-            None => {}
         }
     }
 
@@ -182,70 +174,64 @@ fn encode_size_update(val: usize, dst: &mut BytesMut) {
 }
 
 fn encode_not_indexed(name: usize, value: &[u8], sensitive: bool, dst: &mut BytesMut) {
-    if sensitive {
-        encode_int(name, 4, 0b10000, dst);
-    } else {
-        encode_int(name, 4, 0, dst);
-    }
-
+    let sensitive = sensitive_byte(sensitive);
+    encode_int(name, 4, sensitive, dst);
     encode_str(value, dst);
 }
 
 fn encode_not_indexed2(name: &[u8], value: &[u8], sensitive: bool, dst: &mut BytesMut) {
-    if sensitive {
-        dst.put_u8(0b10000);
-    } else {
-        dst.put_u8(0);
-    }
-
+    let sensitive = sensitive_byte(sensitive);
+    dst.put_u8(sensitive);
     encode_str(name, dst);
     encode_str(value, dst);
 }
 
+fn sensitive_byte(sensitive: bool) -> u8 {
+    if sensitive { 0b10000 } else { 0 }
+}
+
 fn encode_str(val: &[u8], dst: &mut BytesMut) {
-    if !val.is_empty() {
-        let idx = position(dst);
+    let idx = position(dst);
+    // Push a placeholder byte for the length header
+    dst.put_u8(0);
 
-        // Push a placeholder byte for the length header
-        dst.put_u8(0);
+    if val.is_empty() {
+        return;
+    }
 
-        // Encode with huffman
-        huffman::encode(val, dst);
+    // Encode with huffman
+    huffman::encode(val, dst);
 
-        let huff_len = position(dst) - (idx + 1);
+    let huff_len = position(dst) - (idx + 1);
 
-        if encode_int_one_byte(huff_len, 7) {
-            // Write the string head
-            dst[idx] = 0x80 | huff_len as u8;
-        } else {
-            // Write the head to a placeholder
-            const PLACEHOLDER_LEN: usize = 8;
-            let mut buf = [0u8; PLACEHOLDER_LEN];
-
-            let head_len = {
-                let mut head_dst = &mut buf[..];
-                encode_int(huff_len, 7, 0x80, &mut head_dst);
-                PLACEHOLDER_LEN - head_dst.remaining_mut()
-            };
-
-            // This is just done to reserve space in the destination
-            dst.put_slice(&buf[1..head_len]);
-
-            // Shift the header forward
-            for i in 0..huff_len {
-                let src_i = idx + 1 + (huff_len - (i + 1));
-                let dst_i = idx + head_len + (huff_len - (i + 1));
-                dst[dst_i] = dst[src_i];
-            }
-
-            // Copy in the head
-            for i in 0..head_len {
-                dst[idx + i] = buf[i];
-            }
-        }
+    if encode_int_one_byte(huff_len, 7) {
+        // Write the string head
+        dst[idx] = 0x80 | huff_len as u8;
     } else {
-        // Write an empty string
-        dst.put_u8(0);
+        // Write the head to a placeholder
+        const PLACEHOLDER_LEN: usize = 8;
+        let mut buf = [0u8; PLACEHOLDER_LEN];
+
+        let head_len = {
+            let mut head_dst = &mut buf[..];
+            encode_int(huff_len, 7, 0x80, &mut head_dst);
+            PLACEHOLDER_LEN - head_dst.remaining_mut()
+        };
+
+        // This is just done to reserve space in the destination
+        dst.put_slice(&buf[1..head_len]);
+
+        // Shift the header forward
+        for i in 0..huff_len {
+            let src_i = idx + 1 + (huff_len - (i + 1));
+            let dst_i = idx + head_len + (huff_len - (i + 1));
+            dst[dst_i] = dst[src_i];
+        }
+
+        // Copy in the head
+        for i in 0..head_len {
+            dst[idx + i] = buf[i];
+        }
     }
 }
 
