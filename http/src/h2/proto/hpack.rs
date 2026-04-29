@@ -8,6 +8,7 @@ mod header;
 mod huffman;
 mod table;
 
-pub(crate) use self::decoder::{Decoder, DecoderError};
-pub(crate) use self::encoder::Encoder;
-pub(crate) use self::header::Header;
+pub use self::decoder::Decoder;
+pub(crate) use self::decoder::DecoderError;
+pub use self::encoder::Encoder;
+pub use self::header::Header;

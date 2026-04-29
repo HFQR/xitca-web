@@ -13,6 +13,11 @@ pub use self::body::RequestBody;
 pub use self::error::Error;
 pub use self::service::H2Service;
 
+#[doc(hidden)]
+pub mod __private_bench {
+    pub use super::proto::hpack::{Decoder, Encoder, Header};
+}
+
 use crate::http::header::{CONNECTION, HeaderMap, HeaderName, TE, TRANSFER_ENCODING, UPGRADE};
 
 const CONNECTION_HEADERS: [HeaderName; 4] = [

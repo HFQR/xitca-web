@@ -1,4 +1,10 @@
-use super::{super::error::Error, head::Head};
+use crate::bytes::BufMut;
+
+use super::{
+    super::error::Error,
+    head::{Head, Kind},
+    stream_id::StreamId,
+};
 
 /// A decoded PING frame.
 ///
@@ -9,6 +15,10 @@ pub struct Ping {
 }
 
 impl Ping {
+    pub const fn new(payload: [u8; 8], is_ack: bool) -> Self {
+        Self { payload, is_ack }
+    }
+
     /// Load and validate a PING frame.
     ///
     /// Returns `Err(InvalidStreamId)` if the stream ID is non-zero
@@ -19,7 +29,16 @@ impl Ping {
             return Err(Error::InvalidStreamId);
         }
         let is_ack = head.flag() & 0x1 == 0x1;
-        let payload: [u8; 8] = payload.try_into().map_err(|_| Error::BadFrameSize)?;
+        let payload = payload.try_into().map_err(|_| Error::BadFrameSize)?;
         Ok(Ping { payload, is_ack })
+    }
+
+    pub fn encode<B>(&self, dst: &mut B)
+    where
+        B: BufMut,
+    {
+        let flag = if self.is_ack { 0x1 } else { 0x0 };
+        Head::new(Kind::Ping, flag, StreamId::zero()).encode(8, dst);
+        dst.put_slice(&self.payload);
     }
 }

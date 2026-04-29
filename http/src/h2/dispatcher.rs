@@ -149,7 +149,7 @@ impl DecodeContext {
             }
             head::Kind::Reset => {
                 let reset = Reset::load(head, frame.as_ref())?;
-                flow.handle_reset(reset)?;
+                flow.recv_reset(reset)?;
             }
             head::Kind::GoAway => {
                 let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
@@ -208,7 +208,7 @@ impl DecodeContext {
                 // The HPACK context was decoded successfully so no compression error.
                 ProtoError::MalformedMessage => {
                     let id = headers.stream_id();
-                    if flow.last_stream_id.try_set(id)?.is_none() {
+                    if flow.try_set_last_stream_id(id)?.is_none() {
                         return Ok(None);
                     }
                     Err(FlowError::Reset(Reason::PROTOCOL_ERROR))
