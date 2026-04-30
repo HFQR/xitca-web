@@ -1,4 +1,6 @@
-use std::{cmp, collections::VecDeque, io::Cursor, str::Utf8Error};
+use core::str::Utf8Error;
+
+use std::{collections::VecDeque, io::Cursor};
 
 use xitca_unsafe_collection::bytes::BytesStr;
 
@@ -161,17 +163,6 @@ impl Decoder {
             table: Table::new(size),
             buffer: BytesMut::with_capacity(4096),
         }
-    }
-
-    /// Queues a potential size update
-    #[allow(dead_code)]
-    pub fn queue_size_update(&mut self, size: usize) {
-        let size = match self.max_size_update {
-            Some(v) => cmp::max(v, size),
-            None => size,
-        };
-
-        self.max_size_update = Some(size);
     }
 
     /// Decodes the headers found in the given buffer.
@@ -524,20 +515,13 @@ impl Table {
 
     fn consolidate(&mut self) {
         while self.size > self.max_size {
-            {
-                let last = match self.entries.back() {
-                    Some(x) => x,
-                    None => {
-                        // Can never happen as the size of the table must reach
-                        // 0 by the time we've exhausted all elements.
-                        panic!("Size of table != 0, but no headers left!");
-                    }
-                };
-
-                self.size -= last.len();
-            }
-
-            self.entries.pop_back();
+            self.size -= self
+                .entries
+                .pop_back()
+                // Can never happen as the size of the table must reach
+                // 0 by the time we've exhausted all elements.
+                .expect("Size of table != 0, but no headers left!")
+                .len();
         }
     }
 }
