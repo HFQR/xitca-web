@@ -631,9 +631,13 @@ async fn prefix_check<const LIMIT: usize>(
         let (res, b) = read_io::<LIMIT>(read_buf, io).await;
         read_buf = b;
 
-        if res.is_err() {
-            return (read_buf, res.map(|_| ()));
+        let err = match res {
+            Ok(0) => io::ErrorKind::UnexpectedEof.into(),
+            Ok(_) => continue,
+            Err(e) => e,
         };
+
+        return (read_buf, Err(err));
     }
 
     let res = if !read_buf.starts_with(PREFACE) {
