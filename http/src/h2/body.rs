@@ -11,7 +11,7 @@ use crate::{
     error::BodyError,
 };
 
-use super::proto::{flow::FlowControlClone, frame::stream_id::StreamId};
+use super::proto::{flow::FlowControlClone, frame::stream_id::StreamId, window::RecvWindow};
 
 pub struct RequestBody {
     id: StreamId,
@@ -20,7 +20,7 @@ pub struct RequestBody {
     /// Bytes consumed but not yet reported back as a WINDOW_UPDATE.
     /// Flushed as a single message when the channel has no more items
     /// ready, batching updates across consecutive chunks.
-    pending_window: usize,
+    pending_window: RecvWindow,
 }
 
 impl RequestBody {
@@ -29,7 +29,7 @@ impl RequestBody {
             id,
             size,
             ctx,
-            pending_window: 0,
+            pending_window: RecvWindow::ZERO,
         }
     }
 }

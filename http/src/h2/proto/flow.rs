@@ -1,6 +1,6 @@
 use core::{
     cell::RefCell,
-    cmp, mem,
+    mem,
     task::{Context, Poll, Waker, ready},
     time::Duration,
 };
@@ -38,7 +38,8 @@ use super::{
     reset_counter::ResetCounter,
     size::BodySize,
     stream::{RecvData, Stream, StreamError, TryRemove},
-    threshold::StreamRecvWindowThreshold,
+    threshold::RecvWindowThreshold,
+    window::{RecvWindow, SendWindow},
 };
 
 const STREAM_MUST_EXIST: &str = "Stream MUST NOT be removed while RequestBody or response_task is still alive";
@@ -53,17 +54,17 @@ pub(crate) type FlowControlLock = RefCell<FlowControl>;
 
 pub(crate) struct FlowControl {
     max_concurrent_streams: usize,
-    /// Remaining bytes we may send on the whole connection.
-    send_connection_window: usize,
-    /// Default send-window for new streams (RFC 7540 §6.9.2).
-    send_stream_initial_window: i64,
     /// Remote's SETTINGS_MAX_FRAME_SIZE.
-    max_frame_size: usize,
+    max_frame_size: SendWindow,
+    /// Remaining bytes we may send on the whole connection.
+    send_connection_window: SendWindow,
+    /// Default send-window for new streams (RFC 7540 §6.9.2).
+    send_stream_initial_window: SendWindow,
     /// Default recv-window for new streams
-    recv_stream_initial_window: usize,
+    recv_stream_initial_window: RecvWindow,
     /// Remaining bytes we are willing to receive on the whole connection.
-    recv_connection_window: usize,
-    recv_threshold: StreamRecvWindowThreshold,
+    recv_connection_window: RecvWindow,
+    recv_threshold: RecvWindowThreshold,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
     stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
@@ -94,19 +95,19 @@ impl FlowControl {
     const RESET_WINDOW: Duration = Duration::from_secs(30);
 
     pub(crate) fn new(settings: &Settings) -> Self {
-        let recv_stream_initial_window = settings.initial_window_size().unwrap() as _;
+        let recv_stream_initial_window = RecvWindow::new(settings.initial_window_size().unwrap());
         let max_concurrent_streams = settings.max_concurrent_streams().unwrap() as _;
-        let recv_threshold = StreamRecvWindowThreshold::from(settings);
+        let recv_threshold = RecvWindowThreshold::from(settings);
 
         Self {
             max_concurrent_streams,
             // Send windows start at RFC 7540 §6.9.2 default (65535) until the
             // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
-            send_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
-            send_stream_initial_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as i64,
-            max_frame_size: settings::DEFAULT_MAX_FRAME_SIZE as usize,
+            send_connection_window: SendWindow::default(),
+            send_stream_initial_window: SendWindow::default(),
+            max_frame_size: SendWindow::from_u32(settings::DEFAULT_MAX_FRAME_SIZE),
             recv_stream_initial_window,
-            recv_connection_window: settings::DEFAULT_INITIAL_WINDOW_SIZE as usize,
+            recv_connection_window: RecvWindow::default(),
             recv_threshold,
             stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
             reset_counter: ResetCounter::new(Self::RESET_MAX, Self::RESET_WINDOW),
@@ -114,17 +115,6 @@ impl FlowControl {
             queue: WriterQueue::new(),
             frame_buf: FrameBuffer::new(),
         }
-    }
-
-    fn insert_stream(&mut self, id: StreamId, end_stream: bool, content_length: SizeHint) {
-        let stream = Stream::new(
-            self.send_stream_initial_window,
-            self.recv_stream_initial_window,
-            content_length,
-            end_stream,
-        );
-
-        self.stream_map.insert(id, stream);
     }
 
     fn check_not_idle(&self, id: StreamId) -> Result<(), Error> {
@@ -135,30 +125,28 @@ impl FlowControl {
         }
     }
 
-    fn recv_window_dec(&mut self, len: usize) -> Result<(), Error> {
-        self.recv_connection_window = self
-            .recv_connection_window
-            .checked_sub(len)
-            .ok_or(Error::GoAway(Reason::FLOW_CONTROL_ERROR))?;
-        Ok(())
+    fn recv_window_dec(&mut self, len: RecvWindow) -> Result<(), Error> {
+        self.recv_connection_window
+            .try_dec(len)
+            .map_err(|_| Error::GoAway(Reason::FLOW_CONTROL_ERROR))
     }
 
     /// Apply `delta` to every active send stream's window and wake any that
     /// now have a positive window. Use `delta = 0` to wake without changing
     /// windows (e.g. after a connection-level WINDOW_UPDATE).
-    fn update_and_wake_send_streams(&mut self, delta: i64) {
-        let conn_window_positive = self.send_connection_window > 0;
+    fn update_and_wake_send_streams(&mut self, delta: SendWindow) {
+        let conn_window_positive = self.send_connection_window.is_positive();
         for stream in self.stream_map.values_mut() {
             stream.send_window_update(delta, conn_window_positive);
         }
     }
 
-    pub(crate) fn request_body_drop(&mut self, id: StreamId, pending_window: usize) {
+    pub(crate) fn request_body_drop(&mut self, id: StreamId, pending_window: RecvWindow) {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
         let window = stream.maybe_close_recv(&mut self.frame_buf) + pending_window;
 
-        let mut wake = window > 0;
+        let mut wake = window != RecvWindow::ZERO;
 
         self.queue.connection_window_update(window);
 
@@ -330,7 +318,14 @@ impl FlowControl {
             *req.uri_mut() = uri;
         }
 
-        self.insert_stream(id, end_stream, content_length);
+        let stream = Stream::new(
+            self.send_stream_initial_window,
+            self.recv_stream_initial_window,
+            content_length,
+            end_stream,
+        );
+
+        self.stream_map.insert(id, stream);
 
         Ok(Some((req, id)))
     }
@@ -343,7 +338,10 @@ impl FlowControl {
         let id = data.stream_id();
         self.check_not_idle(id)?;
 
-        let flow_len = data.flow_controlled_len();
+        // RFC 7540 §6.5.2: SETTINGS_MAX_FRAME_SIZE is 24-bit, so flow-controlled
+        // length always fits in u32.
+        let flow_len = data.flow_controlled_len() as u32;
+        let flow_len = RecvWindow::new(flow_len);
         self.recv_window_dec(flow_len)?;
 
         let stream = self.stream_map.get_mut(&id).ok_or_else(|| {
@@ -363,11 +361,11 @@ impl FlowControl {
                     (size, size, false)
                 }
                 RecvData::Discard(size) => {
-                    let stream_window = if !end_stream { size } else { 0 };
+                    let stream_window = if !end_stream { size } else { RecvWindow::ZERO };
                     (size, stream_window, end_stream)
                 }
                 // stream reseted. replenish connection window
-                RecvData::StreamReset(size) => (size, 0, true),
+                RecvData::StreamReset(size) => (size, RecvWindow::ZERO, true),
             };
 
         self.queue.connection_window_update(conn_window);
@@ -393,26 +391,22 @@ impl FlowControl {
                 }
             }
             (incr, StreamId::ZERO) => {
-                let incr = incr as usize;
+                let was_zero = self.send_connection_window.is_zero();
 
-                if self.send_connection_window + incr > settings::MAX_INITIAL_WINDOW_SIZE {
-                    return Err(Error::GoAway(Reason::FLOW_CONTROL_ERROR));
-                }
-
-                let was_zero = self.send_connection_window == 0;
-                self.send_connection_window += incr;
+                self.send_connection_window
+                    .try_inc(SendWindow::from_u32(incr))
+                    .map_err(|_| Error::GoAway(Reason::FLOW_CONTROL_ERROR))?;
 
                 // Only wake streams if the connection window just became
                 // available — if it was already >0, no stream was blocked on it.
                 if was_zero {
-                    self.update_and_wake_send_streams(0);
+                    self.update_and_wake_send_streams(SendWindow::ZERO);
                 }
             }
             (incr, id) => {
-                let incr = incr as i64;
-                let conn_window_positive = self.send_connection_window > 0;
+                let conn_window_positive = self.send_connection_window.is_positive();
                 if let Some(stream) = self.stream_map.get_mut(&id) {
-                    stream.try_send_window_update(incr, conn_window_positive);
+                    stream.try_send_window_update(SendWindow::from_u32(incr), conn_window_positive);
                 }
             }
         }
@@ -488,17 +482,19 @@ impl FlowControl {
     pub(crate) fn poll_stream_frame(
         &mut self,
         id: &StreamId,
-        pending_window: &mut usize,
+        pending_window: &mut RecvWindow,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame, StreamError>>> {
         let stream = self.stream_map.get_mut(id).expect(STREAM_MUST_EXIST);
 
         stream.poll_frame(&mut self.frame_buf, cx).map_ok(|frame| {
             if let Some(bytes) = frame.data_ref() {
-                *pending_window += bytes.len();
+                // bytes.len() bounded by SETTINGS_MAX_FRAME_SIZE (24-bit per RFC §6.5.2),
+                // so the cast is exact.
+                *pending_window += bytes.len() as u32;
 
                 if *pending_window >= self.recv_threshold {
-                    let window = mem::replace(pending_window, 0);
+                    let window = mem::replace(pending_window, RecvWindow::ZERO);
                     stream.recv_window_update(window);
                     self.queue.connection_window_update(window);
                     self.queue.stream_window_update(*id, window);
@@ -534,11 +530,11 @@ impl FlowControl {
         }
 
         if let Some(new_window) = setting.initial_window_size() {
-            let new_window = new_window as i64;
-            let delta = new_window - self.send_stream_initial_window;
-            self.send_stream_initial_window = new_window;
+            let new_initial = SendWindow::new(new_window as i32);
+            let delta = new_initial - self.send_stream_initial_window;
+            self.send_stream_initial_window = new_initial;
 
-            if delta > 0 {
+            if delta > SendWindow::ZERO {
                 for stream in self.stream_map.values() {
                     stream
                         .send_window_check(delta)
@@ -546,13 +542,13 @@ impl FlowControl {
                 }
             }
 
-            if delta != 0 {
+            if delta != SendWindow::ZERO {
                 self.update_and_wake_send_streams(delta);
             }
         }
 
         if let Some(frame_size) = setting.max_frame_size() {
-            self.max_frame_size = frame_size as usize;
+            self.max_frame_size = SendWindow::new(frame_size as i32);
         }
 
         // Record the pending ACK. A second SETTINGS before the first is ACKed
@@ -572,14 +568,14 @@ impl FlowControl {
         while let Some(msg) = self.queue.try_recv() {
             match msg {
                 Message::Head(headers) => {
-                    let frame_size = self.max_frame_size;
+                    let frame_size = self.max_frame_size.as_frame_size();
                     let mut cont = headers.encode(encoder, &mut write_buf.limit(frame_size));
                     while let Some(c) = cont {
                         cont = c.encode(&mut write_buf.limit(frame_size));
                     }
                 }
                 Message::Trailer(headers) => {
-                    let frame_size = self.max_frame_size;
+                    let frame_size = self.max_frame_size.as_frame_size();
                     let mut cont = headers.encode(encoder, &mut write_buf.limit(frame_size));
                     while let Some(c) = cont {
                         cont = c.encode(&mut write_buf.limit(frame_size));
@@ -587,20 +583,23 @@ impl FlowControl {
                 }
                 Message::Data(mut data) => data.encode_chunk(write_buf),
                 Message::Reset { stream_id, reason } => Reset::new(stream_id, reason).encode(write_buf),
-                Message::WindowUpdate { stream_id, size } => WindowUpdate::new(stream_id, size as _).encode(write_buf),
+                Message::WindowUpdate { stream_id, size } => {
+                    WindowUpdate::new(stream_id, size.value()).encode(write_buf)
+                }
                 Message::GoAway { last_stream_id, reason } => {
                     GoAway::new(last_stream_id, reason).encode(write_buf);
                     // GoAway may be graceful (queue stays open to drain in-flight frames)
                     // or forceful (queue closed). The pusher decides via FlowControl::go_away;
                     // we keep draining either way.
                 }
+                Message::Settings(settings) => settings.encode(write_buf),
             }
         }
 
-        let pending = mem::replace(&mut self.queue.pending_conn_window, 0);
-        if pending > 0 {
+        let pending = mem::replace(&mut self.queue.pending_conn_window, RecvWindow::ZERO);
+        if pending != RecvWindow::ZERO {
             self.recv_connection_window += pending;
-            WindowUpdate::new(StreamId::zero(), pending as _).encode(write_buf);
+            WindowUpdate::new(StreamId::zero(), pending.value()).encode(write_buf);
         }
 
         // Encode a client PING ACK if one is waiting (take-and-clear).
@@ -636,7 +635,7 @@ impl FlowControl {
         loop {
             let len = data.len();
 
-            let cap = cmp::min(self.send_connection_window, self.max_frame_size);
+            let cap = self.send_connection_window.framed(self.max_frame_size);
 
             let opt = ready!(stream.poll_send_window(len, cap, cx));
 
@@ -646,6 +645,7 @@ impl FlowControl {
 
             self.send_connection_window -= aval;
 
+            let aval = aval.as_frame_size();
             let all_consumed = aval == len;
 
             let payload = if all_consumed {
@@ -690,13 +690,10 @@ impl FlowControl {
         }
     }
 
-    pub(crate) fn encode_init_window_update(&mut self, buf: &mut BytesMut) {
-        let delta = (self.recv_stream_initial_window as u32).saturating_sub(settings::DEFAULT_INITIAL_WINDOW_SIZE);
-
-        if delta > 0 {
-            WindowUpdate::new(StreamId::ZERO, delta).encode(buf);
-            self.recv_connection_window += delta as usize;
-        };
+    pub(crate) fn init(&mut self, settings: Settings) {
+        let delta = self.recv_stream_initial_window.saturating_sub(RecvWindow::default());
+        self.queue.connection_window_update(delta);
+        self.queue.push(Message::Settings(settings));
     }
 }
 
@@ -711,7 +708,7 @@ struct WriterQueue {
     /// Accumulated connection-level WINDOW_UPDATE increment. Mutated at push
     /// time by all callers; flushed to a single connection frame after
     /// `poll_encode` drains the queue.
-    pending_conn_window: usize,
+    pending_conn_window: RecvWindow,
     /// State of the server-initiated keepalive PING. Replaces the old
     /// `pending_ack` boolean; see `KeepalivePing` for the state transitions.
     keepalive_ping: KeepalivePing,
@@ -729,7 +726,7 @@ impl WriterQueue {
             messages: VecDeque::new(),
             closed: false,
             pending_settings: RemoteSettings::default(),
-            pending_conn_window: 0,
+            pending_conn_window: RecvWindow::ZERO,
             keepalive_ping: KeepalivePing::Idle,
             pending_client_ping: None,
             waker: None,
@@ -742,12 +739,12 @@ impl WriterQueue {
 
     /// Accumulate a connection-level WINDOW_UPDATE into `pending_conn_window`.
     /// Flushed as a single connection frame after `poll_encode` drains the queue.
-    fn connection_window_update(&mut self, size: usize) {
+    fn connection_window_update(&mut self, size: RecvWindow) {
         self.pending_conn_window += size;
     }
 
-    fn stream_window_update(&mut self, id: StreamId, size: usize) {
-        if size > 0 {
+    fn stream_window_update(&mut self, id: StreamId, size: RecvWindow) {
+        if size != RecvWindow::ZERO {
             self.push(Message::WindowUpdate { stream_id: id, size })
         }
     }
@@ -911,6 +908,7 @@ enum Message {
     Data(Data),
     Trailer(Headers<()>),
     Reset { stream_id: StreamId, reason: Reason },
-    WindowUpdate { stream_id: StreamId, size: usize },
+    WindowUpdate { stream_id: StreamId, size: RecvWindow },
     GoAway { last_stream_id: StreamId, reason: Reason },
+    Settings(Settings),
 }
