@@ -368,21 +368,16 @@ where
         f = loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
                 None => {
-                    let mut f = flow.borrow_mut();
-                    f.send_end_stream(stream_id);
-                    break f;
+                    let mut flow = flow.borrow_mut();
+                    flow.send_end_stream(stream_id);
+                    break flow;
                 }
                 Some(Err(e)) => {
                     error!("body error: {e:?}");
                     return Err(());
                 }
                 Some(Ok(Frame::Data(mut data))) => {
-                    if data.is_empty() && !end_stream {
-                        tracing::warn!(
-                            "response body should not yield empty Frame::Data unless it's the last chunk of Body"
-                        );
-                        continue;
-                    }
+                    let end_stream = body.is_end_stream();
 
                     let opt = poll_fn(|cx| {
                         let mut flow = flow.borrow_mut();
@@ -396,9 +391,9 @@ where
                     }
                 }
                 Some(Ok(Frame::Trailers(trailers))) => {
-                    let mut f = flow.borrow_mut();
-                    f.send_trailers(stream_id, trailers);
-                    break f;
+                    let mut flow = flow.borrow_mut();
+                    flow.send_trailers(stream_id, trailers);
+                    break flow;
                 }
             }
         }

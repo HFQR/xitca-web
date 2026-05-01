@@ -391,7 +391,7 @@ impl FlowControl {
                 }
             }
             (incr, StreamId::ZERO) => {
-                let was_zero = self.send_connection_window.is_zero();
+                let was_zero = self.send_connection_window == SendWindow::ZERO;
 
                 self.send_connection_window
                     .try_inc(SendWindow::from_u32(incr))
@@ -632,18 +632,28 @@ impl FlowControl {
     ) -> Poll<Option<()>> {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
+        // Empty payload bypasses flow control (RFC 7540 §6.9.1: zero-length
+        // frames MAY be sent regardless of window state). No window or
+        // waker consultation needed; queue directly and return.
+        if data.is_empty() {
+            return if !end_stream {
+                tracing::warn!("Empty Data frame is not allowed unless it's the last frame of stream");
+                Poll::Ready(None)
+            } else {
+                let payload = mem::take(data);
+                self.queue.push_data(id, payload, end_stream);
+                Poll::Ready(Some(()))
+            };
+        }
+
         loop {
             let len = data.len();
 
-            let cap = self.send_connection_window.framed(self.max_frame_size);
+            let req = SendWindow::from_usize_saturating(len).min(self.max_frame_size);
 
-            let opt = ready!(stream.poll_send_window(len, cap, cx));
-
-            let Some(Ok(aval)) = opt else {
+            let Some(Ok(aval)) = ready!(stream.poll_send_window(req, &mut self.send_connection_window, cx)) else {
                 return Poll::Ready(Some(()));
             };
-
-            self.send_connection_window -= aval;
 
             let aval = aval.as_frame_size();
             let all_consumed = aval == len;

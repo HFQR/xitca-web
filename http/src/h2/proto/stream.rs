@@ -168,27 +168,24 @@ impl Stream {
 
     pub(super) fn poll_send_window(
         &mut self,
-        len: usize,
-        cap: SendWindow,
+        req: SendWindow,
+        conn_window: &mut SendWindow,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<SendWindow, StreamError>>> {
         let opt = match self.send_state {
             State::Error => self.pending_error.map(Err),
             State::Close => None,
             _ => {
-                if len > 0 && (cap.is_zero() || !self.send.window.is_positive()) {
+                debug_assert!(req > SendWindow::ZERO);
+
+                if !self.send.window.is_positive() || !conn_window.is_positive() {
                     self.send.waker = Some(cx.waker().clone());
                     return Poll::Pending;
                 }
 
-                // `framed(cap)` is bounded by both the window and cap; clamp `len`
-                // (a `usize` byte count) into a SendWindow before min-ing. The
-                // unwrap_or guards against `usize > i32::MAX` on platforms where
-                // `usize > 32 bits` — the clamp is benign because the result is
-                // already bounded by `framed(cap)` ≤ MAX_INITIAL_WINDOW_SIZE.
-                let len = SendWindow::from_u32(u32::try_from(len).unwrap_or(i32::MAX as u32));
-                let aval = self.send.window.framed(cap).min(len);
+                let aval = self.send.window.min(req).min(*conn_window);
                 self.send.window -= aval;
+                *conn_window -= aval;
 
                 Some(Ok(aval))
             }

@@ -107,12 +107,21 @@ impl SendWindow {
         Self::new(v as i32)
     }
 
-    pub(super) const fn is_positive(self) -> bool {
-        self.0 > 0
+    /// Construct from a `usize` byte count, saturating at
+    /// `MAX_INITIAL_WINDOW_SIZE`. Use for values that may legitimately
+    /// exceed the protocol limit (e.g. an arbitrarily large `Bytes::len()`);
+    /// the caller paces the actual transfer across multiple iterations.
+    pub(super) const fn from_usize_saturating(v: usize) -> Self {
+        let clamped = if v > MAX_INITIAL_WINDOW_SIZE {
+            MAX_INITIAL_WINDOW_SIZE
+        } else {
+            v
+        };
+        Self::new(clamped as i32)
     }
 
-    pub(super) const fn is_zero(self) -> bool {
-        self.0 == 0
+    pub(super) fn is_positive(self) -> bool {
+        self > Self::ZERO
     }
 
     /// Apply a peer WINDOW_UPDATE. Errors if the result would exceed
@@ -130,11 +139,6 @@ impl SendWindow {
     /// window. May drive the window negative.
     pub(super) fn apply_initial_delta(&mut self, delta: SendWindow) {
         self.0 = self.0.saturating_add(delta.0);
-    }
-
-    /// Bytes available to send right now: max(0, window) capped by frame_size.
-    pub(super) fn framed(self, frame_size: SendWindow) -> SendWindow {
-        self.max(Self::ZERO).min(frame_size)
     }
 
     pub(super) fn as_frame_size(self) -> usize {
