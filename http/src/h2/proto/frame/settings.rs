@@ -1,6 +1,5 @@
 use std::fmt;
 
-use tracing::trace;
 use xitca_io::bytes::{BufMut, BytesMut};
 
 use super::{
@@ -158,7 +157,6 @@ impl Settings {
 
         // Ensure the payload length is correct, each setting is 6 bytes long.
         if payload.len() % 6 != 0 {
-            tracing::debug!("invalid settings payload length; len={:?}", payload.len());
             return Err(Error::InvalidPayloadAckSettings);
         }
 
@@ -220,15 +218,10 @@ impl Settings {
         let head = Head::new(Kind::Settings, self.flags.into(), StreamId::zero());
         let payload_len = self.payload_len();
 
-        trace!("encoding SETTINGS; len={}", payload_len);
-
         head.encode(payload_len, dst);
 
         // Encode the settings
-        self.for_each(|setting| {
-            trace!("encoding setting; val={:?}", setting);
-            setting.encode(dst)
-        });
+        self.for_each(|setting| setting.encode(dst));
     }
 
     fn for_each<F>(&self, mut f: F)

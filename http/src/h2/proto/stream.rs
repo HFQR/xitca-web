@@ -276,10 +276,6 @@ impl Stream {
     }
 
     fn data_check(&mut self, len: usize, flow_len: RecvWindow, end_stream: bool) -> Result<(), StreamError> {
-        if len == 0 && !end_stream {
-            return Err(StreamError::EmptyDataNoEndStream);
-        }
-
         // content-length accounts for data only; padding is not part of the message body.
         self.recv
             .content_length
@@ -447,7 +443,6 @@ impl State {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum StreamError {
-    EmptyDataNoEndStream,
     TrailersNoEndStream,
     ContentLengthOverflow,
     ContentLengthUnderflow,
@@ -484,7 +479,6 @@ impl StreamError {
 impl From<StreamError> for io::Error {
     fn from(err: StreamError) -> Self {
         let msg = match err {
-            StreamError::EmptyDataNoEndStream => "empty DATA without END_STREAM",
             StreamError::TrailersNoEndStream => "trailer HEADERS without END_STREAM",
             StreamError::ContentLengthOverflow => "content-length exceeded",
             StreamError::ContentLengthUnderflow => "content-length underflow at END_STREAM",

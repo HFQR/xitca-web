@@ -117,10 +117,8 @@ where
     ///
     /// HPACK decoding is done in the `load_hpack` step.
     pub fn load(head: Head, mut src: BytesMut) -> Result<(Self, BytesMut), Error> {
-        let flags = HeadersFlag(head.flag());
+        let flags = HeadersFlag::load(head.flag());
         let mut pad = 0;
-
-        tracing::trace!("loading headers; flags={:?}", flags);
 
         if head.stream_id().is_zero() {
             return Err(Error::InvalidStreamId);
@@ -498,11 +496,8 @@ where
                         || name == header::UPGRADE
                         || name == "keep-alive"
                         || name == "proxy-connection"
+                        || (name == header::TE && value != "trailers")
                     {
-                        tracing::trace!("load_hpack; connection level header");
-                        malformed = true;
-                    } else if name == header::TE && value != "trailers" {
-                        tracing::trace!("load_hpack; TE header not set to trailers; val={:?}", value);
                         malformed = true;
                     } else {
                         reg = true;
@@ -511,7 +506,6 @@ where
                         if headers_size < max_header_list_size {
                             self.fields.append(name, value);
                         } else if !self.is_over_size {
-                            tracing::trace!("load_hpack; header list size over max");
                             self.is_over_size = true;
                         }
                     }
@@ -527,13 +521,9 @@ where
             }
         });
 
-        if let Err(e) = res {
-            tracing::trace!("hpack decoding error; err={:?}", e);
-            return Err(e.into());
-        }
+        res?;
 
         if malformed {
-            tracing::trace!("malformed message");
             return Err(Error::MalformedMessage);
         }
 
@@ -640,10 +630,8 @@ impl _Pseudo for Pseudo {
         macro_rules! set_pseudo {
             ($field:ident, $val:expr) => {{
                 if reg {
-                    tracing::trace!("load_hpack; header malformed -- pseudo not at head of block");
                     *malformed = true;
                 } else if self.$field.is_some() {
-                    tracing::trace!("load_hpack; header malformed -- repeated pseudo");
                     *malformed = true;
                 } else {
                     let __val = $val;
@@ -651,7 +639,6 @@ impl _Pseudo for Pseudo {
                     if *headers_size < max_header_list_size {
                         self.$field = Some(__val);
                     } else if !*is_over_size {
-                        tracing::trace!("load_hpack; header list size over max");
                         *is_over_size = true;
                     }
                 }
@@ -664,11 +651,7 @@ impl _Pseudo for Pseudo {
             Scheme(v) => set_pseudo!(scheme, v),
             Path(v) => set_pseudo!(path, v),
             Protocol(v) => set_pseudo!(protocol, v),
-            Status(_) => {
-                // :status is a response-only pseudo-header; reject in requests.
-                tracing::trace!("load_hpack; :status pseudo-header in request");
-                *malformed = true;
-            }
+            Status(_) => *malformed = true,
             _ => unreachable!(),
         }
     }
@@ -710,14 +693,12 @@ impl _Pseudo for ResponsePseudo {
         match header {
             Header::Status(status) => {
                 if reg {
-                    tracing::trace!("load_hpack; header malformed -- pseudo not at head of block");
                     *malformed = true;
                 } else {
                     *headers_size += self.as_header_size();
                     if *headers_size < max_header_list_size {
                         self.status = status;
                     } else if !*is_over_size {
-                        tracing::trace!("load_hpack; header list size over max");
                         *is_over_size = true;
                     }
                 }
