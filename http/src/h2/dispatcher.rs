@@ -14,7 +14,7 @@ use std::{io, net::Shutdown, rc::Rc};
 use tracing::error;
 use xitca_io::{
     bytes::{Buf, BytesMut},
-    io::{AsyncBufRead, AsyncBufWrite, BoundedBuf, write_all},
+    io::{AsyncBufRead, AsyncBufWrite, BoundedBuf},
 };
 use xitca_service::Service;
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
@@ -156,8 +156,8 @@ impl DecodeContext {
                 return Err(FlowError::GoAway(go_away.reason()));
             }
             head::Kind::Continuation => return self.handle_continuation(head, frame, flow),
-            head::Kind::Priority => handle_priority(head.stream_id(), &frame)?,
             head::Kind::PushPromise => return Err(FlowError::GoAway(Reason::PROTOCOL_ERROR)),
+            head::Kind::Priority => flow.recv_priority(head, &frame)?,
             head::Kind::Settings => flow.recv_setting(head, &frame)?,
             head::Kind::Unknown => {}
         }
@@ -265,12 +265,6 @@ async fn read_io<const LIMIT: usize>(mut buf: BytesMut, io: &impl AsyncBufRead) 
     (res, buf.into_inner())
 }
 
-async fn write_io(buf: BytesMut, io: &impl AsyncBufWrite) -> (io::Result<()>, BytesMut) {
-    let (res, mut buf) = write_all(io, buf).await;
-    buf.clear();
-    (res, buf)
-}
-
 struct Encoder<'a> {
     encoder: hpack::Encoder,
     flow: &'a FlowControlLock,
@@ -374,21 +368,16 @@ where
         f = loop {
             match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
                 None => {
-                    let mut f = flow.borrow_mut();
-                    f.send_end_stream(stream_id);
-                    break f;
+                    let mut flow = flow.borrow_mut();
+                    flow.send_end_stream(stream_id);
+                    break flow;
                 }
                 Some(Err(e)) => {
                     error!("body error: {e:?}");
                     return Err(());
                 }
                 Some(Ok(Frame::Data(mut data))) => {
-                    if data.is_empty() && !end_stream {
-                        tracing::warn!(
-                            "response body should not yield empty Frame::Data unless it's the last chunk of Body"
-                        );
-                        continue;
-                    }
+                    let end_stream = body.is_end_stream();
 
                     let opt = poll_fn(|cx| {
                         let mut flow = flow.borrow_mut();
@@ -402,9 +391,9 @@ where
                     }
                 }
                 Some(Ok(Frame::Trailers(trailers))) => {
-                    let mut f = flow.borrow_mut();
-                    f.send_trailers(stream_id, trailers);
-                    break f;
+                    let mut flow = flow.borrow_mut();
+                    flow.send_trailers(stream_id, trailers);
+                    break flow;
                 }
             }
         }
@@ -463,12 +452,10 @@ where
     let max_frame_size = config.h2_max_frame_size as usize;
     let max_header_list_size = config.h2_max_header_list_size as usize;
 
-    let mut flow = FlowControl::new(&settings);
+    let mut read_buf = handshake::<READ_BUF_LIMIT>(&io, read_buf, ka.as_mut()).await?;
+    let mut write_buf = BytesMut::new();
 
-    let (mut read_buf, mut write_buf) = flow
-        .handshake::<READ_BUF_LIMIT>(&io, read_buf, &settings, ka.as_mut())
-        .await?;
-
+    let flow = FlowControl::new(&settings);
     let flow = Rc::new(RefCell::new(flow));
 
     let mut ctx = Decoder::new(&flow, service, max_frame_size, max_header_list_size, addr, date);
@@ -476,6 +463,8 @@ where
 
     let mut queue = Queue::new();
     let mut ping_pong = PingPong::new(ka.as_mut(), &flow, date, config.keep_alive_timeout);
+
+    flow.borrow_mut().init(settings);
 
     let res = {
         let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
@@ -605,23 +594,6 @@ enum ShutDown {
     Timeout(io::Error),
 }
 
-/// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).
-/// PRIORITY frames are deprecated in RFC 9113 and their content is ignored,
-/// but the structural rules must still be enforced for RFC 7540 compatibility.
-#[cold]
-#[inline(never)]
-fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), FlowError> {
-    if id.is_zero() {
-        Err(FlowError::GoAway(Reason::PROTOCOL_ERROR))
-    } else if payload.len() != 5 {
-        Err(FlowError::Reset(Reason::FRAME_SIZE_ERROR))
-    } else if id == StreamId::parse(&payload[..4]).0 {
-        Err(FlowError::Reset(Reason::PROTOCOL_ERROR))
-    } else {
-        Ok(())
-    }
-}
-
 // only check the prefix but not consume it
 async fn prefix_check<const LIMIT: usize>(
     mut read_buf: BytesMut,
@@ -631,9 +603,13 @@ async fn prefix_check<const LIMIT: usize>(
         let (res, b) = read_io::<LIMIT>(read_buf, io).await;
         read_buf = b;
 
-        if res.is_err() {
-            return (read_buf, res.map(|_| ()));
+        let err = match res {
+            Ok(0) => io::ErrorKind::UnexpectedEof.into(),
+            Ok(_) => continue,
+            Err(e) => e,
         };
+
+        return (read_buf, Err(err));
     }
 
     let res = if !read_buf.starts_with(PREFACE) {
@@ -675,39 +651,27 @@ async fn lingering_read(io: &impl AsyncBufRead, mut ka: Pin<&mut KeepAlive>, dat
 
 type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
-impl FlowControl {
-    /// Perform the HTTP/2 connection handshake: validate the client preface,
-    /// then send our SETTINGS frame. Returns the read buffer (with preface
-    /// consumed) and the write buffer (ready for reuse).
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn handshake<'a, const LIMIT: usize>(
-        &'a mut self,
-        io: &'a (impl AsyncBufRead + AsyncBufWrite),
-        buf: BytesMut,
-        settings: &'a settings::Settings,
-        timer: Pin<&'a mut KeepAlive>,
-    ) -> BoxedFuture<'a, io::Result<(BytesMut, BytesMut)>> {
-        Box::pin(async move {
-            async {
-                // No cap during preface: the buffer is tiny and always fully drained.
-                let (mut read_buf, res) = prefix_check::<LIMIT>(buf, io).await;
-                res?;
+// Perform the HTTP/2 connection handshake: validate the client preface,
+// then send our SETTINGS frame. Returns the read buffer (with preface
+// consumed) and the write buffer (ready for reuse).
+#[cold]
+#[inline(never)]
+fn handshake<'a, const LIMIT: usize>(
+    io: &'a (impl AsyncBufRead + AsyncBufWrite),
+    buf: BytesMut,
+    timer: Pin<&'a mut KeepAlive>,
+) -> BoxedFuture<'a, io::Result<BytesMut>> {
+    Box::pin(async move {
+        async {
+            // No cap during preface: the buffer is tiny and always fully drained.
+            let (mut read_buf, res) = prefix_check::<LIMIT>(buf, io).await;
+            res.map(|_| {
                 read_buf.advance(PREFACE.len());
-
-                let mut write_buf = BytesMut::new();
-                settings.encode(&mut write_buf);
-
-                self.encode_init_window_update(&mut write_buf);
-
-                let (res, write_buf) = write_io(write_buf, io).await;
-                res?;
-
-                Ok((read_buf, write_buf))
-            }
-            .timeout(timer)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
-        })
-    }
+                read_buf
+            })
+        }
+        .timeout(timer)
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "h2 handshake timeout"))?
+    })
 }

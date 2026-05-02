@@ -8,3 +8,4 @@ pub(super) mod reset_counter;
 pub(super) mod size;
 pub(super) mod stream;
 pub(super) mod threshold;
+pub(super) mod window;
