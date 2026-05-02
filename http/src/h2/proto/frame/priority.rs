@@ -1,3 +1,5 @@
+use crate::bytes::BytesMut;
+
 use super::{super::error::Error, head::Head, stream_id::StreamId};
 
 #[derive(Debug, Eq, PartialEq)]
@@ -19,17 +21,30 @@ pub struct StreamDependency {
 }
 
 impl Priority {
-    pub fn load(head: Head, payload: &[u8]) -> Result<Self, Error> {
-        let dependency = StreamDependency::load(payload)?;
+    pub fn load(head: Head, src: &[u8]) -> Result<Self, Error> {
+        let stream_id = head.stream_id();
 
-        if dependency.dependency_id() == head.stream_id() {
+        if stream_id == StreamId::ZERO {
+            return Err(Error::InvalidStreamId);
+        }
+
+        let dependency = StreamDependency::load(src)?;
+
+        if dependency.dependency_id() == stream_id {
             return Err(Error::InvalidDependencyId);
         }
 
-        Ok(Priority {
-            stream_id: head.stream_id(),
-            dependency,
-        })
+        Ok(Priority { stream_id, dependency })
+    }
+
+    pub(super) fn _load(head: Head, src: &mut BytesMut) -> Result<Self, Error> {
+        if src.len() < 5 {
+            return Err(Error::InvalidPayloadLength);
+        }
+
+        let src = src.split_to(5);
+
+        Self::load(head, &src)
     }
 }
 
@@ -46,7 +61,7 @@ impl StreamDependency {
 
     pub fn load(src: &[u8]) -> Result<Self, Error> {
         if src.len() != 5 {
-            return Err(Error::InvalidPayloadLength);
+            return Err(Error::InvalidPayloadLengthReset);
         }
 
         // Parse the stream ID and exclusive flag

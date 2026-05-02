@@ -156,8 +156,8 @@ impl DecodeContext {
                 return Err(FlowError::GoAway(go_away.reason()));
             }
             head::Kind::Continuation => return self.handle_continuation(head, frame, flow),
-            head::Kind::Priority => handle_priority(head.stream_id(), &frame)?,
             head::Kind::PushPromise => return Err(FlowError::GoAway(Reason::PROTOCOL_ERROR)),
+            head::Kind::Priority => flow.recv_priority(head, &frame)?,
             head::Kind::Settings => flow.recv_setting(head, &frame)?,
             head::Kind::Unknown => {}
         }
@@ -592,23 +592,6 @@ enum ShutDown {
     ReadClosed(io::Result<()>),
     WriteClosed(io::Result<()>),
     Timeout(io::Error),
-}
-
-/// Validate a PRIORITY frame payload (RFC 7540 §6.3, §5.3.1).
-/// PRIORITY frames are deprecated in RFC 9113 and their content is ignored,
-/// but the structural rules must still be enforced for RFC 7540 compatibility.
-#[cold]
-#[inline(never)]
-fn handle_priority(id: StreamId, payload: &[u8]) -> Result<(), FlowError> {
-    if id.is_zero() {
-        Err(FlowError::GoAway(Reason::PROTOCOL_ERROR))
-    } else if payload.len() != 5 {
-        Err(FlowError::Reset(Reason::FRAME_SIZE_ERROR))
-    } else if id == StreamId::parse(&payload[..4]).0 {
-        Err(FlowError::Reset(Reason::PROTOCOL_ERROR))
-    } else {
-        Ok(())
-    }
 }
 
 // only check the prefix but not consume it

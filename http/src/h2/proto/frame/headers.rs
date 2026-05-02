@@ -16,9 +16,9 @@ use crate::{
 };
 
 use super::{
-    super::error::Error,
-    super::hpack,
+    super::{error::Error, hpack},
     head::{Head, Kind},
+    priority::Priority,
     stream_id::StreamId,
 };
 
@@ -55,7 +55,6 @@ pub struct Pseudo {
     pub authority: Option<BytesStr>,
     pub path: Option<BytesStr>,
     pub protocol: Option<BytesStr>,
-
     // Response
     pub status: Option<StatusCode>,
 }
@@ -138,20 +137,8 @@ where
             let _ = src.split_to(1);
         }
 
-        // PRIORITY data (RFC 9113 deprecated). Skip the 5-byte block if
-        // present so the buffer is correctly positioned for HPACK decoding.
-        // RFC 7540 §5.3.1: a stream cannot depend on itself — self-dependency
-        // is a stream-level PROTOCOL_ERROR which h2spec accepts as a
-        // connection-level PROTOCOL_ERROR (GOAWAY) too.
         if flags.is_priority() {
-            if src.len() < 5 {
-                return Err(Error::InvalidPayloadLength);
-            }
-            let dep_id = StreamId::parse(&src[..4]).0;
-            if dep_id == head.stream_id() {
-                return Err(Error::InvalidDependencyId);
-            }
-            let _ = src.split_to(5);
+            Priority::_load(head, &mut src)?;
         }
 
         if pad > 0 {

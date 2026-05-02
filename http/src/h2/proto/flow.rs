@@ -27,6 +27,7 @@ use super::{
         head,
         headers::{Headers, ResponsePseudo},
         ping::Ping,
+        priority::Priority,
         reason::Reason,
         reset::Reset,
         settings::{self, Settings},
@@ -522,6 +523,13 @@ impl FlowControl {
 
     #[cold]
     #[inline(never)]
+    pub(crate) fn recv_priority(&mut self, head: head::Head, frame: &BytesMut) -> Result<(), Error> {
+        Priority::load(head, frame)?;
+        Ok(())
+    }
+
+    #[cold]
+    #[inline(never)]
     pub(crate) fn recv_setting(&mut self, head: head::Head, frame: &BytesMut) -> Result<(), Error> {
         let setting = Settings::load(head, frame)?;
 
@@ -630,21 +638,22 @@ impl FlowControl {
         end_stream: bool,
         cx: &mut Context<'_>,
     ) -> Poll<Option<()>> {
-        let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
-
         // Empty payload bypasses flow control (RFC 7540 §6.9.1: zero-length
         // frames MAY be sent regardless of window state). No window or
         // waker consultation needed; queue directly and return.
         if data.is_empty() {
-            return if !end_stream {
+            let opt = if !end_stream {
                 tracing::warn!("Empty Data frame is not allowed unless it's the last frame of stream");
-                Poll::Ready(None)
+                None
             } else {
                 let payload = mem::take(data);
                 self.queue.push_data(id, payload, end_stream);
-                Poll::Ready(Some(()))
+                Some(())
             };
+            return Poll::Ready(opt);
         }
+
+        let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
         loop {
             let len = data.len();
