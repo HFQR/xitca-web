@@ -31,7 +31,7 @@ const ALL: u8 = END_STREAM | PADDED;
 impl<T> Data<T> {
     /// Creates a new DATA frame.
     pub fn new(stream_id: StreamId, payload: T) -> Self {
-        assert!(!stream_id.is_zero());
+        debug_assert!(!stream_id.is_zero());
 
         Data {
             stream_id,

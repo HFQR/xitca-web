@@ -45,7 +45,6 @@ impl Reset {
     }
 
     pub fn encode<B: BufMut>(&self, dst: &mut B) {
-        tracing::trace!("encoding RESET; id={:?} code={:?}", self.stream_id, self.error_code);
         let head = Head::new(Kind::Reset, 0, self.stream_id);
         head.encode(4, dst);
         dst.put_u32(self.error_code.into());

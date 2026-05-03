@@ -333,20 +333,18 @@ where
 
     super::strip_connection_headers::<false>(&mut parts.headers);
 
-    if !parts.headers.contains_key(DATE) {
-        let date = date.with_date_header(Clone::clone);
-        parts.headers.insert(DATE, date);
-    }
+    parts
+        .headers
+        .entry(DATE)
+        .or_insert_with(|| date.with_date_header(Clone::clone));
 
-    let end_stream = match (head_method, body.size_hint()) {
-        (true, _) => true,
-        (false, SizeHint::None) => true,
-        (false, size) => {
-            if let SizeHint::Exact(size) = size {
-                parts.headers.entry(CONTENT_LENGTH).or_insert_with(|| size.into());
-            }
-            false
+    let end_stream = match (body.size_hint(), head_method) {
+        (SizeHint::None, _) => true,
+        (SizeHint::Exact(size), is_head) => {
+            parts.headers.entry(CONTENT_LENGTH).or_insert_with(|| size.into());
+            is_head
         }
+        (SizeHint::Unknown, is_head) => is_head,
     };
 
     let pseudo = headers::Pseudo::response(parts.status);

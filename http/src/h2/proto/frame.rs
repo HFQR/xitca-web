@@ -18,6 +18,8 @@ pub mod window_update;
 
 pub const PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
+pub const HEADER_LEN: usize = 9;
+
 /// A helper macro that unpacks a sequence of 4 bytes found in the buffer with
 /// the given identifier, starting at the given offset, into the given integer
 /// type. Obviously, the integer type should be able to support at least 4
