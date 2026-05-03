@@ -210,9 +210,9 @@ impl Stream {
 
         while let Some(frame) = self.queue.pop_front(buffer) {
             if let Frame::Data(bytes) = frame {
-                // Each frame's bytes count is bounded by SETTINGS_MAX_FRAME_SIZE
-                // (24-bit per RFC §6.5.2); the running sum is bounded by the
-                // recv stream window, which is itself ≤ MAX_INITIAL_WINDOW_SIZE.
+                // Each queued Data was admitted via recv_window.checked_sub(len), and
+                // recv_window is bounded by MAX_INITIAL_WINDOW_SIZE (2^31-1), so the
+                // sum of unconsumed lens fits in u32.
                 window += bytes.len() as u32;
             }
         }
@@ -286,7 +286,9 @@ impl Stream {
         }
 
         // flow control accounts for the full frame payload (data + pad byte + padding).
-        self.try_window_dec(flow_len)
+        self.recv_window
+            .checked_sub(flow_len)
+            .map_err(|_| StreamError::FlowControlOverflow)
     }
 
     fn trailers_check(&self, end_stream: bool) -> Result<(), StreamError> {
@@ -295,12 +297,6 @@ impl Stream {
             return Err(StreamError::TrailersNoEndStream);
         }
         self.ensure_zero()
-    }
-
-    fn try_window_dec(&mut self, len: RecvWindow) -> Result<(), StreamError> {
-        self.recv_window
-            .try_dec(len)
-            .map_err(|_| StreamError::FlowControlOverflow)
     }
 
     fn ensure_zero(&self) -> Result<(), StreamError> {

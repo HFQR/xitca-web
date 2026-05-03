@@ -5,8 +5,9 @@
 mod decoder;
 mod encoder;
 mod header;
-mod huffman;
 mod table;
+
+pub(super) mod huffman;
 
 pub use self::decoder::Decoder;
 pub(crate) use self::decoder::DecoderError;

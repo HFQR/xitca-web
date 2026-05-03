@@ -26,7 +26,7 @@ impl RecvWindow {
         Self(self.0.saturating_sub(rhs.0))
     }
 
-    pub(super) fn try_dec(&mut self, n: RecvWindow) -> Result<(), ()> {
+    pub(super) fn checked_sub(&mut self, n: RecvWindow) -> Result<(), ()> {
         self.0 = self.0.checked_sub(n.0).ok_or(())?;
         Ok(())
     }

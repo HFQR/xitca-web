@@ -128,7 +128,7 @@ impl FlowControl {
 
     fn recv_window_dec(&mut self, len: RecvWindow) -> Result<(), Error> {
         self.recv_connection_window
-            .try_dec(len)
+            .checked_sub(len)
             .map_err(|_| Error::GoAway(Reason::FLOW_CONTROL_ERROR))
     }
 
