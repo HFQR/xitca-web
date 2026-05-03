@@ -14,12 +14,12 @@ use super::{
 
 pub(super) struct Stream {
     queue: Deque,
-    recv_waker: Option<Waker>,
     recv_window: RecvWindow,
+    recv_waker: Option<Waker>,
+    recv_state: State,
     content_length: SizeHint,
     send_window: SendWindow,
     send_waker: Option<Waker>,
-    recv_state: State,
     send_state: State,
     pending_error: Option<StreamError>,
 }
@@ -35,12 +35,12 @@ impl Stream {
 
         Self {
             queue: Deque::new(),
-            recv_waker: None,
             recv_window,
+            recv_waker: None,
+            recv_state,
             content_length,
             send_window,
             send_waker: None,
-            recv_state,
             send_state: State::Open,
             pending_error: None,
         }

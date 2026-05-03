@@ -597,28 +597,28 @@ async fn prefix_check<const LIMIT: usize>(
     mut read_buf: BytesMut,
     io: &(impl AsyncBufRead + AsyncBufWrite),
 ) -> (BytesMut, io::Result<()>) {
+    let mut res = Ok(());
+
     while read_buf.len() < PREFACE.len() {
-        let (res, b) = read_io::<LIMIT>(read_buf, io).await;
+        let (read_res, b) = read_io::<LIMIT>(read_buf, io).await;
         read_buf = b;
 
-        let err = match res {
+        let e = match read_res {
             Ok(0) => io::ErrorKind::UnexpectedEof.into(),
-            Ok(_) => continue,
+            Ok(_) => {
+                let n = read_buf.len().min(PREFACE.len());
+                if read_buf[..n] == PREFACE[..n] {
+                    continue;
+                }
+
+                io::Error::new(io::ErrorKind::InvalidData, "invalid HTTP/2 client preface")
+            }
             Err(e) => e,
         };
 
-        return (read_buf, Err(err));
+        res = Err(e);
+        break;
     }
-
-    let res = if !read_buf.starts_with(PREFACE) {
-        // No GOAWAY is sent because our own preface has not been exchanged yet.
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid HTTP/2 client preface",
-        ))
-    } else {
-        Ok(())
-    };
 
     (read_buf, res)
 }
