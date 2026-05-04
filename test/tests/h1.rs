@@ -33,7 +33,7 @@ async fn h1_get() -> Result<(), Error> {
         assert_eq!("GET Response", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -61,7 +61,7 @@ async fn h1_get_without_body_reading() -> Result<(), Error> {
     let body = res.string().await?;
     assert_eq!("GET Response", body);
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
     handle.await?;
 
     Ok(())
@@ -83,7 +83,7 @@ async fn h1_head() -> Result<(), Error> {
         assert_eq!("", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -112,7 +112,7 @@ async fn h1_post() -> Result<(), Error> {
         assert_eq!(body.len(), body_len);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 

@@ -17,14 +17,20 @@ compile_error!("io_uring can only be used on linux system");
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
     use xitca_io::net::TcpStream;
     use xitca_service::fn_service;
+    use xitca_service::shutdown::ShutdownToken;
 
     #[test]
     fn test_builder() {
         let listener = std::net::TcpListener::bind("localhost:0").unwrap();
         let _server = crate::builder::Builder::new()
-            .listen("test", listener, fn_service(|_: TcpStream| async { Ok::<_, ()>(()) }))
+            .listen(
+                "test",
+                listener,
+                fn_service(|_: (TcpStream, Arc<ShutdownToken>)| async { Ok::<_, ()>(()) }),
+            )
             .build();
     }
 }

@@ -1,8 +1,8 @@
 use core::{net::SocketAddr, time::Duration};
 
-use std::io;
-
 use socket2::{SockRef, TcpKeepalive};
+use std::io;
+use std::sync::Arc;
 
 use tracing::warn;
 use xitca_io::net::{Stream as ServerStream, TcpStream};
@@ -10,6 +10,7 @@ use xitca_service::{Service, ready::ReadyService};
 
 #[cfg(unix)]
 use xitca_io::net::UnixStream;
+use xitca_service::shutdown::ShutdownToken;
 
 /// A middleware for socket options config of `TcpStream` and `UnixStream`.
 #[derive(Clone, Debug)]
@@ -90,30 +91,36 @@ where
     }
 }
 
-impl<S> Service<(TcpStream, SocketAddr)> for SocketConfigService<S>
+impl<S> Service<(TcpStream, SocketAddr, Arc<ShutdownToken>)> for SocketConfigService<S>
 where
-    S: Service<(TcpStream, SocketAddr)>,
+    S: Service<(TcpStream, SocketAddr, Arc<ShutdownToken>)>,
 {
     type Response = S::Response;
     type Error = S::Error;
 
-    async fn call(&self, (stream, addr): (TcpStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+    async fn call(
+        &self,
+        (stream, addr, st): (TcpStream, SocketAddr, Arc<ShutdownToken>),
+    ) -> Result<Self::Response, Self::Error> {
         self.try_apply_config(&stream);
-        self.service.call((stream, addr)).await
+        self.service.call((stream, addr, st)).await
     }
 }
 
 #[cfg(unix)]
-impl<S> Service<(UnixStream, SocketAddr)> for SocketConfigService<S>
+impl<S> Service<(UnixStream, SocketAddr, Arc<ShutdownToken>)> for SocketConfigService<S>
 where
-    S: Service<(UnixStream, SocketAddr)>,
+    S: Service<(UnixStream, SocketAddr, Arc<ShutdownToken>)>,
 {
     type Response = S::Response;
     type Error = S::Error;
 
-    async fn call(&self, (stream, addr): (UnixStream, SocketAddr)) -> Result<Self::Response, Self::Error> {
+    async fn call(
+        &self,
+        (stream, addr, st): (UnixStream, SocketAddr, Arc<ShutdownToken>),
+    ) -> Result<Self::Response, Self::Error> {
         self.try_apply_config(&stream);
-        self.service.call((stream, addr)).await
+        self.service.call((stream, addr, st)).await
     }
 }
 
