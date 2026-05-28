@@ -6,3 +6,6 @@ pub mod service;
 pub(crate) mod futures;
 #[cfg(feature = "runtime")]
 pub(crate) mod timer;
+
+#[cfg(feature = "runtime")]
+pub use timer::{Shutdown, ShutdownHandle};

@@ -154,7 +154,8 @@ impl<V, Io, St, S, A, const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, co
     pub(crate) fn keep_alive(&self) -> KeepAlive {
         let accept_dur = self.config.tls_accept_timeout;
         let deadline = self.date.get().now() + accept_dur;
-        KeepAlive::new(deadline)
+
+        KeepAlive::new(deadline, self.config.shutdown.clone())
     }
 }
 

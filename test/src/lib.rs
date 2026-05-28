@@ -2,8 +2,7 @@ use std::{
     error, fmt, fs,
     future::Future,
     io,
-    net::SocketAddr,
-    net::TcpListener,
+    net::{SocketAddr, TcpListener},
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -15,6 +14,7 @@ use xitca_http::{
     config::HttpServiceConfig,
     h1, h2, h3,
     http::{Request, RequestExt, Response},
+    util::{Shutdown, ShutdownHandle},
 };
 use xitca_io::{bytes::Bytes, net::Stream as NetStream};
 use xitca_server::{Builder, ServerFuture, ServerHandle};
@@ -26,7 +26,7 @@ type HResponse<B> = Response<B>;
 
 /// A general test server for any given service type that accept the connection from
 /// xitca-server
-pub fn test_server<T, Req>(service: T) -> Result<TestServerHandle, Error>
+pub fn test_server<T, Req>(service: T, shutdown: Option<ShutdownHandle>) -> Result<TestServerHandle, Error>
 where
     T: Service + Send + Sync + 'static,
     T::Response: ReadyService + Service<Req>,
@@ -36,12 +36,17 @@ where
 
     let addr = lst.local_addr()?;
 
-    let handle = Builder::new()
+    let builder = Builder::new()
         .worker_threads(1)
         .server_threads(1)
         .disable_signal()
-        .listen::<_, _, _, Req>("test_server", lst, service)
-        .build();
+        .listen::<_, _, _, Req>("test_server", lst, service);
+
+    let handle = if let Some(shutdown) = shutdown {
+        builder.shutdown(shutdown).build()
+    } else {
+        builder.build()
+    };
 
     Ok(TestServerHandle { addr, handle })
 }
@@ -56,12 +61,14 @@ where
     B: Body<Data = Bytes> + 'static,
     B::Error: fmt::Debug + 'static,
 {
-    let builder = HttpServiceBuilder::h1();
+    let (shutdown, handle) = Shutdown::new();
+    let config = HttpServiceConfig::new().shutdown(shutdown);
+    let builder = HttpServiceBuilder::h1().config(config);
 
     #[cfg(feature = "io-uring")]
     let builder = builder.io_uring();
 
-    test_server(service.enclosed(builder))
+    test_server(service.enclosed(builder), Some(handle))
 }
 
 /// A specialized http/2 server on top of [test_server]
@@ -74,17 +81,19 @@ where
     B: Body<Data = Bytes> + 'static,
     B::Error: fmt::Debug + 'static,
 {
+    let (shutdown, handle) = Shutdown::new();
     let builder = HttpServiceBuilder::h2().config(
         HttpServiceConfig::new()
             .request_head_timeout(Duration::from_millis(500))
             .tls_accept_timeout(Duration::from_millis(500))
-            .keep_alive_timeout(Duration::from_millis(500)),
+            .keep_alive_timeout(Duration::from_millis(500))
+            .shutdown(shutdown),
     );
 
     #[cfg(feature = "io-uring")]
     let builder = builder.io_uring();
 
-    test_server(service.enclosed(builder))
+    test_server(service.enclosed(builder), Some(handle))
 }
 
 /// A specialized http/3 server
