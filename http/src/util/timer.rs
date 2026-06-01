@@ -4,10 +4,8 @@ use core::{
 };
 
 use pin_project_lite::pin_project;
-use tokio::{
-    sync::watch,
-    time::{Instant, Sleep, sleep_until},
-};
+use tokio::time::{Instant, Sleep, sleep_until};
+use xitca_service::shutdown::ShutdownListener;
 
 pub(crate) trait Timeout: Sized {
     fn timeout(self, timer: Pin<&mut KeepAlive>) -> TimeoutFuture<'_, Self>;
@@ -58,17 +56,12 @@ pin_project! {
 
 impl KeepAlive {
     #[inline]
-    pub fn new(deadline: Instant, shutdown: Option<Shutdown>) -> Self {
+    pub fn new(deadline: Instant, shutdown: Option<impl ShutdownListener + 'static>) -> Self {
         Self {
             timer: sleep_until(deadline),
             deadline,
-            shutdown: shutdown.map(|s| {
-                let mut receiver = s.receiver;
-
-                Box::pin(async move {
-                    let _ = receiver.changed().await;
-                }) as Pin<Box<dyn Future<Output = ()> + Send>>
-            }),
+            shutdown: shutdown
+                .map(|s| Box::pin(s.wait()) as Pin<Box<dyn Future<Output = ()> + Send>>),
         }
     }
 
@@ -118,38 +111,4 @@ pub enum KeepAliveOutput {
     Cancel,
     /// Timer is expired
     Expire,
-}
-
-/// A cloneable shutdown receiver. Pass one (or a clone) to [`KeepAlive::with_shutdown`]
-/// for every connection that should observe the same shutdown signal.
-#[derive(Clone)]
-pub struct Shutdown {
-    receiver: watch::Receiver<bool>,
-}
-
-impl Shutdown {
-    /// Creates a new `Shutdown` token together with the [`ShutdownHandle`] that
-    /// can trigger it. Clone the returned `Shutdown` to hand it to multiple
-    /// [`KeepAlive`] instances.
-    pub fn new() -> (Self, ShutdownHandle) {
-        let (sender, receiver) = watch::channel(false);
-        (Self { receiver }, ShutdownHandle { sender })
-    }
-}
-
-/// Triggers shutdown across every [`KeepAlive`] instance that was created with
-/// the associated [`Shutdown`] token.
-///
-/// Dropping this handle does **not** trigger shutdown; call [`shutdown`](ShutdownHandle::shutdown)
-/// explicitly.
-pub struct ShutdownHandle {
-    sender: watch::Sender<bool>,
-}
-
-impl xitca_service::shutdown::Shutdown for ShutdownHandle {
-    fn shutdown(&self) {
-        // Ignore the error: it only occurs when all receivers have been dropped,
-        // which means there is nothing left to notify.
-        let _ = self.sender.send(true);
-    }
 }

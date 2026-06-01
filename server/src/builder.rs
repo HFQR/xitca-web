@@ -6,7 +6,7 @@ use std::net;
 use std::sync::Arc;
 
 use xitca_io::net::Stream;
-use xitca_service::shutdown::Shutdown;
+use xitca_service::shutdown::ShutdownEmitter;
 
 use crate::{
     net::{IntoListener, ListenerDyn},
@@ -24,7 +24,7 @@ pub struct Builder {
     pub(crate) enable_signal: bool,
     pub(crate) shutdown_timeout: Duration,
     pub(crate) on_worker_start: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
-    pub(crate) shutdown: Option<Box<dyn Shutdown + Send>>,
+    pub(crate) shutdown: Option<Box<dyn ShutdownEmitter + Send>>,
     backlog: u32,
 }
 
@@ -139,7 +139,7 @@ impl Builder {
     }
 
     /// Set shutdown handler for server.
-    pub fn shutdown(mut self, shutdown: impl Shutdown + 'static + Send) -> Self {
+    pub fn shutdown(mut self, shutdown: impl ShutdownEmitter + 'static + Send) -> Self {
         self.shutdown = Some(Box::new(shutdown));
         self
     }

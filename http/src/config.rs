@@ -2,7 +2,7 @@
 
 use core::time::Duration;
 
-use crate::util::timer::Shutdown;
+use xitca_service::shutdown::{BoxShutdownListener, ShutdownListener};
 
 /// The default maximum read buffer size. If the head gets this big and
 /// a message is still not complete, a `TooLarge` error is triggered.
@@ -36,7 +36,7 @@ pub struct HttpServiceConfig<
     pub(crate) h2_initial_window_size: u32,
     pub(crate) h2_max_frame_size: u32,
     pub(crate) h2_max_header_list_size: u32,
-    pub(crate) shutdown: Option<Shutdown>,
+    pub(crate) shutdown: Option<BoxShutdownListener>,
 }
 
 impl Default for HttpServiceConfig {
@@ -190,8 +190,8 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
     /// Define a shutdown signal for the service.
     /// When the signal is triggered, the service would stop accepting new connections and
     /// gracefully shutdown existing connections.
-    pub fn shutdown(mut self, shutdown: Shutdown) -> Self {
-        self.shutdown = Some(shutdown);
+    pub fn shutdown(mut self, shutdown: impl ShutdownListener + Sync + 'static) -> Self {
+        self.shutdown = Some(BoxShutdownListener::new(shutdown));
         self
     }
 

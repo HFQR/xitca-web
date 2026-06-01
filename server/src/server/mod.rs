@@ -19,7 +19,7 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
-use xitca_service::shutdown::Shutdown;
+use xitca_service::shutdown::ShutdownEmitter;
 
 use crate::{builder::Builder, worker};
 
@@ -28,7 +28,7 @@ pub struct Server {
     tx_cmd: UnboundedSender<Command>,
     rx_cmd: UnboundedReceiver<Command>,
     rt: Option<Runtime>,
-    shutdown: Option<Box<dyn Shutdown + Send>>,
+    shutdown: Option<Box<dyn ShutdownEmitter + Send>>,
     worker_join_handles: Vec<thread::JoinHandle<io::Result<()>>>,
 }
 

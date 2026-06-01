@@ -14,7 +14,7 @@ use xitca_http::{
     config::HttpServiceConfig,
     h1, h2, h3,
     http::{Request, RequestExt, Response},
-    util::{Shutdown, ShutdownHandle},
+    util::{ShutdownHandle, ShutdownToken},
 };
 use xitca_io::{bytes::Bytes, net::Stream as NetStream};
 use xitca_server::{Builder, ServerFuture, ServerHandle};
@@ -61,7 +61,7 @@ where
     B: Body<Data = Bytes> + 'static,
     B::Error: fmt::Debug + 'static,
 {
-    let (shutdown, handle) = Shutdown::new();
+    let (shutdown, handle) = ShutdownToken::new();
     let config = HttpServiceConfig::new().shutdown(shutdown);
     let builder = HttpServiceBuilder::h1().config(config);
 
@@ -81,7 +81,7 @@ where
     B: Body<Data = Bytes> + 'static,
     B::Error: fmt::Debug + 'static,
 {
-    let (shutdown, handle) = Shutdown::new();
+    let (shutdown, handle) = ShutdownToken::new();
     let builder = HttpServiceBuilder::h2().config(
         HttpServiceConfig::new()
             .request_head_timeout(Duration::from_millis(500))
