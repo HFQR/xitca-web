@@ -2,6 +2,8 @@
 
 use core::time::Duration;
 
+use xitca_service::shutdown::{BoxShutdownListener, ShutdownListener};
+
 /// The default maximum read buffer size. If the head gets this big and
 /// a message is still not complete, a `TooLarge` error is triggered.
 ///
@@ -19,7 +21,7 @@ pub const DEFAULT_WRITE_BUF_LIMIT: usize = 8192 + 4096 * 100;
 /// 64 chosen for no particular reason.
 pub const DEFAULT_HEADER_LIMIT: usize = 64;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct HttpServiceConfig<
     const HEADER_LIMIT: usize = DEFAULT_HEADER_LIMIT,
     const READ_BUF_LIMIT: usize = DEFAULT_READ_BUF_LIMIT,
@@ -34,6 +36,7 @@ pub struct HttpServiceConfig<
     pub(crate) h2_initial_window_size: u32,
     pub(crate) h2_max_frame_size: u32,
     pub(crate) h2_max_header_list_size: u32,
+    pub(crate) shutdown: Option<BoxShutdownListener>,
 }
 
 impl Default for HttpServiceConfig {
@@ -54,6 +57,7 @@ impl HttpServiceConfig {
             h2_initial_window_size: 65_535,
             h2_max_frame_size: 16_384,
             h2_max_header_list_size: 16 * 1024 * 1024,
+            shutdown: None,
         }
     }
 }
@@ -107,7 +111,7 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
     ///
     /// When called in a const context (e.g. `const CFG: _ = HttpServiceConfig::new()...`)
     /// a violation is reported as a compile-time error instead of a runtime panic.
-    pub const fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(
+    pub fn max_read_buf_size<const READ_BUF_LIMIT_2: usize>(
         self,
     ) -> HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT_2, WRITE_BUF_LIMIT> {
         assert!(READ_BUF_LIMIT_2 >= 32, "READ_BUF_LIMIT must be no less than 32 bytes");
@@ -119,17 +123,17 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
     ///
     /// See [DEFAULT_WRITE_BUF_LIMIT] for default value
     /// and behavior.
-    pub const fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
+    pub fn max_write_buf_size<const WRITE_BUF_LIMIT_2: usize>(
         self,
     ) -> HttpServiceConfig<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2> {
         self.mutate_const_generic::<HEADER_LIMIT, READ_BUF_LIMIT, WRITE_BUF_LIMIT_2>()
     }
 
-    /// Define max request header count for a connection.    
+    /// Define max request header count for a connection.
     ///
     /// See [DEFAULT_HEADER_LIMIT] for default value
     /// and behavior.
-    pub const fn max_request_headers<const HEADER_LIMIT_2: usize>(
+    pub fn max_request_headers<const HEADER_LIMIT_2: usize>(
         self,
     ) -> HttpServiceConfig<HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT> {
         self.mutate_const_generic::<HEADER_LIMIT_2, READ_BUF_LIMIT, WRITE_BUF_LIMIT>()
@@ -183,9 +187,17 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
         self
     }
 
+    /// Define a shutdown signal for the service.
+    /// When the signal is triggered, the service would stop accepting new connections and
+    /// gracefully shutdown existing connections.
+    pub fn shutdown(mut self, shutdown: impl ShutdownListener + Sync + 'static) -> Self {
+        self.shutdown = Some(BoxShutdownListener::new(shutdown));
+        self
+    }
+
     #[doc(hidden)]
     /// A shortcut for mutating const generic params.
-    pub const fn mutate_const_generic<
+    pub fn mutate_const_generic<
         const HEADER_LIMIT2: usize,
         const READ_BUF_LIMIT2: usize,
         const WRITE_BUF_LIMIT2: usize,
@@ -202,6 +214,7 @@ impl<const HEADER_LIMIT: usize, const READ_BUF_LIMIT: usize, const WRITE_BUF_LIM
             h2_initial_window_size: self.h2_initial_window_size,
             h2_max_frame_size: self.h2_max_frame_size,
             h2_max_header_list_size: self.h2_max_header_list_size,
+            shutdown: self.shutdown,
         }
     }
 }

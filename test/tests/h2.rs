@@ -405,6 +405,35 @@ async fn h2_forceful_goaway_on_rapid_reset_drains_delayed_stream() -> Result<(),
     Ok(())
 }
 
+#[tokio::test]
+async fn h2_fast_shutdown() -> Result<(), Error> {
+    let mut handle = test_h2_server(fn_service(handle))?;
+
+    let server_url = format!("https://{}/", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let mut res = c.get(&server_url).version(Version::HTTP_2).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    let start = std::time::Instant::now();
+
+    handle.try_handle()?.stop(true);
+    handle.await?;
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "server did not shutdown fast, elapsed: {:?}",
+        elapsed
+    );
+
+    Ok(())
+}
+
 async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     // Some yield for testing h2 dispatcher's concurrent future handling.
     tokio::task::yield_now().await;

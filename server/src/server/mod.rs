@@ -19,6 +19,7 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
+use xitca_service::shutdown::ShutdownEmitter;
 
 use crate::{builder::Builder, worker};
 
@@ -27,6 +28,7 @@ pub struct Server {
     tx_cmd: UnboundedSender<Command>,
     rx_cmd: UnboundedReceiver<Command>,
     rt: Option<Runtime>,
+    shutdown: Option<Box<dyn ShutdownEmitter + Send>>,
     worker_join_handles: Vec<thread::JoinHandle<io::Result<()>>>,
 }
 
@@ -91,6 +93,7 @@ impl Server {
             factories,
             shutdown_timeout,
             on_worker_start,
+            shutdown,
             ..
         } = builder;
 
@@ -178,10 +181,15 @@ impl Server {
             rx_cmd,
             rt: Some(rt),
             worker_join_handles: vec![worker_handles],
+            shutdown,
         })
     }
 
     pub(crate) fn stop(&mut self, graceful: bool) {
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.shutdown();
+        }
+
         if let Some(rt) = self.rt.take() {
             self.is_graceful_shutdown.store(graceful, Ordering::SeqCst);
             rt.shutdown_background();

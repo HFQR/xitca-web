@@ -269,6 +269,35 @@ async fn h1_keepalive() -> Result<(), Error> {
     Ok(())
 }
 
+#[tokio::test]
+async fn h1_fast_shutdown() -> Result<(), Error> {
+    let mut handle = test_h1_server(fn_service(handle))?;
+
+    let server_url = format!("http://{}/", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let mut res = c.get(&server_url).version(Version::HTTP_11).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    assert!(!res.can_close_connection());
+    let body = res.string().await?;
+    assert_eq!("GET Response", body);
+
+    let start = std::time::Instant::now();
+
+    handle.try_handle()?.stop(true);
+    handle.await?;
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "server did not shutdown fast, elapsed: {:?}",
+        elapsed
+    );
+
+    Ok(())
+}
+
 async fn handle(req: Request<RequestExt<h1::RequestBody>>) -> Result<Response<ResponseBody>, Error> {
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") | (&Method::HEAD, "/") => Ok(Response::new(Bytes::from("GET Response").into())),
