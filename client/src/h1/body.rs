@@ -53,6 +53,14 @@ impl Body for ResponseBody {
                     match xitca_unsafe_collection::bytes::read_buf(this.conn.deref_mut(), &mut this.buf) {
                         Ok(n) => {
                             if n == 0 {
+                                // Handle when body is connection-close delimited (no Content-Length,
+                                // no Transfer-Encoding). In that case a clean read of 0 bytes means
+                                // the server closed the connection and the body is complete.
+                                if matches!(this.decoder, TransferCoding::CloseDelimited) {
+                                    this.decoder.set_eof();
+                                    return Poll::Ready(None);
+                                }
+
                                 return Poll::Ready(Some(Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())));
                             }
                             break 'inner;

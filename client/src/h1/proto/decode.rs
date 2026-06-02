@@ -50,6 +50,13 @@ impl<const HEADER_LIMIT: usize> Context<'_, '_, HEADER_LIMIT> {
                     .iter()
                     .try_for_each(|idx| self.try_write_header(&mut headers, &mut decoder, idx, &slice, version))?;
 
+                // RFC 7230 §3.3.3: if no Content-Length and no Transfer-Encoding are present
+                // but the server sent Connection: close, the body is delimited by connection
+                // closure rather than being empty.
+                if matches!(decoder, TransferCoding::Eof) && self.is_connection_closed() {
+                    decoder = TransferCoding::close_delimited();
+                }
+
                 let mut res = Response::new(());
 
                 let extensions = self.take_extensions();
