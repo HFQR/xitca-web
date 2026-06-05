@@ -215,6 +215,14 @@ where
     pub(crate) fn is_destroy_on_drop(&self) -> bool {
         self.destroy_on_drop
     }
+
+    /// Take the raw connection out of this wrapper, leaving `conn` as `None`.
+    /// When `Conn` subsequently drops, its `Drop` impl sees `None` and skips
+    /// re-queuing. The `OwnedSemaphorePermit` is still dropped, releasing the
+    /// pool capacity slot.
+    pub(crate) fn take_raw_conn(&mut self) -> Option<C> {
+        self.conn.take().map(PooledConn::into_inner)
+    }
 }
 
 impl<K, C> Drop for Conn<K, C>
@@ -264,6 +272,12 @@ impl<C> Deref for PooledConn<C> {
 impl<C> DerefMut for PooledConn<C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.conn
+    }
+}
+
+impl<C> PooledConn<C> {
+    pub(crate) fn into_inner(self) -> C {
+        self.conn
     }
 }
 
