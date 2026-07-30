@@ -83,7 +83,7 @@ serde_core = "1"
 serde = "1"
 socket2 = "0.6.3"
 tokio = "1.51.0"
-tokio-uring-xitca = "0.2.0"
+tokio-uring-xitca = "0.2.1"
 
 xitca-io = "0.6.0"
 xitca-http = { version = "0.9.4", default-features = false }
