@@ -21,11 +21,11 @@ fn main() {
                 let buf = vec![1u8; 128];
 
                 let (result, buf) = stream.write(buf).submit().await;
-                println!("written to {}: {}", &socket_addr, result.unwrap());
+                println!("written to {socket_addr}: {}", result.unwrap());
 
                 let (result, buf) = stream.read(buf).await;
                 let read = result.unwrap();
-                println!("read from {}: {:?}", &socket_addr, &buf[..read]);
+                println!("read from {socket_addr}: {:?}", &buf[..read]);
             });
         }
     });

@@ -18,10 +18,8 @@ impl<S, F> AsyncFn<S, F> {
 
 impl<'r, 'c, S, F> Service<ServiceRequest<'r, 'c>> for AsyncFn<S, F>
 where
-    S: for<'r2, 'c2> Service<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync,
-    F: for<'r3, 'c3, 's3> async_fn::AsyncFn<(ServiceRequest<'r, 'c>, &'s3 S), Output = Result<Response, Error>>
-        + Send
-        + Sync,
+    S: Service<ServiceRequest<'r, 'c>, Response = Response, Error = Error> + Send + Sync,
+    F: for<'s3> async_fn::AsyncFn<(ServiceRequest<'r, 'c>, &'s3 S), Output = Result<Response, Error>> + Send + Sync,
     for<'r4, 'c4, 's4> <F as async_fn::AsyncFn<(ServiceRequest<'r4, 'c4>, &'s4 S)>>::Future: Send,
 {
     type Response = Response;

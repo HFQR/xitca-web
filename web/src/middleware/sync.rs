@@ -83,7 +83,7 @@ mod service {
     where
         F: Fn(&mut Next<Err>, WebContext<'_, C>) -> Result<Response<()>, Err> + Send + Clone + 'static,
         C: Clone + Send + 'static,
-        S: for<'r2> Service<WebContext<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
+        S: Service<WebContext<'r, C, B>, Response = WebResponse<ResB>, Error = Err>,
         Err: Send + 'static,
     {
         type Response = WebResponse<ResB>;
