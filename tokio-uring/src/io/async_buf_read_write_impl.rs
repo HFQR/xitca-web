@@ -4,7 +4,7 @@ use std::{io, net::Shutdown};
 
 use tokio::{
     io::{AsyncWrite, Interest},
-    net::{TcpStream, UnixStream},
+    net::TcpStream,
 };
 
 use crate::buf::{BoundedBuf, BoundedBufMut};
@@ -98,4 +98,5 @@ macro_rules! trait_impl {
 }
 
 trait_impl!(TcpStream);
-trait_impl!(UnixStream);
+#[cfg(unix)]
+trait_impl!(tokio::net::UnixStream);

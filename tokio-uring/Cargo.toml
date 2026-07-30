@@ -1,6 +1,6 @@
 [package]
 name = "tokio-uring-xitca"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Tokio Contributors <team@tokio.rs>", "fakeshadow <everestshadow@gmail.com>"]
 edition = "2024"
 readme = "README.md"

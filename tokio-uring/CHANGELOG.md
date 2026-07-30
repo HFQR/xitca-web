@@ -1,5 +1,9 @@
 # unrelease
 
+# 0.2.1
+## Fix
+- fix compiling issue on windows system
+
 # 0.2.0
 ## Add
 - add `io::{AsyncBufRead, AsyncBufWrte, write_all}`
