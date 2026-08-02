@@ -570,9 +570,6 @@ impl FlowControl {
         encoder: &mut hpack::Encoder,
         cx: &mut Context<'_>,
     ) -> Poll<bool> {
-        // remote_setting can contain updated states for following encoding
-        self.queue.pending_settings.encode(encoder, write_buf);
-
         while let Some(msg) = self.queue.try_recv() {
             match msg {
                 Message::Head(headers) => {
@@ -603,6 +600,8 @@ impl FlowControl {
                 Message::Settings(settings) => settings.encode(write_buf),
             }
         }
+
+        self.queue.pending_settings.encode(encoder, write_buf);
 
         let pending = mem::replace(&mut self.queue.pending_conn_window, RecvWindow::ZERO);
         if pending != RecvWindow::ZERO {
@@ -852,10 +851,13 @@ impl RemoteSettings {
         Ok(())
     }
 
-    /// Encode a SETTINGS ACK if one is pending. Applies the HPACK table size
-    /// update before the ACK so the encoder is consistent with the wire order.
-    /// Called at the top of every `poll_encode` pass ahead of header encoding.
-    /// No-ops when nothing is pending.
+    /// Encode a SETTINGS ACK if one is pending and stage the peer's HPACK table size.
+    /// `Encoder` emits the staged size update at the head of the next header block,
+    /// therefore after this ACK on the wire as RFC 7541 §4.2 wants.
+    ///
+    /// MUST be called after `poll_encode` drained the write queue. The connection
+    /// preface pushed by `FlowControl::init` is a queue message and this is the only
+    /// writer that would otherwise get ahead of it. No-ops when nothing is pending.
     fn encode(&mut self, encoder: &mut hpack::Encoder, buf: &mut BytesMut) {
         if let Some(header_table_size) = self.header_table_size.take() {
             if let Some(size) = header_table_size {
