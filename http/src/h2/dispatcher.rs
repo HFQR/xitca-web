@@ -1,16 +1,17 @@
 use core::{
-    cell::{RefCell, RefMut},
+    cell::RefCell,
     fmt,
     future::poll_fn,
     mem,
     net::SocketAddr,
     pin::{Pin, pin},
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
     time::Duration,
 };
 
 use std::{io, net::Shutdown, rc::Rc};
 
+use pin_project_lite::pin_project;
 use tracing::error;
 use xitca_io::{
     bytes::{Buf, BytesMut},
@@ -25,7 +26,7 @@ use crate::{
     config::HttpServiceConfig,
     date::{DateTime, DateTimeHandle},
     http::{
-        Extension, Method, Request, RequestExt, Response, Version,
+        Extension, HeaderMap, Method, Request, RequestExt, Response, Version,
         header::{CONTENT_LENGTH, DATE},
     },
     util::{
@@ -297,25 +298,29 @@ where
     ResB: Body<Data = Bytes, Error = ResBE>,
     ResBE: fmt::Debug,
 {
-    _response_task(req, stream_id, service, ctx, date)
-        .await
-        .unwrap_or_else(|_| {
-            let mut flow = ctx.borrow_mut();
-            flow.internal_reset(&stream_id);
-            flow
-        })
-        .response_task_done(stream_id)
+    // the response body is dropped with the future when _response_task returns, so
+    // no FlowControl borrow is alive when RequestBody::drop re-enters the RefCell.
+    let res = _response_task(req, stream_id, service, ctx, date).await;
+
+    let mut flow = ctx.borrow_mut();
+
+    match res {
+        Ok(SendOutcome::Finished) => {}
+        Ok(SendOutcome::EndStream) => flow.send_end_stream(stream_id),
+        Ok(SendOutcome::Trailers(trailers)) => flow.send_trailers(stream_id, trailers),
+        Err(()) => flow.internal_reset(&stream_id),
+    }
+
+    flow.response_task_done(stream_id)
 }
 
-// clippy is dumb
-#[allow(clippy::await_holding_refcell_ref)]
-async fn _response_task<'a, S, ReqB, ResB, ResBE>(
+async fn _response_task<S, ReqB, ResB, ResBE>(
     req: Request<RequestExt<RequestBody>>,
     stream_id: StreamId,
     service: &S,
-    flow: &'a FlowControlLock,
+    flow: &FlowControlLock,
     date: &DateTimeHandle,
-) -> Result<RefMut<'a, FlowControl>, ()>
+) -> Result<SendOutcome, ()>
 where
     S: Service<Request<RequestExt<ReqB>>, Response = Response<ResB>>,
     S::Error: fmt::Debug,
@@ -354,50 +359,92 @@ where
         headers.set_end_stream();
     }
 
-    let mut f = flow.borrow_mut();
-
-    f.send_headers(headers);
+    with_flow(flow, |flow| flow.send_headers(headers));
 
     if !end_stream {
-        drop(f);
+        SendResponse {
+            flow,
+            stream_id,
+            body,
+            state: State::PollBody,
+        }
+        .await
+    } else {
+        Ok(SendOutcome::Finished)
+    }
+}
 
-        let mut body = pin!(body);
+pin_project! {
+    struct SendResponse<'a, ResB> {
+        flow: &'a FlowControlLock,
+        stream_id: StreamId,
+        #[pin]
+        body: ResB,
+        state: State,
+    }
+}
 
-        f = loop {
-            match poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-                None => {
-                    let mut flow = flow.borrow_mut();
-                    flow.send_end_stream(stream_id);
-                    break flow;
-                }
-                Some(Err(e)) => {
-                    error!("body error: {e:?}");
-                    return Err(());
-                }
-                Some(Ok(Frame::Data(mut data))) => {
-                    let end_stream = body.is_end_stream();
+enum State {
+    PollBody,
+    SendData { data: Bytes },
+}
 
-                    let opt = poll_fn(|cx| {
-                        let mut flow = flow.borrow_mut();
-                        flow.poll_send_data(stream_id, &mut data, end_stream, cx)
-                            .map(|opt| opt.map(|_| flow))
-                    })
-                    .await;
+enum SendOutcome {
+    Finished,
+    EndStream,
+    Trailers(HeaderMap),
+}
 
-                    if let Some(flow) = opt {
-                        break flow;
+#[inline]
+fn with_flow<T>(flow: &FlowControlLock, f: impl FnOnce(&mut FlowControl) -> T) -> T {
+    f(&mut flow.borrow_mut())
+}
+
+impl<ResB, ResBE> Future for SendResponse<'_, ResB>
+where
+    ResB: Body<Data = Bytes, Error = ResBE>,
+    ResBE: fmt::Debug,
+{
+    type Output = Result<SendOutcome, ()>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
+
+        let flow: &FlowControlLock = this.flow;
+        let stream_id = *this.stream_id;
+
+        loop {
+            match this.state {
+                State::PollBody => match ready!(this.body.as_mut().poll_frame(cx)) {
+                    None => return Poll::Ready(Ok(SendOutcome::EndStream)),
+                    Some(Err(e)) => {
+                        error!("body error: {e:?}");
+                        return Poll::Ready(Err(()));
                     }
-                }
-                Some(Ok(Frame::Trailers(trailers))) => {
-                    let mut flow = flow.borrow_mut();
-                    flow.send_trailers(stream_id, trailers);
-                    break flow;
+                    Some(Ok(Frame::Data(data))) => {
+                        *this.state = State::SendData { data };
+                    }
+                    Some(Ok(Frame::Trailers(trailers))) => {
+                        return Poll::Ready(Ok(SendOutcome::Trailers(trailers)));
+                    }
+                },
+                State::SendData { data } => {
+                    let end_stream = this.body.is_end_stream();
+
+                    let opt = ready!(with_flow(flow, |flow| {
+                        flow.poll_send_data(stream_id, data, end_stream, cx)
+                    }));
+
+                    // END_STREAM rode out on the last DATA frame.
+                    if opt.is_some() {
+                        return Poll::Ready(Ok(SendOutcome::Finished));
+                    }
+
+                    *this.state = State::PollBody;
                 }
             }
         }
     }
-
-    Ok(f)
 }
 
 /// Peek into the given buffer (and read more if needed) to determine whether
