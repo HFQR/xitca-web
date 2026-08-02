@@ -1,3 +1,9 @@
+# unreleased
+
+# 0.9.5
+## Fix
+- fix HTTP/2 initial Settings frame handling
+
 # 0.9.4
 ## Fix
 - fix HTTP/2 stream send window update
