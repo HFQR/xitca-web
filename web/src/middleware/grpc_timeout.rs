@@ -72,7 +72,7 @@ where
                     Ok(result) => result,
                     Err(_elapsed) => {
                         let err = GrpcError::new(GrpcStatus::DeadlineExceeded, "deadline exceeded");
-                        let mut res = WebResponse::new(ResponseBody::empty());
+                        let mut res = WebResponse::new(ResponseBody::none());
                         res.headers_mut().insert(CONTENT_TYPE, GRPC);
                         res.headers_mut().extend(err.trailers());
                         Ok(res)
