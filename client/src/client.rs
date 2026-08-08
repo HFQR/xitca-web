@@ -108,7 +108,7 @@ impl Client {
         uri::Uri: TryFrom<U>,
         Error: From<<uri::Uri as TryFrom<U>>::Error>,
     {
-        let mut req = http::Request::new(RequestBody::empty());
+        let mut req = http::Request::new(RequestBody::none());
         *req.method_mut() = method;
         *req.version_mut() = self.max_http_version;
 

@@ -1,5 +1,12 @@
 # unreleased
 
+# 0.9.6
+## Add
+- add `ResponseBody::none`
+
+## Fix
+- fix `ResponseBody::empty` where it fails to provide proper body size hint
+
 # 0.9.5
 ## Fix
 - fix HTTP/2 initial Settings frame handling

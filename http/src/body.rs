@@ -243,6 +243,15 @@ impl<B> ResponseBody<B> {
     #[inline]
     pub const fn empty() -> Self {
         Self {
+            inner: ResponseBodyInner::Bytes { bytes: Bytes::new() },
+        }
+    }
+
+    /// indicate no body is attached to response.
+    /// no body length header would be added to response when [BodySize] is
+    /// used for inferring response body type.
+    pub const fn none() -> Self {
+        Self {
             inner: ResponseBodyInner::None,
         }
     }

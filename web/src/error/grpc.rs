@@ -18,7 +18,7 @@ impl<'r, C, B> Service<WebContext<'r, C, B>> for GrpcError {
     async fn call(&self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
         // gRPC "Trailers-Only" response: status goes in the response headers
         // (the single HEADERS frame with END_STREAM set).
-        let mut res = ctx.into_response(ResponseBody::empty());
+        let mut res = ctx.into_response(ResponseBody::none());
         res.headers_mut().insert(CONTENT_TYPE, GRPC);
         res.headers_mut().extend(self.trailers());
         Ok(res)

@@ -50,7 +50,7 @@ impl<'r, C, B> Responder<WebContext<'r, C, B>> for Redirect {
     type Error = Error;
 
     async fn respond(self, ctx: WebContext<'r, C, B>) -> Result<Self::Response, Self::Error> {
-        let res = ctx.into_response(ResponseBody::empty());
+        let res = ctx.into_response(ResponseBody::none());
         Responder::<WebContext<'r, C, B>>::map(self, res)
     }
 

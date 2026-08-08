@@ -69,7 +69,7 @@ where
                         method = Method::GET;
                     }
 
-                    *req.body_mut() = RequestBody::empty();
+                    *req.body_mut() = RequestBody::none();
 
                     for header in &[TRANSFER_ENCODING, CONTENT_ENCODING, CONTENT_TYPE, CONTENT_LENGTH] {
                         headers.remove(header);
