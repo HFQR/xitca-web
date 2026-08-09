@@ -196,7 +196,7 @@ where
                 _addr,
                 _read_buf,
                 _timer.as_mut(),
-                self.config,
+                self.config.clone(),
                 &self.service,
                 self.date.get(),
             )
