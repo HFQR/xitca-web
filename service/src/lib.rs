@@ -35,6 +35,7 @@ mod service;
 pub mod middleware;
 pub mod pipeline;
 pub mod ready;
+pub mod shutdown;
 
 pub use self::{
     middleware::{EnclosedBuilder, EnclosedFnBuilder, MapBuilder, MapErrorBuilder},
