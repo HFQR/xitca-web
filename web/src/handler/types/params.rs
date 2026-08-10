@@ -59,7 +59,7 @@ impl<'a, 'r, C, B, T> FromRequest<'a, WebContext<'r, C, B>> for LazyParams<'a, T
 }
 
 #[derive(Debug)]
-pub struct ParamsRef<'a>(&'a router::Params);
+pub struct ParamsRef<'a>(pub &'a router::Params);
 
 impl Deref for ParamsRef<'_> {
     type Target = router::Params;
