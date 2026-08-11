@@ -36,8 +36,6 @@
 
 #![forbid(unsafe_code)]
 
-mod tls;
-
 #[cfg(feature = "runtime")]
 mod builder;
 #[cfg(feature = "runtime")]
@@ -49,6 +47,7 @@ pub mod body;
 pub mod config;
 pub mod error;
 pub mod http;
+pub mod tls;
 pub mod util;
 
 #[cfg(feature = "runtime")]
