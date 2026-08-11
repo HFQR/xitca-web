@@ -20,6 +20,8 @@ use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
 
+use xitca_service::shutdown::ShutdownToken;
+
 use crate::{builder::Builder, worker};
 
 pub struct Server {
@@ -28,6 +30,7 @@ pub struct Server {
     rx_cmd: UnboundedReceiver<Command>,
     rt: Option<Runtime>,
     worker_join_handles: Vec<thread::JoinHandle<io::Result<()>>>,
+    shutdown_token: Arc<ShutdownToken>,
 }
 
 impl Server {
@@ -114,6 +117,8 @@ impl Server {
 
         let is_graceful_shutdown = Arc::new(AtomicBool::new(false));
         let is_graceful_shutdown2 = is_graceful_shutdown.clone();
+        let st = Arc::new(ShutdownToken::new());
+        let st2 = st.clone();
 
         let worker_handles = thread::Builder::new()
             .name(String::from("xitca-server-worker-shared-scope"))
@@ -133,7 +138,7 @@ impl Server {
                             let mut services = Vec::new();
 
                             for (name, factory) in factories.iter() {
-                                match factory.call((name, &listeners)).await {
+                                match factory.call((name, &listeners, st2.clone())).await {
                                     Ok((h, s)) => {
                                         handles.extend(h);
                                         services.push(s);
@@ -176,6 +181,7 @@ impl Server {
             is_graceful_shutdown,
             tx_cmd,
             rx_cmd,
+            shutdown_token: st,
             rt: Some(rt),
             worker_join_handles: vec![worker_handles],
         })
@@ -184,6 +190,8 @@ impl Server {
     pub(crate) fn stop(&mut self, graceful: bool) {
         if let Some(rt) = self.rt.take() {
             self.is_graceful_shutdown.store(graceful, Ordering::SeqCst);
+            self.shutdown_token.shutdown();
+
             rt.shutdown_background();
             mem::take(&mut self.worker_join_handles).into_iter().for_each(|handle| {
                 let _ = handle.join().unwrap();

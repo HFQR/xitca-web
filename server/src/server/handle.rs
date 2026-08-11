@@ -1,10 +1,15 @@
+use std::sync::Arc;
+
 use tokio::sync::mpsc::UnboundedSender;
+
+use xitca_service::shutdown::ShutdownToken;
 
 use super::Command;
 
 #[derive(Clone)]
 pub struct ServerHandle {
     pub(super) tx: UnboundedSender<Command>,
+    pub(super) shutdown_token: Arc<ShutdownToken>,
 }
 
 impl ServerHandle {
@@ -17,5 +22,6 @@ impl ServerHandle {
         };
 
         let _ = self.tx.send(cmd);
+        self.shutdown_token.shutdown();
     }
 }

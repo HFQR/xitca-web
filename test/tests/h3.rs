@@ -23,7 +23,7 @@ async fn h3_get() -> Result<(), Error> {
         assert_eq!("GET Response", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -49,7 +49,7 @@ async fn h3_no_host_header() -> Result<(), Error> {
         assert_eq!("", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -74,7 +74,7 @@ async fn h3_post() -> Result<(), Error> {
         assert!(!res.can_close_connection());
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 

@@ -11,7 +11,10 @@ use ::h3::{
     server::{self, RequestStream},
 };
 use xitca_io::net::QuicStream;
-use xitca_service::Service;
+use xitca_service::{
+    Service,
+    shutdown::{ShutdownFutureExt, ShutdownToken},
+};
 use xitca_unsafe_collection::futures::{Select, SelectOutput};
 
 use crate::{
@@ -48,7 +51,7 @@ where
         }
     }
 
-    pub(crate) async fn run(self) -> Result<(), Error<S::Error, BE>> {
+    pub(crate) async fn run(self, st: &ShutdownToken) -> Result<(), Error<S::Error, BE>> {
         // wait for connecting.
         let conn = self.io.connecting().await?;
 
@@ -60,8 +63,8 @@ where
 
         // accept loop
         loop {
-            match conn.accept().select(queue.next()).await {
-                SelectOutput::A(Ok(Some(req))) => {
+            match conn.accept().select(queue.next()).with_shutdown(st, true).await {
+                Some(SelectOutput::A(Ok(Some(req)))) => {
                     queue.push(async move {
                         let (req, stream) = req.resolve_request().await?;
                         let (tx, rx) = stream.split();
@@ -76,13 +79,14 @@ where
                         h3_handler(fut, tx).await
                     });
                 }
-                SelectOutput::A(Ok(None)) => break,
-                SelectOutput::A(Err(e)) => return Err(e.into()),
-                SelectOutput::B(res) => {
+                Some(SelectOutput::A(Ok(None))) => break,
+                Some(SelectOutput::A(Err(e))) => return Err(e.into()),
+                Some(SelectOutput::B(res)) => {
                     if let Err(e) = res {
                         HttpServiceError::from(e).log("h3_dispatcher");
                     }
                 }
+                None => break,
             }
         }
 
