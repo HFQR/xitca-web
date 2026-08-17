@@ -67,7 +67,9 @@ where
     let mut end_stream = is_eof;
     let mut is_head_method = false;
 
-    match *req.method() {
+    // yielded by the match so it needs no `mut`, which it would never be given
+    // without the grpc feature.
+    let is_grpc_stream = match *req.method() {
         Method::CONNECT => {
             #[allow(unused_mut)]
             let mut protocol = ::h2::ext::Protocol::from_static("connect-ip");
@@ -84,15 +86,26 @@ where
 
             // CONNECT establishes a tunnel — the stream must stay open for bidirectional data.
             end_stream = false;
+            false
         }
+        // **A gRPC POST with no body is a streaming call**, and cannot be
+        // anything else: a unary call always carries a body -- the length
+        // prefix alone is five bytes -- so there is no valid request this
+        // catches by accident. That makes it a characterisation rather than a
+        // heuristic, which is what it has to be to decide something as
+        // load-bearing as whether the caller is handed a placeholder head.
         #[cfg(feature = "grpc")]
         Method::POST if crate::grpc::is_grpc_request(&req) && is_eof => {
-            // grpc stream may start with zero body. in that case
+            // grpc stream may start with no response header and body
             end_stream = false;
+            true
         }
-        Method::HEAD => is_head_method = true,
-        _ => {}
-    }
+        Method::HEAD => {
+            is_head_method = true;
+            false
+        }
+        _ => false,
+    };
 
     let (fut, mut stream) = stream.send_request(req, end_stream)?;
 
@@ -153,15 +166,36 @@ where
         }
     }
 
-    let res = fut.await?;
+    // **The body is always built before the response head exists.** Resolving
+    // that head is the body's own job (`ResponseBody::poll_head`), which leaves
+    // exactly one way a head is obtained and makes "hand the stream over before
+    // the server has answered" a property any caller can have rather than a
+    // special case wired into this function.
+    let mut body = H2ResponseBody::new(stream, fut);
 
-    let res = if is_head_method {
-        res.map(|_| ResponseBody::Eof)
-    } else {
-        res.map(|body| ResponseBody::H2(H2ResponseBody::new(stream, body)))
-    };
+    // The one caller that takes it up. A grpc stream may be the client's turn
+    // to speak -- the spec allows it, and a server authenticating a handshake
+    // *must* read before it can decide what to answer -- so waiting for a head
+    // that is waiting on our first message deadlocks both sides.
+    if is_grpc_stream {
+        return Ok(http::Response::new(ResponseBody::H2(body)));
+    }
 
-    Ok(res)
+    // Everyone else is handed a response, and a response has a head: `status()`
+    // and `headers()` are read synchronously all over this crate and by every
+    // middleware -- `Redirect` decides on the status alone -- so for anything
+    // but a stream that asked for it, the head is awaited here as it always was.
+    poll_fn(|cx| body.poll_head(cx)).await?;
+    let head = body.take_head().expect("poll_head resolves the head or errors");
+
+    Ok(http::Response::from_parts(
+        head,
+        if is_head_method {
+            ResponseBody::Eof
+        } else {
+            ResponseBody::H2(body)
+        },
+    ))
 }
 
 pub(crate) async fn handshake<S>(stream: S) -> Result<Connection, Error>

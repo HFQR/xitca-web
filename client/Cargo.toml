@@ -29,7 +29,7 @@ json = ["serde", "serde_json"]
 # websocket support. must be used together with http/1 and/or http/2 feature(s)
 websocket = ["http-ws"]
 # grpc support
-grpc = ["compress", "dep:http-grpc-rs", "dep:prost", "http-grpc-rs/compress-gz", "http-grpc-rs/compress-br", "http-grpc-rs/compress-de", "http-grpc-rs/compress-zs"]
+grpc = ["compress", "dep:http-grpc-rs", "dep:prost", "dep:percent-encoding", "http-grpc-rs/compress-gz", "http-grpc-rs/compress-br", "http-grpc-rs/compress-de", "http-grpc-rs/compress-zs"]
 # mulipart support
 multipart = ["dep:http-multipart"]
 # feature for trusted local network:
@@ -80,6 +80,8 @@ serde_json = { version = "1", optional = true }
 # grpc
 http-grpc-rs = { version = "0.1", optional = true }
 prost = { version = "0.14", optional =true }
+# decoding the `grpc-message` trailer, which the spec percent-encodes.
+percent-encoding = { version = "2", optional = true }
 
 # websocket
 http-ws = { workspace = true, features = ["stream"], optional = true }

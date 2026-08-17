@@ -86,6 +86,43 @@ async fn bidi_echo(mut stream: GrpcStreamRequest) -> Result<GrpcStreamResponse<H
     Ok(body)
 }
 
+/// Bidirectional streaming where the **server reads before it answers**.
+///
+/// This is the shape of any handshake the server has to authenticate: it cannot
+/// decide what to respond -- or whether to respond at all -- until it has seen
+/// the client's first message. The response head therefore cannot arrive until
+/// the client has sent, which deadlocks any client that waits for the head
+/// before handing over a sink.
+async fn read_first_echo(mut stream: GrpcStreamRequest) -> Result<GrpcStreamResponse<HelloReply>, GrpcError> {
+    let Some(first) = stream.message::<HelloRequest>().await? else {
+        return Err(GrpcError::new(
+            GrpcStatus::FailedPrecondition,
+            "expected a first message",
+        ));
+    };
+
+    let (tx, body) = GrpcStreamResponse::channel();
+    tokio::task::spawn_local(async move {
+        let mut tx = tx;
+        if tx
+            .send_message(HelloReply {
+                response: first.request,
+            })
+            .await
+            .is_err()
+        {
+            return;
+        }
+        while let Ok(Some(req)) = stream.message::<HelloRequest>().await {
+            let reply = HelloReply { response: req.request };
+            if tx.send_message(reply).await.is_err() {
+                break;
+            }
+        }
+    });
+    Ok(body)
+}
+
 // -- test server --
 
 fn test_grpc_server() -> Result<(String, xitca_server::ServerFuture), Error> {
@@ -103,6 +140,7 @@ fn test_grpc_server() -> Result<(String, xitca_server::ServerFuture), Error> {
         .at("/helloworld.Greeter/SlowHandler", handler_service(slow_handler))
         .at("/helloworld.Greeter/EchoMetadata", handler_service(echo_metadata))
         .at("/helloworld.Greeter/BidiEcho", handler_service(bidi_echo))
+        .at("/helloworld.Greeter/ReadFirstEcho", handler_service(read_first_echo))
         .enclosed(GrpcTimeout)
         .serve()
         .h2c_prior_knowledge()
@@ -305,6 +343,92 @@ async fn grpc_custom_metadata() -> Result<(), Error> {
     let trailers = trailers.unwrap();
     assert_eq!(trailers.get("grpc-status").unwrap().to_str()?, "0");
     assert_eq!(trailers.get("x-custom-trailer-bin").unwrap().to_str()?, "dHJhaWxlcg");
+
+    handle.stop(false);
+    Ok(())
+}
+
+/// A stream the server refuses outright must read as an error, not as a stream
+/// that finished.
+///
+/// This is gRPC's "Trailers-Only" shape and the standard way a call is
+/// rejected: HTTP 200, `grpc-status` in the **response head**, no body and no
+/// trailers frame at all. A reader that only inspects trailers sees an
+/// immediate end of stream and reports success -- `ReadFirstEcho` refusing a
+/// stream that sent nothing is exactly that case.
+#[tokio::test]
+async fn grpc_refused_stream_is_an_error_not_an_empty_stream() -> Result<(), Error> {
+    let (base, mut server) = test_grpc_server()?;
+    let handle = server.handle()?;
+    tokio::spawn(server);
+
+    let c = Client::new();
+
+    let grpc = c
+        .grpc_stream(&format!("{base}/helloworld.Greeter/ReadFirstEcho"))
+        .send::<HelloReply>()
+        .await?;
+
+    // Close the send half without a message, so the handler refuses.
+    let (mut sink, mut reader) = grpc.split();
+    SinkExt::<HelloRequest>::close(&mut sink).await?;
+
+    let err = reader
+        .next()
+        .await
+        .expect("a refused stream must not read as a clean end")
+        .expect_err("the refusal is an error, not a message");
+    let err = err.to_string();
+    assert!(
+        err.contains("9") || err.to_lowercase().contains("precondition"),
+        "the status the server refused with must survive: {err}"
+    );
+
+    // And it stays refused rather than starting to decode the response as
+    // messages.
+    assert!(reader.next().await.is_none(), "a refused stream has nothing after");
+
+    handle.stop(false);
+    Ok(())
+}
+
+/// A bidi stream must be usable when the **client** speaks first.
+///
+/// gRPC permits it and plenty of protocols require it -- any handshake the
+/// server authenticates before answering, for one. Waiting for the response
+/// head before returning a writable tunnel makes that case unreachable: the
+/// client waits for the head, the server waits for the message, and neither
+/// moves. The timeout is the assertion; without it this test hangs rather
+/// than fails.
+#[tokio::test]
+async fn grpc_bidi_stream_client_speaks_first() -> Result<(), Error> {
+    let (base, mut server) = test_grpc_server()?;
+    let handle = server.handle()?;
+    tokio::spawn(server);
+
+    let c = Client::new();
+
+    let grpc = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        c.grpc_stream(&format!("{base}/helloworld.Greeter/ReadFirstEcho"))
+            .send::<HelloReply>(),
+    )
+    .await
+    .expect("the tunnel must not wait on a server that is waiting on us")?;
+
+    let (mut sink, mut reader) = grpc.split();
+
+    sink.send(make_hello("one")).await?;
+    let reply: HelloReply = reader.next().await.expect("expected reply 1")?;
+    assert_eq!(reply.response.unwrap().name, "one");
+
+    // And it keeps working once the head has arrived.
+    sink.send(make_hello("two")).await?;
+    let reply: HelloReply = reader.next().await.expect("expected reply 2")?;
+    assert_eq!(reply.response.unwrap().name, "two");
+
+    SinkExt::<HelloRequest>::close(&mut sink).await?;
+    assert!(reader.next().await.is_none());
 
     handle.stop(false);
     Ok(())
