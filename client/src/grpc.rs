@@ -1,4 +1,5 @@
 use core::{
+    fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -11,7 +12,7 @@ use http_grpc_rs::Codec;
 use prost::Message;
 use xitca_http::http::{
     HeaderMap, HeaderValue,
-    const_header_name::{GRPC_ACCEPT_ENCODING, GRPC_ENCODING},
+    const_header_name::{GRPC_ACCEPT_ENCODING, GRPC_ENCODING, GRPC_MESSAGE, GRPC_STATUS},
 };
 
 #[cfg(feature = "http2")]
@@ -27,6 +28,66 @@ use super::{
 };
 
 pub use http_encoding::ContentEncoding;
+
+/// How a server ended a stream, when it ended it with a failure.
+///
+/// gRPC reports failure **in the trailers**, not in the response status: the
+/// head is long since sent and says 200. A reader that ignores them cannot tell
+/// a stream that finished from one that was rejected, aborted or timed out,
+/// which turns every server-side failure into a silent end of stream.
+#[derive(Debug)]
+pub struct GrpcStatusError {
+    /// The numeric code from `grpc-status`. Never 0 -- that is a clean end and
+    /// is not reported as an error.
+    pub status: u16,
+    /// `grpc-message`, percent-decoded. Absent when the server sent none.
+    pub message: Option<String>,
+}
+
+impl fmt::Display for GrpcStatusError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "grpc stream ended with status {}", self.status)?;
+        match self.message {
+            Some(ref message) => write!(f, ": {message}"),
+            None => Ok(()),
+        }
+    }
+}
+
+impl core::error::Error for GrpcStatusError {}
+
+/// gRPC's `UNKNOWN`, which the spec asks a client to report when a server said
+/// how it ended but not in a way that can be read.
+const GRPC_STATUS_UNKNOWN: u16 = 2;
+
+/// Read how a server ended the stream out of the headers it ended it with.
+///
+/// Takes a [`HeaderMap`] rather than trailers specifically, because gRPC ends a
+/// stream in **two** shapes: trailers after a body, or -- when the server
+/// refuses before sending anything -- `grpc-status` in the response head itself,
+/// with no body and no trailers at all ("Trailers-Only"). Both have to be read
+/// the same way, or the second reads as a stream that simply finished.
+///
+/// `None` only for a genuine clean end: no `grpc-status` at all, or one that
+/// says 0. A status that is present but unreadable is **not** success -- the
+/// server was telling us something -- so it is reported as `UNKNOWN`.
+fn status_error(trailers: &HeaderMap) -> Option<GrpcStatusError> {
+    let status = trailers.get(&GRPC_STATUS)?;
+    let status = match status.to_str().ok().and_then(|s| s.parse::<u16>().ok()) {
+        Some(0) => return None,
+        Some(status) => status,
+        None => GRPC_STATUS_UNKNOWN,
+    };
+    let message = trailers.get(&GRPC_MESSAGE).and_then(|value| {
+        let value = value.to_str().ok()?;
+        Some(
+            percent_encoding::percent_decode_str(value)
+                .decode_utf8_lossy()
+                .into_owned(),
+        )
+    });
+    Some(GrpcStatusError { status, message })
+}
 
 /// Returns `true` if the request carries a gRPC content-type.
 ///
@@ -141,38 +202,69 @@ impl Response {
 }
 
 impl GrpcStreamRequest<'_> {
-    /// Send the request and wait for response asynchronously.
+    /// Open the stream. Returns as soon as the request is on the wire.
+    ///
+    /// **This does not wait for the server's response head**, and it must not:
+    /// gRPC allows the client to send first, and a server that authenticates a
+    /// handshake cannot answer until it has read. Waiting here for a head that
+    /// waits on our first message is a deadlock, so the returned [`Grpc`] is
+    /// writable immediately and the head is resolved by the first read.
+    ///
+    /// The cost is that a stream the server refuses outright surfaces as an
+    /// error from the reader rather than from here.
     pub async fn send<M>(mut self) -> Result<Grpc<M>, Error> {
         let encode_codec = self.prepare_codec();
 
         let res = self.builder._send().await?;
+        let (head, body) = res.res.into_parts();
 
-        if res.status() != StatusCode::OK {
-            return Err(Error::from(ErrorResponse {
-                expect_status: StatusCode::OK,
-                res: res.res.map(|_| ()),
-                description: "grpc stream can't be established",
-            }));
-        }
-
-        let decode_codec = Codec::from_headers(res.headers());
-
-        let body = match res.res.into_body() {
+        // **Both transports hand the head to the reader**, which is where it is
+        // checked. Only http/2 actually defers it -- h3 has the real one right
+        // here and carries it along -- but going through one path means the
+        // status, the Trailers-Only case and the body encoding are handled
+        // once, for both.
+        let body = match body {
             #[cfg(feature = "http2")]
-            crate::body::ResponseBody::H2(body) => GrpcBody::H2(body),
+            crate::body::ResponseBody::H2(body) => {
+                // The head here is the dispatcher's placeholder. The real one
+                // has not been sent yet and is collected by the first read.
+                drop(head);
+                GrpcBody::H2(body)
+            }
             #[cfg(feature = "http3")]
-            crate::body::ResponseBody::H3(body) => GrpcBody::H3(body),
+            crate::body::ResponseBody::H3(body) => GrpcBody::H3 { body, head: Some(head) },
             _ => unreachable!("gRPC requires http2 or http3"),
         };
 
         Ok(Tunnel::new(GrpcTunnel {
             encode_codec,
-            decode_codec,
+            decode_codec: DecodeCode::Head,
             send_buf: BytesMut::new(),
             recv_buf: BytesMut::new(),
             body,
             _msg: PhantomData,
         }))
+    }
+}
+
+/// Everything a response head has to be checked for before a stream can be read
+/// from, yielding the codec its body is encoded with.
+///
+/// Three ways a stream can be over before it starts, and all of them arrive
+/// here: a transport-level status that is not 200, a `grpc-status` in the head
+/// (the Trailers-Only shape a server uses to refuse outright), and a body whose
+/// encoding has to be known before a single frame can be decoded.
+fn head_codec(head: &crate::http::response::Parts) -> Result<Codec, Error> {
+    if head.status != StatusCode::OK {
+        return Err(Error::from(ErrorResponse {
+            expect_status: StatusCode::OK,
+            res: crate::http::Response::from_parts(head.clone(), ()),
+            description: "grpc stream can't be established",
+        }));
+    }
+    match status_error(&head.headers) {
+        Some(e) => Err(Error::Std(Box::new(e))),
+        None => Ok(Codec::from_headers(&head.headers)),
     }
 }
 
@@ -182,16 +274,45 @@ enum GrpcBody {
     #[cfg(feature = "http2")]
     H2(crate::h2::body::ResponseBody),
     #[cfg(feature = "http3")]
-    H3(crate::h3::body::ResponseBody),
+    H3 {
+        body: crate::h3::body::ResponseBody,
+        /// h3 never defers, so this is the real head, carried until the reader
+        /// asks for it the same way it asks http/2 for one that had to wait.
+        head: Option<crate::http::response::Parts>,
+    },
 }
 
 impl GrpcBody {
+    /// Wait for the response head, and hand it over the once it resolves here.
+    ///
+    /// `Ok(None)` means the head came with the response and the caller already
+    /// has it -- the http/3 path, and any future one that does not hand the
+    /// body over early.
+    fn poll_head(&mut self, cx: &mut Context<'_>) -> Poll<Result<Option<crate::http::response::Parts>, Error>> {
+        match self {
+            #[cfg(feature = "http2")]
+            Self::H2(body) => {
+                ready!(body.poll_head(cx)).map_err(Error::from)?;
+                Poll::Ready(Ok(body.take_head()))
+            }
+            #[cfg(feature = "http3")]
+            Self::H3 { head, .. } => {
+                // Already in hand, so there is nothing to wait for and nothing
+                // to wake on.
+                let _ = cx;
+                Poll::Ready(Ok(head.take()))
+            }
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
+        }
+    }
+
     fn poll_frame(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, Error>>> {
         match self {
             #[cfg(feature = "http2")]
             Self::H2(body) => Pin::new(body).poll_frame(cx).map_err(Into::into),
             #[cfg(feature = "http3")]
-            Self::H3(body) => Pin::new(body).poll_frame(cx).map_err(Into::into),
+            Self::H3 { body, .. } => Pin::new(body).poll_frame(cx).map_err(Into::into),
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
         }
@@ -200,11 +321,28 @@ impl GrpcBody {
 
 pub struct GrpcTunnel<M> {
     encode_codec: Codec,
-    decode_codec: Codec,
+    decode_codec: DecodeCode,
     send_buf: BytesMut,
     recv_buf: BytesMut,
     body: GrpcBody,
     _msg: PhantomData<fn(M)>,
+}
+
+/// The codec used to decode what the server sends, which is built from its
+/// response head -- and so does not exist until that head does.
+///
+/// Not an `Option`, because "no codec yet" and "no codec at all" are not the
+/// same thing: the head is still owed, and reading is what collects it.
+enum DecodeCode {
+    /// The head has not been taken off the body yet.
+    Head,
+    Body(Codec),
+    /// The head said the stream was never established. There is nothing to
+    /// decode and never will be, and **the head has already been consumed** --
+    /// without this, polling again after the error resolves nothing, falls
+    /// through to a default codec and starts reading the error body as gRPC
+    /// frames.
+    Refused,
 }
 
 impl<T, M> Sink<T> for GrpcTunnel<M>
@@ -237,7 +375,7 @@ where
                 Poll::Ready(Ok(()))
             }
             #[cfg(feature = "http3")]
-            GrpcBody::H3(ref mut body) => {
+            GrpcBody::H3 { ref mut body, .. } => {
                 if inner.send_buf.is_empty() {
                     return Poll::Ready(Ok(()));
                 }
@@ -267,7 +405,7 @@ where
                 Poll::Ready(Ok(()))
             }
             #[cfg(feature = "http3")]
-            GrpcBody::H3(ref mut body) => {
+            GrpcBody::H3 { ref mut body, .. } => {
                 if !inner.send_buf.is_empty() {
                     let buf = inner.send_buf.split().freeze();
                     let mut fut = core::pin::pin!(body.send_data(buf));
@@ -291,9 +429,40 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let inner = self.get_mut();
 
+        let decode_codec = match inner.decode_codec {
+            DecodeCode::Body(ref codec) => codec,
+            // Reported once, when it happened. Anything further is the caller
+            // polling past an error, and there is nothing left to give it.
+            DecodeCode::Refused => return Poll::Ready(None),
+            DecodeCode::Head => {
+                let head = match ready!(inner.body.poll_head(cx)) {
+                    Ok(Some(head)) => head,
+                    // Taken once, and this state is left the moment it is.
+                    Ok(None) => unreachable!("the head is resolved exactly once"),
+                    Err(e) => {
+                        inner.decode_codec = DecodeCode::Refused;
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                };
+                match head_codec(&head) {
+                    Ok(codec) => {
+                        inner.decode_codec = DecodeCode::Body(codec);
+                        match inner.decode_codec {
+                            DecodeCode::Body(ref codec) => codec,
+                            _ => unreachable!("just set to Body"),
+                        }
+                    }
+                    Err(e) => {
+                        inner.decode_codec = DecodeCode::Refused;
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                }
+            }
+        };
+
         loop {
             // Try to decode a complete message from the buffer first.
-            match inner.decode_codec.decode::<T>(&mut inner.recv_buf) {
+            match decode_codec.decode::<T>(&mut inner.recv_buf) {
                 Ok(Some(msg)) => return Poll::Ready(Some(Ok(msg))),
                 Ok(None) => {}
                 Err(e) => return Poll::Ready(Some(Err(Error::Std(Box::new(e))))),
@@ -302,9 +471,15 @@ where
             // Need more data — poll the body.
             match ready!(inner.body.poll_frame(cx)) {
                 Some(Ok(Frame::Data(data))) => inner.recv_buf.extend_from_slice(data.as_ref()),
-                Some(Ok(Frame::Trailers(_))) => {
-                    // TODO: check grpc-status trailer for server errors.
-                    return Poll::Ready(None);
+                // How the server ended the stream. A failure lives here rather
+                // than in the response status, which was sent long before the
+                // server knew -- so dropping these turns every server-side
+                // error into an ordinary end of stream.
+                Some(Ok(Frame::Trailers(trailers))) => {
+                    return match status_error(&trailers) {
+                        Some(e) => Poll::Ready(Some(Err(Error::Std(Box::new(e))))),
+                        None => Poll::Ready(None),
+                    };
                 }
                 Some(Err(e)) => return Poll::Ready(Some(Err(e))),
                 None => {
@@ -318,5 +493,68 @@ where
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn trailers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                crate::http::header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        map
+    }
+
+    #[test]
+    fn a_clean_end_is_not_an_error() {
+        assert!(status_error(&trailers(&[("grpc-status", "0")])).is_none());
+        // Some servers omit the trailer entirely on success.
+        assert!(status_error(&trailers(&[])).is_none());
+    }
+
+    /// A status nothing can be made of is not success. The server was telling
+    /// us something, and reading it as a clean end loses whatever it was.
+    #[test]
+    fn an_unreadable_status_is_unknown_not_success() {
+        let err = status_error(&trailers(&[("grpc-status", "not a number")]))
+            .expect("a status that cannot be read is not a clean end");
+        assert_eq!(err.status, GRPC_STATUS_UNKNOWN);
+    }
+
+    #[test]
+    fn a_failure_keeps_its_status_and_message() {
+        let err = status_error(&trailers(&[
+            ("grpc-status", "14"),
+            ("grpc-message", "went away mid-stream"),
+        ]))
+        .expect("a non-zero status is a failure");
+        assert_eq!(err.status, 14);
+        assert_eq!(err.message.as_deref(), Some("went away mid-stream"));
+    }
+
+    /// The spec percent-encodes `grpc-message`, so a reader that does not decode
+    /// it shows the operator escapes instead of the reason.
+    #[test]
+    fn the_message_is_percent_decoded() {
+        let err = status_error(&trailers(&[
+            ("grpc-status", "9"),
+            ("grpc-message", "r%C3%A9ponse%20sp%C3%A9ciale%20%E2%98%95"),
+        ]))
+        .expect("a non-zero status is a failure");
+        assert_eq!(err.message.as_deref(), Some("réponse spéciale ☕"));
+    }
+
+    /// A status with no message is still a status.
+    #[test]
+    fn a_message_is_optional() {
+        let err = status_error(&trailers(&[("grpc-status", "4")])).expect("a non-zero status");
+        assert_eq!(err.status, 4);
+        assert!(err.message.is_none());
     }
 }
