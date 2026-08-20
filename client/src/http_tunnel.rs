@@ -272,11 +272,26 @@ impl TunnelIo {
                 ready |= Ready::WRITABLE;
             } else {
                 body.tx.reserve_capacity(4096);
-                if let Poll::Ready(Some(res)) = body.tx.poll_capacity(cx) {
+
+                if let Poll::Ready(res) = body.tx.poll_capacity(cx) {
                     ready |= Ready::WRITABLE;
                     match res {
-                        Ok(n) => self.adaptor.write_cap += n,
-                        Err(e) => self.adaptor.write_err = Some(io::Error::other(e)),
+                        Some(Ok(n)) => {
+                            self.adaptor.write_cap = n;
+                        }
+                        Some(Err(e)) => {
+                            self.adaptor.write_err = Some(io::Error::other(e));
+                        }
+                        // The send half is closed for good. **`poll_capacity` does
+                        // not register a waker for this answer**, because there is
+                        // nothing left to wake for — so treating it as "not ready
+                        // yet" parks the caller on a wake-up that can never come.
+                        // It is the end of the stream, and the end is reportable.
+                        None => {
+                            self.adaptor
+                                .write_err
+                                .get_or_insert_with(|| io::ErrorKind::UnexpectedEof.into());
+                        }
                     }
                 }
             }
@@ -289,20 +304,13 @@ impl TunnelIo {
         }
     }
 
-    fn poll_shutdown(
-        &mut self,
-        body: &mut crate::h2::body::ResponseBody,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
-        while self.adaptor.write_cap == 0 {
-            body.tx.reserve_capacity(1);
-            if let Some(Ok(n)) = ready!(body.tx.poll_capacity(cx)) {
-                self.adaptor.write_cap = n;
-                break;
-            }
-        }
-
-        Poll::Ready(body.tx.send_data(Bytes::new(), true).map_err(io::Error::other))
+    fn poll_shutdown(&mut self, body: &mut crate::h2::body::ResponseBody, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.adaptor.write_cap = 0;
+        Poll::Ready(
+            body.tx
+                .send_data(Bytes::new(), true)
+                .map_err(|e| io::Error::new(io::ErrorKind::UnexpectedEof, e)),
+        )
     }
 
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
