@@ -5,6 +5,8 @@ use core::{
     task::{Context, Poll, ready},
 };
 
+use std::io;
+
 use h2::client::ResponseFuture;
 
 use crate::{
@@ -83,7 +85,8 @@ impl ResponseBody {
         if self.want_poll_cap {
             let res = ready!(self.tx.poll_capacity(cx));
             self.want_poll_cap = false;
-            let cap = res.expect("No capacity left. http2 request is dropped")?;
+            let cap =
+                res.ok_or_else(|| crate::h2::Error::Body(io::Error::from(io::ErrorKind::UnexpectedEof).into()))??;
 
             let len = cmp::min(cap, chunk.len());
             let bytes = bytes.split_to(len).freeze();
