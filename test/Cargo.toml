@@ -10,28 +10,28 @@ workspace = true
 io-uring = ["xitca-http/io-uring", "xitca-server/io-uring"]
 
 [dependencies]
-xitca-client = { version = "0.1", features = ["http2", "http3", "websocket", "grpc", "dangerous"] }
-xitca-http = { version = "0.9.0", features = ["http2", "http3"] }
-xitca-codegen = "0.4"
-xitca-io = "0.6.0"
-xitca-server = { version = "0.7.0", features = ["quic"] }
-xitca-service = "0.3.0"
-xitca-unsafe-collection = "0.2"
-xitca-web = { version = "0.8", features = ["codegen", "compress-zs", "grpc", "http2"] }
+xitca-client = { workspace = true, features = ["http2", "http3", "websocket", "grpc", "dangerous"] }
+xitca-http = { workspace = true, features = ["http2", "http3"] }
+xitca-codegen = { workspace = true }
+xitca-io =  { workspace = true }
+xitca-server = { workspace = true, features = ["quic"] }
+xitca-service = { workspace = true }
+xitca-unsafe-collection =  { workspace = true }
+xitca-web = { workspace = true, features = ["codegen", "compress-zs", "grpc", "http2"] }
 
-http-ws = { version = "0.4", features = ["stream"] }
+http-ws = { workspace = true, features = ["stream"] }
 
-async-stream = "0.3"
-futures-util = "0.3.17"
-h3-quinn = "0.0.10"
-prost = "0.14"
-percent-encoding = "2"
-rustls-pemfile = "2"
-tokio = { version = "1.30", features = ["macros", "rt"] }
+async-stream = { workspace = true }
+futures-util = { workspace = true, default-features = true }
+h3-quinn = { workspace = true }
+prost = { workspace = true, default-features = true }
+percent-encoding = { workspace = true }
+rustls-pemfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [dev-dependencies]
-h2 = "0.4"
-tokio = { version = "1.30", features = ["macros", "rt", "net", "time"] }
+h2 = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "net", "time"] }
 
 [build-dependencies]
-prost-build = "0.14"
+prost-build = { workspace = true }

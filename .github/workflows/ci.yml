@@ -285,3 +285,27 @@ jobs:
           RUSTUP_TOOLCHAIN: ${{ matrix.version }}
         working-directory: examples
         run: cargo ci-check-examples
+
+  vet:
+    name: supply chain audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.98
+          profile: minimal
+          override: true
+
+      - name: Setup CI tools
+        uses: ./.github/actions/setup-tools
+        with:
+          cargo-vet: 'true'
+
+      # fails when a crate version enters the graph that nobody we trust has
+      # reviewed. see supply-chain/config.toml for imported audit sets.
+      - name: cargo vet
+        run: cargo vet --locked

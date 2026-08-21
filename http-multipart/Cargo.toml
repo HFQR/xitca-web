@@ -14,8 +14,8 @@ bytes = { workspace = true }
 futures-core = { workspace = true }
 http = { workspace = true }
 httparse = { workspace = true }
-memchr = "2.5.0"
+memchr = { workspace = true }
 pin-project-lite = { workspace = true }
 
 [dev-dependencies]
-futures-util = { version = "0.3.21", default-features = false }
+futures-util = { workspace = true }

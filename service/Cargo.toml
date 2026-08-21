@@ -16,4 +16,4 @@ workspace = true
 alloc = []
 
 [dev-dependencies]
-xitca-unsafe-collection = "0.2.0"
+xitca-unsafe-collection = { workspace = true }

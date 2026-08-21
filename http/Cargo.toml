@@ -45,9 +45,9 @@ xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
 http = { workspace = true }
 http-body-alt = { workspace = true }
-httpdate = "1.0"
+httpdate = { workspace = true }
 pin-project-lite = { workspace = true }
-tracing = { version = "0.1.40", default-features = false }
+tracing = { workspace = true }
 
 # tls support shared
 xitca-tls = { workspace = true, optional = true }
@@ -56,13 +56,13 @@ xitca-tls = { workspace = true, optional = true }
 httparse = { workspace = true, optional = true }
 
 # http/2 support
-fnv = { version = "1.0.7", optional = true }
-futures-util = { version = "0.3.17", default-features = false, optional = true }
+fnv = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
 
 # http/3 support
-h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "0.0.10", optional = true }
-quinn = { version = "0.11", default-features = false, features = ["ring"], optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
 
 # async runtime support.
 tokio = { workspace = true, features = ["rt", "sync", "time"], optional = true }
@@ -74,9 +74,9 @@ xitca-router = { workspace = true, optional = true }
 socket2 = { workspace = true, features = ["all"] }
 
 [dev-dependencies]
-assert_matches = "1.5"
-criterion = "0.8"
-proptest = "1.11"
+assert_matches = { workspace = true }
+criterion = { workspace = true }
+proptest = { workspace = true }
 xitca-server = { workspace = true }
 
 [[bench]]

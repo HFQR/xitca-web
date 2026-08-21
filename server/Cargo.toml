@@ -22,13 +22,13 @@ xitca-service = { workspace = true, features = ["alloc"] }
 xitca-unsafe-collection = { workspace = true }
 
 tokio = { workspace = true, features = ["sync", "time"] }
-tracing = { version = "0.1.40", default-features = false }
+tracing = { workspace = true }
 
 # io-uring support
 tokio-uring-xitca = { workspace = true, features = ["runtime-uring"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-socket2 = { version = "0.6.0" }
+socket2 = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]

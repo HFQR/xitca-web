@@ -23,16 +23,16 @@ tokio-uring-xitca = ["dep:tokio", "dep:tokio-uring-xitca"]
 [dependencies]
 bytes = { workspace = true }
 http = { workspace = true }
-httpdate = "1.0.2"
-http-range-header = "0.4"
+httpdate = { workspace = true }
+http-range-header = { workspace = true }
 futures-core = { workspace = true }
-mime_guess = "2.0.4"
+mime_guess = { workspace = true }
 percent-encoding = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tokio-uring-xitca = { workspace = true, features = ["bytes", "runtime-uring"], optional = true }
 
 [dev-dependencies]
-futures = { version = "0.3", default-features = false }
-tempfile = "3.2.0"
+futures = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

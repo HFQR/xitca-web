@@ -10,6 +10,10 @@ inputs:
     description: Install protoc
     required: false
     default: 'false'
+  cargo-vet:
+    description: Install cargo-vet
+    required: false
+    default: 'false'
   free-disk-space:
     description: Free up disk space (Linux only)
     required: false
@@ -44,3 +48,9 @@ runs:
       uses: taiki-e/install-action@v2
       with:
         tool: protoc@3.23.4
+
+    - name: Install cargo-vet
+      if: inputs.cargo-vet == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-vet

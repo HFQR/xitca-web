@@ -19,8 +19,8 @@ workspace = true
 xitca-unsafe-collection = { workspace = true }
 
 [dev-dependencies]
-criterion = "0.8"
-matchit = "0.9.1"
+criterion = { workspace = true }
+matchit = { workspace = true }
 
 [[bench]]
 name = "bench"
