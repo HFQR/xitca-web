@@ -6,6 +6,9 @@
 - add `pool::PoolConnectionOwned` type alias
 
 ## Change
+- update MSRV to 1.98
+
+## Change
 - rename `pool::PoolConnection` to `pool::GenericPoolConnection`
 - `pool::GenericPoolConnection` exposes generic type requiring `pool::PermitLike` trait bound
 - `pool::PoolConnection` becomes type alias of `pool::GenericPoolConnection<pool::Permit<'_>`

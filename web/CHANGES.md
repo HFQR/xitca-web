@@ -1,4 +1,4 @@
-# unreleased 0.9.0
+# unreleased 0.8.2
 ## Add
 - `App::merge` for merging two App instances into one
 

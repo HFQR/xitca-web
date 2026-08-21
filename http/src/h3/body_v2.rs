@@ -106,11 +106,11 @@ impl Body for RequestBodyV2 {
                     // RFC 9114 §4.1.2: sum of DATA frame payloads must equal
                     // Content-Length. Reject overflow as soon as we see it
                     // rather than after streaming.
-                    if let Some(exp) = *expected_len {
-                        if seen_len.saturating_add(len.0 as u64) > exp {
-                            this.inner = Inner::Ended;
-                            return Poll::Ready(Some(Err(invalid_data("DATA bytes exceed Content-Length"))));
-                        }
+                    if let Some(exp) = *expected_len
+                        && seen_len.saturating_add(len.0 as u64) > exp
+                    {
+                        this.inner = Inner::Ended;
+                        return Poll::Ready(Some(Err(invalid_data("DATA bytes exceed Content-Length"))));
                     }
                     *data_remaining = len.0;
                     // loop to yield the first chunk of payload.
@@ -118,13 +118,13 @@ impl Body for RequestBodyV2 {
                 Ok(WireFrame::Headers(block)) => {
                     buf.advance(consumed);
                     // Trailers terminate the body — Content-Length must already match.
-                    if let Some(exp) = *expected_len {
-                        if *seen_len != exp {
-                            this.inner = Inner::Ended;
-                            return Poll::Ready(Some(Err(invalid_data(
-                                "DATA bytes mismatch Content-Length before trailers",
-                            ))));
-                        }
+                    if let Some(exp) = *expected_len
+                        && *seen_len != exp
+                    {
+                        this.inner = Inner::Ended;
+                        return Poll::Ready(Some(Err(invalid_data(
+                            "DATA bytes mismatch Content-Length before trailers",
+                        ))));
                     }
                     // RFC 9114 §4.1: a HEADERS frame after DATA carries trailers.
                     let decoded = match decode_stateless(&mut block.clone(), MAX_HEADER_BLOCK_BYTES) {
@@ -169,13 +169,13 @@ impl Body for RequestBodyV2 {
                             // Clean end-of-stream between frames. Verify the
                             // body length matches Content-Length before we
                             // signal a successful end.
-                            if let Some(exp) = *expected_len {
-                                if *seen_len != exp {
-                                    this.inner = Inner::Ended;
-                                    return Poll::Ready(Some(Err(invalid_data(
-                                        "DATA bytes mismatch Content-Length at end-of-stream",
-                                    ))));
-                                }
+                            if let Some(exp) = *expected_len
+                                && *seen_len != exp
+                            {
+                                this.inner = Inner::Ended;
+                                return Poll::Ready(Some(Err(invalid_data(
+                                    "DATA bytes mismatch Content-Length at end-of-stream",
+                                ))));
                             }
                             this.inner = Inner::Ended;
                             return Poll::Ready(None);

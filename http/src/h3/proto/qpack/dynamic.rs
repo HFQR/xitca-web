@@ -363,16 +363,16 @@ impl DynamicTable {
 
             self.vas.drop();
 
-            if let Entry::Occupied(e) = self.name_map.entry(field.name.clone()) {
-                if self.vas.evicted(*e.get()) {
-                    e.remove();
-                }
+            if let Entry::Occupied(e) = self.name_map.entry(field.name.clone())
+                && self.vas.evicted(*e.get())
+            {
+                e.remove();
             }
 
-            if let Entry::Occupied(e) = self.field_map.entry(field) {
-                if self.vas.evicted(*e.get()) {
-                    e.remove();
-                }
+            if let Entry::Occupied(e) = self.field_map.entry(field)
+                && self.vas.evicted(*e.get())
+            {
+                e.remove();
             }
         }
         Ok(())

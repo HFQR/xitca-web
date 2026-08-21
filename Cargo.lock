@@ -3021,7 +3021,7 @@ dependencies = [
 
 [[package]]
 name = "tokio-uring-xitca"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "criterion",
@@ -3540,7 +3540,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-http"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "assert_matches",
  "criterion",
@@ -3692,7 +3692,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-web"
-version = "0.9.0"
+version = "0.8.2"
 dependencies = [
  "cookie",
  "futures-core",
