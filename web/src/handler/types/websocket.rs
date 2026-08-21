@@ -163,11 +163,11 @@ where
     #[inline]
     async fn from_request(ctx: &'a WebContext<'r, C, B>) -> Result<Self, Self::Error> {
         let body = ctx.take_body_ref();
-        if let Some(protocol) = ctx.req().body().protocol() {
-            if protocol != Protocol::WEB_SOCKET {
-                // TODO: strong typed error display protocol mismatch information
-                return Err(ErrorStatus::bad_request().into());
-            }
+        if let Some(protocol) = ctx.req().body().protocol()
+            && protocol != Protocol::WEB_SOCKET
+        {
+            // TODO: strong typed error display protocol mismatch information
+            return Err(ErrorStatus::bad_request().into());
         }
         let ws = http_ws::ws(ctx.req(), StreamDataBody::new(body)).map_err(Error::from_service)?;
         Ok(WebSocket::new(ws))
