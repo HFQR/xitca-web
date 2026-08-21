@@ -25,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-rust-version = "1.85"
+rust-version = "1.98"
 
 [patch.crates-io]
 xitca-client = { path = "./client" }
