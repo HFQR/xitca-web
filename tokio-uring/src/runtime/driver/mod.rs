@@ -111,7 +111,7 @@ impl Driver {
             self.fixed_buffers = None;
             return Ok(());
         }
-        
+
         Err(io::Error::other("fixed buffers are not currently registered"))
     }
 

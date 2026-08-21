@@ -81,11 +81,12 @@ impl Proxy {
 
         let addr = self.upstream_addr;
         while let Some(conn) = listener.accept().await {
-            if let Some(list) = self.white_list.as_ref() {
-                if !list.contains(&conn.remote_address()) {
-                    continue;
-                }
+            if let Some(list) = self.white_list.as_ref()
+                && !list.contains(&conn.remote_address())
+            {
+                continue;
             }
+
             tokio::spawn(async move {
                 if let Err(e) = listen_task(conn, addr).await {
                     error!("Proxy listen error: {e}");
