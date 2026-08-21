@@ -1,6 +1,9 @@
-# unreleased 0.8.2
+# unreleased 0.9.0
 ## Add
 - `App::merge` for merging two App instances into one
+
+## Change
+- update MSRV to 1.98
 
 # 0.8.1
 ## Change
