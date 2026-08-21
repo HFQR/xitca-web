@@ -11,7 +11,7 @@ a fork of tokio-uring with miniaml maintenance
 """
 categories = ["asynchronous", "network-programming"]
 keywords = ["async", "fs", "io-uring"]
-rust-version.workspace = true
+rust-version = "1.85"
 
 [lints]
 workspace = true
