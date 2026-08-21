@@ -53,4 +53,4 @@ runs:
       if: inputs.cargo-vet == 'true'
       uses: taiki-e/install-action@v2
       with:
-        tool: cargo-vet
+        tool: cargo-vet@0.10.2
