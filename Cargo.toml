@@ -121,7 +121,7 @@ slab = "0.4.11"
 socket2 = "0.6.3"
 sqlparser = "0.60.0"
 syn = { version = "2", features = ["full"] }
-tempfile = "3.2.0"
+tempfile = "3.27.0"
 tokio = "1.51.0"
 tokio-test = "0.4.2"
 tower-http = "0.6"
