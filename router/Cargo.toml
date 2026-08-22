@@ -8,7 +8,7 @@ repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
-rust-version.workspace = true
+rust-version = "1.85"
 
 [lints]
 workspace = true
@@ -19,8 +19,8 @@ workspace = true
 xitca-unsafe-collection = { workspace = true }
 
 [dev-dependencies]
-criterion = "0.8"
-matchit = "0.9.1"
+criterion = { workspace = true }
+matchit = { workspace = true }
 
 [[bench]]
 name = "bench"

@@ -1,6 +1,6 @@
 [package]
 name = "tokio-uring-xitca"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Tokio Contributors <team@tokio.rs>", "fakeshadow <everestshadow@gmail.com>"]
 edition = "2024"
 readme = "README.md"
@@ -23,20 +23,20 @@ runtime-uring = ["runtime", "dep:slab", "dep:libc", "dep:io-uring", "dep:socket2
 
 [dependencies]
 tokio = { workspace = true, features = ["net", "rt", "sync"], optional = true }
-slab = { version = "0.4.11", optional = true }
-libc = { version = "0.2.178", optional = true }
-io-uring = { version = "0.7.11", optional = true }
+slab = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
+io-uring = { workspace = true, optional = true }
 socket2 = { workspace = true, features = ["all"], optional = true }
 bytes = { workspace = true, optional = true }
 
 [dev-dependencies]
-tempfile = "3.2.0"
-tokio-test = "0.4.2"
-iai = "0.1.1"
-criterion = "0.8"
+tempfile = { workspace = true }
+tokio-test = { workspace = true }
+iai = { workspace = true }
+criterion = { workspace = true }
 # we use joinset in our tests
 tokio = { workspace = true }
-nix = { version = "0.31", features = ["resource"] }
+nix = { workspace = true, features = ["resource"] }
 
 [package.metadata.docs.rs]
 all-features = true

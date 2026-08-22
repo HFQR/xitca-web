@@ -8,7 +8,7 @@ repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "file"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
 readme= "README.md"
-rust-version.workspace = true
+rust-version = "1.85"
 
 [lints]
 workspace = true
@@ -23,16 +23,13 @@ tokio-uring-xitca = ["dep:tokio", "dep:tokio-uring-xitca"]
 [dependencies]
 bytes = { workspace = true }
 http = { workspace = true }
-httpdate = "1.0.2"
-http-range-header = "0.4"
 futures-core = { workspace = true }
-mime_guess = "2.0.4"
 percent-encoding = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tokio-uring-xitca = { workspace = true, features = ["bytes", "runtime-uring"], optional = true }
 
 [dev-dependencies]
-futures = { version = "0.3", default-features = false }
-tempfile = "3.2.0"
+futures = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

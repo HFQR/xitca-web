@@ -252,10 +252,10 @@ where
                         }
                     }
 
-                    if ready.is_writable() {
-                        if let Err(e) = self.try_write() {
-                            self.on_write_err(e);
-                        }
+                    if ready.is_writable()
+                        && let Err(e) = self.try_write()
+                    {
+                        self.on_write_err(e);
                     }
                 }
                 SelectOutput::B(write_state) => self.write_state = write_state,

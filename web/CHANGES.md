@@ -2,6 +2,9 @@
 ## Add
 - `App::merge` for merging two App instances into one
 
+## Change
+- update MSRV to 1.98
+
 # 0.8.1
 ## Change
 - `App::at` relax route string identifier lifetime

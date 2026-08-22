@@ -119,10 +119,9 @@ where
     if let Some(PooledConnection::Conn {
         generation: current, ..
     }) = conns.get(key)
+        && *current == generation
     {
-        if *current == generation {
-            conns.remove(key);
-        }
+        conns.remove(key);
     }
 }
 

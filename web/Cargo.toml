@@ -1,6 +1,6 @@
 [package]
 name = "xitca-web"
-version = "0.8.1"
+version = "0.8.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "an async web framework"
@@ -109,16 +109,16 @@ xitca-tls = { workspace = true, optional = true }
 serde_core = { workspace = true, optional = true }
 
 # json
-serde_json = { version = "1", optional = true }
+serde_json = { workspace = true, optional = true }
 
 # urlencoded
-serde_urlencoded = { version = "0.7.1", optional = true }
+serde_urlencoded = { workspace = true, optional = true }
 
 # compress-x
 http-encoding = { workspace = true, optional = true }
 
 # cookie
-cookie = { version = "0.18", features = ["percent-encode", "secure"], optional = true }
+cookie = { workspace = true, features = ["percent-encode", "secure"], optional = true }
 
 # grpc
 http-grpc-rs = { workspace = true, optional = true }
@@ -134,32 +134,32 @@ http-ws = { workspace = true, features = ["stream"], optional = true }
 http-file = { workspace = true, optional = true }
 
 # rate limit
-http-rate = { version = "0.1", optional = true }
+http-rate = { workspace = true, optional = true }
 
 # logger
-tracing = { version = "0.1", optional = true }
-tracing-subscriber = { version = "0.3", optional = true }
+tracing = { workspace = true, default-features = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 # codegen
-xitca-codegen = { version = "0.4.0", optional = true }
+xitca-codegen = { workspace = true, optional = true }
 
 # tower-http-compat
-tower-service = { version = "0.3", optional = true }
-tower-layer = { version = "0.3", optional = true }
-http-body = { version = "1", optional = true }
+tower-service = { workspace = true, optional = true }
+tower-layer = { workspace = true, optional = true }
+http-body = { workspace = true, optional = true }
 
 # http3
 xitca-io = { workspace = true, optional = true }
 
 [dev-dependencies]
-xitca-codegen = { version = "0.4" }
+xitca-codegen = { workspace = true }
 xitca-web = { path = ".", features = ["json"] }
 
-futures-util = { version = "0.3", features = ["alloc"] }
+futures-util = { workspace = true, default-features = true, features = ["alloc"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["macros"] }
-tower-http = { version = "0.6", features = ["fs", "set-status"] }
-tracing = "0.1"
+tower-http = { workspace = true, features = ["fs", "set-status"] }
+tracing = { workspace = true, default-features = true }
 
 [package.metadata.docs.rs]
 all-features = true

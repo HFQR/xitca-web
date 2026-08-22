@@ -24,6 +24,6 @@ rustls-poll-ring-crypto = ["dep:rustls_crate", "rustls_crate/ring", "xitca-io/ru
 [dependencies]
 xitca-io = { workspace = true }
 
-native_tls_crate = { package = "native-tls", version = "0.2.7", features = ["alpn"], optional = true }
-openssl = { version = "0.10", optional = true }
-rustls_crate = { package = "rustls", version = "0.23", default-features = false, features = ["std", "tls12"], optional = true }
+native_tls_crate = { workspace = true, optional = true }
+openssl = { workspace = true, optional = true }
+rustls_crate = { workspace = true, optional = true }

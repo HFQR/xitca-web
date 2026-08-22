@@ -38,17 +38,18 @@ extern crate alloc;
 use core::ops::Deref;
 
 use http::{
+    Method, StatusCode, Version,
     header::{
-        HeaderMap, HeaderValue, ALLOW, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_VERSION,
+        ALLOW, CONNECTION, HeaderMap, HeaderValue, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_VERSION,
         UPGRADE,
     },
     request::Request,
     response::{Builder, Response},
     uri::Uri,
-    Method, StatusCode, Version,
 };
 
 mod codec;
+mod crypto;
 mod error;
 mod frame;
 mod mask;
@@ -57,7 +58,7 @@ mod proto;
 pub use self::{
     codec::{Codec, Item, Message},
     error::{HandshakeError, ProtocolError},
-    proto::{hash_key, CloseCode, CloseReason, OpCode},
+    proto::{CloseCode, CloseReason, OpCode, hash_key},
 };
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -113,14 +114,7 @@ pub fn client_request_extend<B>(req: &mut Request<B>) {
             req.headers_mut().insert(CONNECTION, UPGRADE_VALUE);
 
             // generate 24 bytes base64 encoded random key.
-            let input = rand::random::<[u8; 16]>();
-            let mut output = [0u8; 24];
-
-            #[allow(clippy::needless_borrow)] // clippy dumb.
-            let n =
-                base64::engine::Engine::encode_slice(&base64::engine::general_purpose::STANDARD, input, &mut output)
-                    .unwrap();
-            assert_eq!(n, output.len());
+            let output = crypto::base64::<16, 24>(&crypto::random());
 
             req.headers_mut()
                 .insert(SEC_WEBSOCKET_KEY, HeaderValue::from_bytes(&output).unwrap());

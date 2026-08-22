@@ -564,13 +564,13 @@ fn handle_control_frame(frame: Frame<PayloadLen>, state: &State) -> Result<(), P
             //# connection.
             let id = id.into_inner();
             let mut s = state.shared.borrow_mut();
-            if let Some(prev) = s.peer_goaway {
-                if id > prev {
-                    return Err(ProtoError::new(
-                        h3_code::ID_ERROR,
-                        format!("peer GOAWAY id {id} > previous {prev}"),
-                    ));
-                }
+            if let Some(prev) = s.peer_goaway
+                && id > prev
+            {
+                return Err(ProtoError::new(
+                    h3_code::ID_ERROR,
+                    format!("peer GOAWAY id {id} > previous {prev}"),
+                ));
             }
             s.peer_goaway = Some(id);
             Ok(())
@@ -583,13 +583,13 @@ fn handle_control_frame(frame: Frame<PayloadLen>, state: &State) -> Result<(), P
             //# type H3_ID_ERROR.
             let id: u64 = VarInt::from(id).into_inner();
             let mut s = state.shared.borrow_mut();
-            if let Some(prev) = s.peer_max_push_id {
-                if id < prev {
-                    return Err(ProtoError::new(
-                        h3_code::ID_ERROR,
-                        format!("peer MAX_PUSH_ID {id} < previous {prev}"),
-                    ));
-                }
+            if let Some(prev) = s.peer_max_push_id
+                && id < prev
+            {
+                return Err(ProtoError::new(
+                    h3_code::ID_ERROR,
+                    format!("peer MAX_PUSH_ID {id} < previous {prev}"),
+                ));
             }
             s.peer_max_push_id = Some(id);
             Ok(())

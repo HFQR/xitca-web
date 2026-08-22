@@ -25,6 +25,6 @@ http = { workspace = true }
 http-body-alt = { workspace = true }
 pin-project-lite = { workspace = true }
 
-brotli2 = { version = "0.3.2", optional = true }
-flate2 = { version = "1.0.13", optional = true }
-zstd = { version = "0.13", optional = true }
+brotli2 = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+zstd = { workspace = true, optional = true }

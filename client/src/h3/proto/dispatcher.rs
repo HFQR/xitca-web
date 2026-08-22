@@ -43,9 +43,9 @@ where
             true
         }
         SizeHint::Exact(len) => {
-            let mut buf = itoa::Buffer::new();
-            req.headers_mut()
-                .insert(CONTENT_LENGTH, HeaderValue::from_str(buf.format(len)).unwrap());
+            let mut buf = core::fmt::NumBuffer::new();
+            let val = HeaderValue::from_str(len.format_into(&mut buf)).unwrap();
+            req.headers_mut().insert(CONTENT_LENGTH, val);
             false
         }
     };

@@ -1,7 +1,6 @@
-use std::{hint::black_box, time::SystemTime};
+use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use httpdate::HttpDate;
 use tokio::time::Instant;
 use xitca_http::{bytes::BytesMut, date::DateTime, h1::proto::context::Context};
 
@@ -9,8 +8,9 @@ struct DT([u8; DT::DATE_SIZE_HINT]);
 
 impl DT {
     fn dummy_date_time() -> Self {
+        // the decoder never looks at the value, only its fixed length.
         let mut date = [0; DT::DATE_SIZE_HINT];
-        date.copy_from_slice(HttpDate::from(SystemTime::now()).to_string().as_bytes());
+        date.copy_from_slice(b"Sun, 06 Nov 1994 08:49:37 GMT");
         DT(date)
     }
 }

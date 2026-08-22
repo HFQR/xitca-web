@@ -1,8 +1,7 @@
-use crate::body::Body;
 use tracing::{error, warn};
 
 use crate::{
-    body::SizeHint,
+    body::{Body, SizeHint},
     bytes::{Bytes, BytesMut},
     date::DateTime,
     http::{
@@ -225,8 +224,9 @@ fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: SizeHint, encodin
 }
 
 pub(crate) fn write_length_header(buf: &mut BytesMut, size: u64) {
-    let mut buffer = itoa::Buffer::new();
-    let buffer = buffer.format(size).as_bytes();
+    let mut buffer = core::fmt::NumBuffer::new();
+
+    let buffer = size.format_into(&mut buffer).as_bytes();
 
     buf.reserve(buffer.len() + 18);
     buf.extend_from_slice(b"\r\ncontent-length: ");

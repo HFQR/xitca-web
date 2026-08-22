@@ -4,6 +4,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tracing::debug;
 
 use super::{
+    crypto::random,
     error::ProtocolError,
     mask::apply_mask,
     proto::{CloseCode, CloseReason, OpCode},
@@ -164,7 +165,7 @@ impl Parser {
         };
 
         if mask {
-            let mask = rand::random::<[u8; 4]>();
+            let mask = random::<4>();
             dst.put_slice(&mask);
             dst.put_slice(payload);
             let pos = dst.len() - len;

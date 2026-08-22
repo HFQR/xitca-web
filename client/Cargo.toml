@@ -13,9 +13,9 @@ default = ["http1"]
 # http/1 clear text client
 http1 = ["httparse", "xitca-http/http1"]
 # http/2 client(tls enabled by default. see `dangerous` feature for clear text http/2)
-http2 = ["h2", "itoa", "xitca-http/http2"]
+http2 = ["h2", "xitca-http/http2"]
 # http/3 client(tls always enabled with rustls)
-http3 = ["h3", "h3-quinn", "quinn", "itoa", "rustls-ring-crypto"]
+http3 = ["h3", "h3-quinn", "quinn", "rustls-ring-crypto"]
 # openssl as http/1 and http/2 tls handler
 openssl = ["xitca-tls/openssl-poll"]
 # rustls as http/1 and http/2 tls handler
@@ -43,45 +43,42 @@ xitca-io = { workspace = true }
 xitca-unsafe-collection = { workspace = true }
 
 futures-core = { workspace = true, default-features = false }
-futures-sink = { version = "0.3.17", default-features = false }
+futures-sink = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
-tracing = { version = "0.1.40", default-features = false }
+tracing = { workspace = true }
 
 # http/1
 httparse = { workspace = true, optional = true }
 
 # http/2
-h2 = { version = "0.4", optional = true }
+h2 = { workspace = true, optional = true }
 
 # http/3
-h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "0.0.10", optional = true }
-quinn = { version = "0.11", features = ["ring"], optional = true }
-
-# http/2 and http/3 shared
-itoa = { version = "1", optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+quinn = { workspace = true, default-features = true, optional = true }
 
 # tls shared
 xitca-tls = { workspace = true, optional = true }
 
 # rustls, http3 and dangerous features shared
-webpki-roots = { version = "1", optional = true }
+webpki-roots = { workspace = true, optional = true }
 
 # compression
 http-encoding = { workspace = true, features = ["all"], optional = true }
 
 # serde
-serde = { version = "1.0.130", default-features = false, optional = true }
+serde = { workspace = true, optional = true }
 
 # json
-serde_json = { version = "1", optional = true }
+serde_json = { workspace = true, optional = true }
 
 # grpc
-http-grpc-rs = { version = "0.1", optional = true }
-prost = { version = "0.14", optional =true }
+http-grpc-rs = { workspace = true, optional = true }
+prost = { workspace = true, default-features = true, optional = true }
 # decoding the `grpc-message` trailer, which the spec percent-encodes.
-percent-encoding = { version = "2", optional = true }
+percent-encoding = { workspace = true, optional = true }
 
 # websocket
 http-ws = { workspace = true, features = ["stream"], optional = true }
@@ -90,5 +87,5 @@ http-ws = { workspace = true, features = ["stream"], optional = true }
 http-multipart = { workspace = true, optional = true }
 
 [dev-dependencies]
-futures = "0.3"
+futures = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }

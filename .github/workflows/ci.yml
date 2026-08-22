@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   check_http:
     strategy:
@@ -14,18 +17,16 @@ jobs:
           - { name: Linux, os: ubuntu-latest }
           - { name: macOS, os: macos-latest }
         version:
-          - 1.85
+          - 1.98
     name: http check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
     - name: Install Rust ${{ matrix.version }}
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
       with:
         toolchain: ${{ matrix.version }}
-        profile: minimal
-        override: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -57,13 +58,11 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
     - name: Install Rust ${{ matrix.version }}
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
       with:
         toolchain: ${{ matrix.version }}
-        profile: minimal
-        override: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -90,18 +89,16 @@ jobs:
           - { name: Linux, os: ubuntu-latest }
           - { name: macOS, os: macos-latest }
         version:
-          - 1.85
+          - 1.98
     name: client check @ ${{ matrix.target.name }} - ${{ matrix.version }}
     runs-on: ${{ matrix.target.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
     - name: Install Rust ${{ matrix.version }}
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
       with:
         toolchain: ${{ matrix.version }}
-        profile: minimal
-        override: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -133,13 +130,11 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Rust ${{ matrix.version }}
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
         with:
           toolchain: ${{ matrix.version }}
-          profile: minimal
-          override: true
 
       - name: Setup CI tools
         uses: ./.github/actions/setup-tools
@@ -185,13 +180,11 @@ jobs:
           - 5432:5432
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
     - name: Install Rust ${{ matrix.version }}
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
       with:
         toolchain: ${{ matrix.version }}
-        profile: minimal
-        override: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -219,14 +212,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
     - name: Install Rust nightly
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
       with:
         toolchain: nightly
-        profile: minimal
-        override: true
 
     - name: Setup CI tools
       uses: ./.github/actions/setup-tools
@@ -257,14 +248,12 @@ jobs:
     runs-on: ${{ matrix.target.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Rust ${{ matrix.version }}
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
         with:
           toolchain: ${{ matrix.version }}
-          profile: minimal
-          override: true
 
       - name: Setup CI tools
         uses: ./.github/actions/setup-tools
@@ -285,3 +274,25 @@ jobs:
           RUSTUP_TOOLCHAIN: ${{ matrix.version }}
         working-directory: examples
         run: cargo ci-check-examples
+
+  vet:
+    name: supply chain audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master @ 2026-08-05
+        with:
+          toolchain: 1.98
+
+      - name: Setup CI tools
+        uses: ./.github/actions/setup-tools
+        with:
+          cargo-vet: 'true'
+
+      # fails when a crate version enters the graph that nobody we trust has
+      # reviewed. see supply-chain/config.toml for imported audit sets.
+      - name: cargo vet
+        run: cargo vet --locked

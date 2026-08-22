@@ -1,12 +1,14 @@
-use core::str::FromStr;
-
 use http::{
     Request,
     header::{HeaderValue, IF_MODIFIED_SINCE, IF_UNMODIFIED_SINCE},
 };
-use httpdate::HttpDate;
 
-use super::{buf::buf_write_header, error::ServeError, runtime::Meta};
+use super::{
+    buf::buf_write_header,
+    error::ServeError,
+    http_date::{HttpDate, IMF_FIXDATE_LENGTH},
+    runtime::Meta,
+};
 
 pub(super) fn mod_date_check<Ext, M>(req: &Request<Ext>, meta: &mut M) -> Result<Option<HttpDate>, ServeError>
 where
@@ -45,14 +47,9 @@ where
 }
 
 fn to_http_date(header: Option<&HeaderValue>) -> Option<HttpDate> {
-    header.and_then(|v| {
-        std::str::from_utf8(v.as_ref())
-            .ok()
-            .map(<HttpDate as FromStr>::from_str)
-            .and_then(Result::ok)
-    })
+    HttpDate::parse(header?.to_str().ok()?)
 }
 
 pub(super) fn date_to_header(date: HttpDate) -> HeaderValue {
-    buf_write_header!(29, "{date}")
+    buf_write_header!(IMF_FIXDATE_LENGTH, "{date}")
 }

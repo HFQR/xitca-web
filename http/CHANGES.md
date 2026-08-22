@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.9.7
+## Change
+- update MSRV to 1.98
 
 # 0.9.6
 ## Add

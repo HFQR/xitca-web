@@ -30,25 +30,25 @@ where
 {
     let mut buf = BytesMut::new();
 
-    if !req.headers().contains_key(HOST) {
-        if let Some(host) = req.uri().host() {
-            buf.reserve(host.len() + 5);
-            buf.extend_from_slice(host.as_bytes());
+    if !req.headers().contains_key(HOST)
+        && let Some(host) = req.uri().host()
+    {
+        buf.reserve(host.len() + 5);
+        buf.extend_from_slice(host.as_bytes());
 
-            if let Some(port) = req.uri().port() {
-                let port = port.as_str();
-                match port {
-                    "80" | "443" => {}
-                    _ => {
-                        buf.extend_from_slice(b":");
-                        buf.extend_from_slice(port.as_bytes());
-                    }
+        if let Some(port) = req.uri().port() {
+            let port = port.as_str();
+            match port {
+                "80" | "443" => {}
+                _ => {
+                    buf.extend_from_slice(b":");
+                    buf.extend_from_slice(port.as_bytes());
                 }
             }
-
-            let val = HeaderValue::from_maybe_shared(buf.split().freeze()).unwrap();
-            req.headers_mut().insert(HOST, val);
         }
+
+        let val = HeaderValue::from_maybe_shared(buf.split().freeze()).unwrap();
+        req.headers_mut().insert(HOST, val);
     }
 
     let mut is_expect = req.headers().contains_key(EXPECT);

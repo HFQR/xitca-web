@@ -176,11 +176,11 @@ impl FlowControl {
 
         let remove = stream.try_remove();
 
-        if let Err(err) = self.remove_stream(id, remove) {
-            if let Err(err) = self.try_push_reset(id, err.reason()) {
-                self.go_away(err);
-                return Err(());
-            }
+        if let Err(err) = self.remove_stream(id, remove)
+            && let Err(err) = self.try_push_reset(id, err.reason())
+        {
+            self.go_away(err);
+            return Err(());
         }
 
         Ok(())
@@ -278,10 +278,10 @@ impl FlowControl {
         // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme and non-empty :path.
         let mut uri_parts = uri::Parts::default();
 
-        if let Some(authority) = pseudo.authority {
-            if let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner()) {
-                uri_parts.authority = Some(a);
-            }
+        if let Some(authority) = pseudo.authority
+            && let Ok(a) = uri::Authority::from_maybe_shared(authority.into_inner())
+        {
+            uri_parts.authority = Some(a);
         }
 
         match (is_strict_connect, pseudo.scheme) {
@@ -787,11 +787,11 @@ impl WriterQueue {
     /// The O(n) search and zero-length fallback handle the rare exceptions.
     fn push_end_stream(&mut self, stream_id: StreamId) {
         for msg in self.messages.iter_mut().rev() {
-            if let Message::Data(d) = msg {
-                if d.stream_id() == stream_id {
-                    d.set_end_stream(true);
-                    return;
-                }
+            if let Message::Data(d) = msg
+                && d.stream_id() == stream_id
+            {
+                d.set_end_stream(true);
+                return;
             }
         }
 
