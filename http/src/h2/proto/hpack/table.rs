@@ -6,8 +6,6 @@ use core::{
 
 use std::collections::VecDeque;
 
-use fnv::FnvHasher;
-
 use crate::http::{header, method::Method};
 
 use super::header::Header;
@@ -650,6 +648,39 @@ fn desired_pos(mask: usize, hash: HashValue) -> usize {
 #[inline]
 fn probe_distance(mask: usize, hash: HashValue, current: usize) -> usize {
     current.wrapping_sub(desired_pos(mask, hash)) & mask
+}
+
+/// [FNV-1a] 64 bit hasher.
+///
+/// the hpack index table only needs a cheap well spread hash over short header names and
+/// never exposes the value outside this process, so a dependency on the `fnv` crate is not
+/// worth carrying for it.
+///
+/// [FNV-1a]: https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+struct FnvHasher(u64);
+
+impl Default for FnvHasher {
+    #[inline]
+    fn default() -> Self {
+        Self(0xcbf29ce484222325)
+    }
+}
+
+impl Hasher for FnvHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut hash = self.0;
+        for byte in bytes {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        self.0 = hash;
+    }
 }
 
 fn hash_header(header: &Header) -> HashValue {

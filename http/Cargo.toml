@@ -19,7 +19,7 @@ default = ["http1"]
 # http1 specific feature.
 http1 = ["runtime", "dep:httparse"]
 # http2 specific feature.
-http2 = ["runtime", "dep:fnv", "futures-util/alloc"]
+http2 = ["runtime", "futures-util/alloc"]
 # http3 specific feature.
 http3 = ["runtime", "xitca-io/quic", "futures-util/alloc", "dep:h3", "dep:h3-quinn", "dep:quinn"]
 # openssl as server side tls.
@@ -45,7 +45,6 @@ xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
 http = { workspace = true }
 http-body-alt = { workspace = true }
-httpdate = { workspace = true }
 pin-project-lite = { workspace = true }
 tracing = { workspace = true }
 
@@ -56,7 +55,6 @@ xitca-tls = { workspace = true, optional = true }
 httparse = { workspace = true, optional = true }
 
 # http/2 support
-fnv = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 
 # http/3 support

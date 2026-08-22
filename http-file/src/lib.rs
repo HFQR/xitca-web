@@ -8,6 +8,9 @@ mod buf;
 mod chunk;
 mod date;
 mod error;
+mod http_date;
+mod mime;
+mod range;
 
 pub use self::{chunk::ChunkReader, error::ServeError};
 
@@ -16,16 +19,18 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use self::{
+    buf::buf_write_header,
+    range::Range,
+    runtime::{AsyncFs, ChunkRead, Meta},
+};
 use http::{
     Method, Request, Response, StatusCode,
     header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, HeaderValue, LAST_MODIFIED, RANGE},
 };
-use mime_guess::mime;
 
-use self::{
-    buf::buf_write_header,
-    runtime::{AsyncFs, ChunkRead, Meta},
-};
+/// signature of a custom content type guesser. see [ServeDir::mime_fn].
+pub type MimeFn = fn(&Path) -> Option<&'static str>;
 
 #[cfg(feature = "tokio")]
 #[derive(Clone)]
@@ -33,6 +38,7 @@ pub struct ServeDir<FS: AsyncFs = runtime::TokioFs> {
     chunk_size: usize,
     base_path: PathBuf,
     async_fs: FS,
+    mime_fn: Option<MimeFn>,
 }
 
 #[cfg(not(feature = "tokio"))]
@@ -41,6 +47,7 @@ pub struct ServeDir<FS: AsyncFs> {
     chunk_size: usize,
     base_path: PathBuf,
     async_fs: FS,
+    mime_fn: Option<MimeFn>,
 }
 
 #[cfg(feature = "default")]
@@ -67,6 +74,7 @@ impl<FS: AsyncFs> ServeDir<FS> {
             chunk_size: 4096,
             base_path: path.into(),
             async_fs,
+            mime_fn: None,
         }
     }
 
@@ -75,6 +83,26 @@ impl<FS: AsyncFs> ServeDir<FS> {
     /// under/over shoot can happen
     pub fn chunk_size(&mut self, size: usize) -> &mut Self {
         self.chunk_size = size;
+        self
+    }
+
+    /// override how the `content-type` header is guessed from a file path.
+    ///
+    /// only the common web content types are recognized by default. a function set here is
+    /// tried first and returning [None] from it falls back to the built in table, which in
+    /// turn falls back to `application/octet-stream`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use http_file::ServeDir;
+    /// let mut dir = ServeDir::new("sample");
+    /// dir.mime_fn(|path| match path.extension()?.to_str()? {
+    ///     "dwg" => Some("image/vnd.dwg"),
+    ///     _ => None,
+    /// });
+    /// ```
+    pub fn mime_fn(&mut self, f: MimeFn) -> &mut Self {
+        self.mime_fn = Some(f);
         self
     }
 
@@ -102,9 +130,11 @@ impl<FS: AsyncFs> ServeDir<FS> {
             return Err(ServeError::InvalidPath);
         }
 
-        let ct = mime_guess::from_path(&path)
-            .first_raw()
-            .unwrap_or_else(|| mime::APPLICATION_OCTET_STREAM.as_ref());
+        let ct = self
+            .mime_fn
+            .and_then(|f| f(&path))
+            .or_else(|| mime::from_path(&path))
+            .unwrap_or(mime::OCTET_STREAM);
 
         let mut file = self.async_fs.open(path).await?;
 
@@ -114,18 +144,16 @@ impl<FS: AsyncFs> ServeDir<FS> {
 
         let mut size = file.len();
 
+        // a malformed or non `bytes` range header is ignored and the whole file served.
         if let Some(range) = req
             .headers()
             .get(RANGE)
             .and_then(|h| h.to_str().ok())
-            .and_then(|range| http_range_header::parse_range_header(range).ok())
-            .map(|range| range.validate(size))
+            .and_then(|header| range::parse(header, size))
         {
-            let (start, end) = range
-                .map_err(|_| ServeError::RangeNotSatisfied(size))?
-                .pop()
-                .expect("http_range_header produced empty range")
-                .into_inner();
+            let Range::Bytes { start, end } = range else {
+                return Err(ServeError::RangeNotSatisfied(size));
+            };
 
             file.seek(SeekFrom::Start(start)).await?;
 

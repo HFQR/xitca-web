@@ -2,7 +2,7 @@ use core::{
     fmt,
     future::Future,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use alloc::sync::{Arc, Weak};
@@ -12,7 +12,7 @@ use std::{error, io, sync::Mutex};
 use bytes::{Bytes, BytesMut};
 use futures_core::stream::Stream;
 use pin_project_lite::pin_project;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use super::{
     codec::{Codec, Message},

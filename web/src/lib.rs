@@ -36,7 +36,7 @@
 //! - **`multipart`** — Multipart form data type extractor.
 //! - **`grpc`** — gRPC type extractor/responder (via `prost`).
 //! - **`websocket`** — WebSocket type extractor/responder.
-//! - **`cookie`** — Cookie handler type.
+//! - **`cookie`** — Cookie handler type, including the signed and encrypted jars.
 //!
 //! ## Compression middlewares
 //! - **`compress-br`** — Brotli (de)compression.

@@ -153,7 +153,7 @@ impl Codec {
             }
             Message::Continuation(cont) => match cont {
                 Item::Continue(_) | Item::Last(_) if !self.flags.contains(Flags::CONTINUATION) => {
-                    return Err(ProtocolError::ContinuationNotStarted)
+                    return Err(ProtocolError::ContinuationNotStarted);
                 }
                 Item::FirstText(ref data) => {
                     self.try_start_continue()?;

@@ -4,6 +4,8 @@ use core::fmt;
 
 use tracing::error;
 
+use super::crypto::{Sha1, base64};
+
 /// Operation codes as part of RFC6455.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum OpCode {
@@ -200,24 +202,10 @@ const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 ///
 /// Result is a Base64 encoded byte array. `base64(sha1(input))` is always 28 bytes.
 pub fn hash_key(key: &[u8]) -> [u8; 28] {
-    let hash = {
-        use sha1::Digest as _;
-
-        let mut hasher = sha1::Sha1::new();
-
-        hasher.update(key);
-        hasher.update(WS_GUID);
-
-        hasher.finalize()
-    };
-
-    let mut hash_b64 = [0; 28];
-    #[allow(clippy::needless_borrow)] // clippy dumb.
-    let n =
-        base64::engine::Engine::encode_slice(&base64::engine::general_purpose::STANDARD, hash, &mut hash_b64).unwrap();
-    assert_eq!(n, 28);
-
-    hash_b64
+    let mut hasher = Sha1::new();
+    hasher.update(key);
+    hasher.update(WS_GUID);
+    base64(&hasher.finalize())
 }
 
 #[cfg(test)]

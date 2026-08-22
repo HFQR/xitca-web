@@ -69,7 +69,6 @@ len_without_is_empty = "allow"
 all_asserts = "2.2.0"
 assert_matches = "1.5"
 async-stream = "0.3"
-base64 = { version = "0.22.0", default-features = false }
 bb8 = "0.9.0"
 brotli2 = "0.3.2"
 bytes = "1.11.1"
@@ -79,26 +78,23 @@ criterion = "0.8"
 crossbeam = "0.8.0"
 fallible-iterator = "0.2"
 flate2 = "1.0.13"
-fnv = "1.0.7"
 futures = { version = "0.3", default-features = false }
 futures-core = { version = "0.3.32", default-features = false }
 futures-sink = { version = "0.3.17", default-features = false }
 futures-util = { version = "0.3.25", default-features = false }
+getrandom = "0.4.3"
 h2 = "0.4"
 h3 = "0.0.8"
 h3-quinn = "0.0.10"
 http = "1.4.0"
 http-body = "1"
-http-range-header = "0.4"
 httparse = "1.10.1"
-httpdate = "1.0.2"
 iai = "0.1.1"
 io-uring = "0.7.11"
 libc = "0.2.178"
-lru = { version = "0.16", default-features = false }
+lru = { version = "0.18.2", default-features = false }
 matchit = "0.9.1"
 memchr = "2.5.0"
-mime_guess = "2.0.4"
 native_tls_crate = { package = "native-tls", version = "0.2.7", features = ["alpn"] }
 nix = "0.31"
 openssl = "0.10"
@@ -113,7 +109,6 @@ prost = { version = "0.14.3", default-features = false }
 prost-build = "0.14"
 quinn = { version = "0.11", default-features = false, features = ["ring"] }
 quote = "1.0"
-rand = "0.10.0"
 rcgen = "0.14"
 rustls_crate = { package = "rustls", version = "0.23", default-features = false, features = ["std", "tls12"] }
 rustls-pemfile = "2"
@@ -121,11 +116,10 @@ serde = { version = "1", default-features = false }
 serde_core = "1"
 serde_json = "1"
 serde_urlencoded = "0.7.1"
-sha1 = "0.11.0"
-sha2 = "0.10.8"
+sha2 = "0.11.0"
 slab = "0.4.11"
 socket2 = "0.6.3"
-sqlparser = "0.60.0"
+sqlparser = "0.62.0"
 syn = { version = "2", features = ["full"] }
 tempfile = "3.2.0"
 tokio = "1.51.0"
@@ -148,7 +142,7 @@ http-file = { version = "0.3.0", default-features = false }
 http-grpc-rs = "0.1.0"
 http-multipart = "0.1.2"
 http-rate = "0.1.1"
-http-ws = "0.4"
+http-ws = "0.4.1"
 tokio-uring-xitca = "0.2.2"
 xitca-client = "0.1"
 xitca-codegen = "0.4.0"

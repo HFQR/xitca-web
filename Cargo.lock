@@ -1308,9 +1308,6 @@ dependencies = [
  "futures",
  "futures-core",
  "http",
- "http-range-header",
- "httpdate",
- "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "tempfile",
@@ -1363,16 +1360,14 @@ dependencies = [
 
 [[package]]
 name = "http-ws"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
- "base64",
  "bytes",
  "futures-core",
  "futures-util",
+ "getrandom 0.4.3",
  "http",
  "pin-project-lite",
- "rand 0.10.2",
- "sha1",
  "tokio",
  "tracing",
 ]
@@ -1580,9 +1575,9 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "lru"
-version = "0.16.4"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+checksum = "5d2f2f9b4ba7e6b24d95e7e899329d35be83bcded72c8540cdd5368932d1d90a"
 
 [[package]]
 name = "lru-slab"
@@ -2683,17 +2678,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.3.0",
- "digest 0.11.3",
-]
-
-[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2801,9 +2785,9 @@ dependencies = [
 
 [[package]]
 name = "sqlparser"
-version = "0.60.0"
+version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "505aa16b045c4c1375bf5f125cce3813d0176325bfe9ffc4a903f423de7774ff"
+checksum = "13c6d1b651dc4edf07eead2a0c6c78016ce971bc2c10da5266861b13f25e7cec"
 dependencies = [
  "log",
  "recursive",
@@ -3544,14 +3528,12 @@ version = "0.9.7"
 dependencies = [
  "assert_matches",
  "criterion",
- "fnv",
  "futures-util",
  "h3",
  "h3-quinn",
  "http",
  "http-body-alt",
  "httparse",
- "httpdate",
  "pin-project-lite",
  "proptest",
  "quinn",
@@ -3595,7 +3577,7 @@ dependencies = [
  "quinn",
  "rcgen",
  "rustls-pemfile",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tempfile",
  "tokio",
  "tokio-uring-xitca",
