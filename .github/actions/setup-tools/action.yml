@@ -23,11 +23,11 @@ runs:
   using: composite
   steps:
     - name: Cache Dependencies
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
     - name: Free up disk space
       if: inputs.free-disk-space == 'true' && runner.os == 'Linux'
-      uses: jlumbroso/free-disk-space@main
+      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main @ 2023-10-18
       with:
         tool-cache: false
         android: true
@@ -39,18 +39,18 @@ runs:
 
     - name: Install cargo-hack
       if: inputs.cargo-hack == 'true'
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
       with:
         tool: cargo-hack
 
     - name: Install protoc
       if: inputs.protoc == 'true'
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
       with:
         tool: protoc@3.23.4
 
     - name: Install cargo-vet
       if: inputs.cargo-vet == 'true'
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
       with:
         tool: cargo-vet@0.10.2
