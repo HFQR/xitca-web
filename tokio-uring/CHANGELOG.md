@@ -1,4 +1,4 @@
-# unrelease 0.2.2
+# 0.2.2
 ## Change
 - update MSRV to 1.98
 
