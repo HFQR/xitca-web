@@ -7,13 +7,13 @@ use super::{error::Error, frame::stream_id::StreamId};
 ///
 /// - `Incrementable(id)` is the normal state. New HEADERS may advance the
 ///   boundary via `try_advance`.
-/// - `GoAway(id)` is the post-GOAWAY state (RFC 7540 §6.8). The value
+/// - `GoAway(id)` is the post-GOAWAY state (RFC 9113 §6.8). The value
 ///   is frozen and serves as the boundary for silently dropping HEADERS
 ///   for higher stream ids; `try_set` becomes a no-op.
 ///
 /// All read paths (DATA / WINDOW_UPDATE / RST_STREAM / trailer routing)
 /// use `get` and treat both variants identically — they only need the
-/// value to detect frames addressed to idle stream ids (RFC 7540 §5.1).
+/// value to detect frames addressed to idle stream ids (RFC 9113 §5.1).
 #[derive(Clone, Copy)]
 pub(crate) enum LastStreamId {
     Incrementable(StreamId),

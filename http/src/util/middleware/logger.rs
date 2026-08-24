@@ -93,7 +93,7 @@ mod service {
                         Ok(res)
                     }
                     Err(e) => {
-                        event!(target: "on_error", Level::WARN, "{}", e);
+                        event!(target: "on_error", Level::WARN, "{e}");
                         Err(e)
                     }
                 }

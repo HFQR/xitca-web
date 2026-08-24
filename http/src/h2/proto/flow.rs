@@ -59,7 +59,7 @@ pub(crate) struct FlowControl {
     max_frame_size: SendWindow,
     /// Remaining bytes we may send on the whole connection.
     send_connection_window: SendWindow,
-    /// Default send-window for new streams (RFC 7540 §6.9.2).
+    /// Default send-window for new streams (RFC 9113 §6.9.2).
     send_stream_initial_window: SendWindow,
     /// Default recv-window for new streams
     recv_stream_initial_window: RecvWindow,
@@ -76,7 +76,7 @@ pub(crate) struct FlowControl {
     /// Highest accepted client stream id, with explicit lifecycle: while
     /// `Incrementable` it advances on each new HEADERS; once GOAWAY is
     /// queued it transitions to `Saturated` and is frozen, which both
-    /// causes new-stream HEADERS to be silently dropped (RFC 7540 §6.8)
+    /// causes new-stream HEADERS to be silently dropped (RFC 9113 §6.8)
     /// and signals the dispatcher's main loop that the graceful drain
     /// can terminate when the in-flight queue empties.
     last_stream_id: LastStreamId,
@@ -102,7 +102,7 @@ impl FlowControl {
 
         Self {
             max_concurrent_streams,
-            // Send windows start at RFC 7540 §6.9.2 default (65535) until the
+            // Send windows start at RFC 9113 §6.9.2 default (65535) until the
             // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
             send_connection_window: SendWindow::default(),
             send_stream_initial_window: SendWindow::default(),
@@ -274,8 +274,8 @@ impl FlowControl {
         let is_strict_connect = method == Method::CONNECT && protocol.is_none();
 
         // Validate and build URI from pseudo-headers in one pass.
-        // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme or :path.
-        // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme and non-empty :path.
+        // RFC 9113 §8.5: regular CONNECT MUST NOT include :scheme or :path.
+        // RFC 9113 §8.3.1: non-CONNECT MUST include :scheme and non-empty :path.
         let mut uri_parts = uri::Parts::default();
 
         if let Some(authority) = pseudo.authority
@@ -285,8 +285,8 @@ impl FlowControl {
         }
 
         match (is_strict_connect, pseudo.scheme) {
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :scheme.
-            // RFC 7540 §8.3: regular CONNECT MUST NOT include :scheme.
+            // RFC 9113 §8.3.1: non-CONNECT MUST include :scheme.
+            // RFC 9113 §8.5: regular CONNECT MUST NOT include :scheme.
             (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
             (false, Some(scheme)) if uri_parts.authority.is_some() => {
                 if let Ok(s) = uri::Scheme::try_from(scheme.as_str()) {
@@ -297,15 +297,15 @@ impl FlowControl {
         }
 
         match (is_strict_connect, pseudo.path) {
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include :path.
-            // RFC 7540 §8.3: regular CONNECT MUST NOT include :path.
+            // RFC 9113 §8.3.1: non-CONNECT MUST include :path.
+            // RFC 9113 §8.5: regular CONNECT MUST NOT include :path.
             (true, Some(_)) | (false, None) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)),
             (_, Some(path)) if !path.is_empty() => {
                 if let Ok(pq) = uri::PathAndQuery::from_maybe_shared(path.into_inner()) {
                     uri_parts.path_and_query = Some(pq);
                 }
             }
-            // RFC 7540 §8.1.2.3: non-CONNECT MUST include non empty :path.
+            // RFC 9113 §8.3.1: non-CONNECT MUST include non empty :path.
             (false, _) => return Err(Error::Reset(Reason::PROTOCOL_ERROR)), // empty :path
             _ => {}
         }
@@ -339,7 +339,7 @@ impl FlowControl {
         let id = data.stream_id();
         self.check_not_idle(id)?;
 
-        // RFC 7540 §6.5.2: SETTINGS_MAX_FRAME_SIZE is 24-bit, so flow-controlled
+        // RFC 9113 §6.5.2: SETTINGS_MAX_FRAME_SIZE is 24-bit, so flow-controlled
         // length always fits in u32.
         let flow_len = data.flow_controlled_len() as u32;
         let flow_len = RecvWindow::new(flow_len);
@@ -637,9 +637,10 @@ impl FlowControl {
         end_stream: bool,
         cx: &mut Context<'_>,
     ) -> Poll<Option<()>> {
-        // Empty payload bypasses flow control (RFC 7540 §6.9.1: zero-length
-        // frames MAY be sent regardless of window state). No window or
-        // waker consultation needed; queue directly and return.
+        // Empty payload bypasses flow control (RFC 9113 §6.9.1: a zero-length
+        // frame with END_STREAM set MAY be sent when there is no space left in
+        // either flow-control window). No window or waker consultation needed;
+        // queue directly and return.
         if data.is_empty() {
             let opt = if !end_stream {
                 tracing::warn!("Empty Data frame is not allowed unless it's the last frame of stream");
@@ -720,7 +721,7 @@ struct WriterQueue {
     closed: bool,
     /// The peer's latest SETTINGS frame, pending an ACK (CVE-2019-9515).
     /// A well-behaved peer sends one SETTINGS and waits for the ACK before
-    /// sending another (RFC 7540 §6.5.3). A second SETTINGS arriving while
+    /// sending another (RFC 9113 §6.5.3). A second SETTINGS arriving while
     /// one is already pending kills the connection with ENHANCE_YOUR_CALM.
     pending_settings: RemoteSettings,
     /// Accumulated connection-level WINDOW_UPDATE increment. Mutated at push

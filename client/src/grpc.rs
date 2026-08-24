@@ -29,12 +29,15 @@ use super::{
 
 pub use http_encoding::ContentEncoding;
 
-/// How a server ended a stream, when it ended it with a failure.
+/// How a server ended a call, when it ended it with a failure.
 ///
 /// gRPC reports failure **in the trailers**, not in the response status: the
 /// head is long since sent and says 200. A reader that ignores them cannot tell
 /// a stream that finished from one that was rejected, aborted or timed out,
 /// which turns every server-side failure into a silent end of stream.
+///
+/// Reaches a caller as [`Error::Grpc`], from both the unary and the streaming
+/// path.
 #[derive(Debug)]
 pub struct GrpcStatusError {
     /// The numeric code from `grpc-status`. Never 0 -- that is a clean end and
@@ -188,10 +191,38 @@ impl GrpcUnaryRequest<'_> {
 }
 
 impl Response {
+    /// Decode the reply to a unary call.
+    ///
+    /// **A gRPC failure is not an http status.** The head is sent before the
+    /// server knows how the call went, so it says `200` either way and the
+    /// verdict arrives in `grpc-status`: in the trailers after a reply, or --
+    /// when the server refuses before sending anything -- in the head itself,
+    /// with no body and no trailers at all ("Trailers-Only"). Both are checked
+    /// here, and the head first: reading only the trailers turns every refusal
+    /// into an empty response and loses the one thing the server was saying.
+    ///
+    /// The returned [`HeaderMap`] is trailing **metadata** on a call that
+    /// succeeded. It is not where a failure lives; that is [`Error::Grpc`].
     pub async fn grpc<T: Message + Default>(self) -> Result<(T, Option<HeaderMap>), Error> {
-        let codec = Codec::from_headers(self.res.headers());
+        if self.res.status() != StatusCode::OK {
+            let (head, _) = self.res.into_parts();
+            return Err(Error::from(ErrorResponse {
+                expect_status: StatusCode::OK,
+                res: crate::http::Response::from_parts(head, ()),
+                description: "grpc call can't be completed",
+            }));
+        }
+        let codec = codec_from_head(self.res.headers())?;
 
         let (mut body, trailers) = self.collect().await?;
+
+        // A failure the server raised after committing to a head. There is no
+        // message behind one, so this is read *before* the decode: the other
+        // order reports a real status as an empty response.
+        if let Some(e) = trailers.as_ref().and_then(status_error) {
+            return Err(e.into());
+        }
+
         let msg = codec
             .decode(&mut body)
             .map_err(|e| Error::Std(Box::new(e)))?
@@ -262,9 +293,19 @@ fn head_codec(head: &crate::http::response::Parts) -> Result<Codec, Error> {
             description: "grpc stream can't be established",
         }));
     }
-    match status_error(&head.headers) {
-        Some(e) => Err(Error::Std(Box::new(e))),
-        None => Ok(Codec::from_headers(&head.headers)),
+    codec_from_head(&head.headers)
+}
+
+/// The Trailers-Only check, and the encoding the body will use, from a head
+/// already known to be `200`.
+///
+/// Shared by the unary and streaming paths. They differ only in how they report
+/// a head that was *not* 200 -- the one part of the check that needs the whole
+/// head rather than its headers.
+fn codec_from_head(headers: &HeaderMap) -> Result<Codec, Error> {
+    match status_error(headers) {
+        Some(e) => Err(e.into()),
+        None => Ok(Codec::from_headers(headers)),
     }
 }
 
@@ -477,7 +518,7 @@ where
                 // error into an ordinary end of stream.
                 Some(Ok(Frame::Trailers(trailers))) => {
                     return match status_error(&trailers) {
-                        Some(e) => Poll::Ready(Some(Err(Error::Std(Box::new(e))))),
+                        Some(e) => Poll::Ready(Some(Err(e.into()))),
                         None => Poll::Ready(None),
                     };
                 }
@@ -548,6 +589,43 @@ mod tests {
         ]))
         .expect("a non-zero status is a failure");
         assert_eq!(err.message.as_deref(), Some("réponse spéciale ☕"));
+    }
+
+    /// The point of the [`Error::Grpc`] variant: a caller reads the code by
+    /// matching, not by downcasting a boxed `dyn Error`.
+    #[test]
+    fn a_refusal_in_the_head_reaches_the_caller_as_a_matchable_error() {
+        let err = codec_from_head(&trailers(&[("grpc-status", "5"), ("grpc-message", "no%20such%20file")]))
+            .err()
+            .expect("a Trailers-Only head has no body to build a codec for");
+        match err {
+            Error::Grpc(status) => {
+                assert_eq!(status.status, 5);
+                assert_eq!(status.message.as_deref(), Some("no such file"));
+            }
+            other => panic!("expected Error::Grpc, got {other:?}"),
+        }
+    }
+
+    /// A head that says nothing about the status is an ordinary head, and the
+    /// body behind it is read with whatever encoding it names.
+    #[test]
+    fn an_ordinary_head_yields_a_codec() {
+        assert!(codec_from_head(&trailers(&[])).is_ok());
+        assert!(codec_from_head(&trailers(&[("grpc-status", "0")])).is_ok());
+    }
+
+    /// While the status was boxed into `Error::Std`, `source` reached the
+    /// *inner* error's source rather than the status, so a caller walking the
+    /// chain never saw it at all.
+    #[test]
+    fn the_status_is_reachable_through_source() {
+        let err = Error::from(GrpcStatusError {
+            status: 14,
+            message: Some("unavailable".to_owned()),
+        });
+        let source = core::error::Error::source(&err).expect("the status is the source");
+        assert!(source.is::<GrpcStatusError>());
     }
 
     /// A status with no message is still a status.

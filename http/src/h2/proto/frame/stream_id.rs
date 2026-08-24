@@ -1,4 +1,4 @@
-/// A stream identifier, as described in [Section 5.1.1] of RFC 7540.
+/// A stream identifier, as described in [Section 5.1.1] of RFC 9113.
 ///
 /// Streams are identified with an unsigned 31-bit integer. Streams
 /// initiated by a client MUST use odd-numbered stream identifiers; those
@@ -7,7 +7,7 @@
 /// messages; the stream identifier of zero cannot be used to establish a
 /// new stream.
 ///
-/// [Section 5.1.1]: https://tools.ietf.org/html/rfc7540#section-5.1.1
+/// [Section 5.1.1]: https://tools.ietf.org/html/rfc9113#section-5.1.1
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct StreamId(u32);
 

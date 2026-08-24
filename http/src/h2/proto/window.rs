@@ -5,7 +5,7 @@ use core::{
 
 use super::frame::settings::{DEFAULT_INITIAL_WINDOW_SIZE, MAX_INITIAL_WINDOW_SIZE};
 
-/// HTTP/2 receive flow-control window (RFC 7540 §6.9). 31-bit unsigned.
+/// HTTP/2 receive flow-control window (RFC 9113 §6.9). 31-bit unsigned.
 /// Underflow on `try_dec` is a flow-control violation.
 #[derive(Clone, Copy)]
 pub(crate) struct RecvWindow(u32);
@@ -82,7 +82,7 @@ impl PartialOrd for RecvWindow {
     }
 }
 
-/// HTTP/2 send flow-control window (RFC 7540 §6.9.2). 31-bit signed —
+/// HTTP/2 send flow-control window (RFC 9113 §6.9.2). 31-bit signed —
 /// can become negative when the peer shrinks SETTINGS_INITIAL_WINDOW_SIZE
 /// with bytes in flight.
 #[derive(Clone, Copy)]
@@ -96,13 +96,13 @@ impl SendWindow {
     }
 
     /// Construct from an unsigned wire value. Panics if `v` exceeds
-    /// `MAX_INITIAL_WINDOW_SIZE` (RFC 7540 §6.9.1, 2^31-1) — the upper bound
+    /// `MAX_INITIAL_WINDOW_SIZE` (RFC 9113 §6.9.1, 2^31-1) — the upper bound
     /// the wire format permits for any SendWindow-typed value (flow-control
     /// window or SETTINGS_MAX_FRAME_SIZE, both ≤ this limit).
     pub(super) const fn from_u32(v: u32) -> Self {
         assert!(
             v <= MAX_INITIAL_WINDOW_SIZE as u32,
-            "SendWindow exceeds RFC 7540 §6.9.1 maximum (2^31-1)"
+            "SendWindow exceeds RFC 9113 §6.9.1 maximum (2^31-1)"
         );
         Self::new(v as i32)
     }

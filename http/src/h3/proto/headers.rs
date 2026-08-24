@@ -370,7 +370,7 @@ where
 /// but are conveyed along with other headers. For example ':method' and ':path' in a
 /// request, and ':status' in a response. They must be placed before all other fields,
 /// start with ':', and be lowercase.
-/// See RFC7540 section 8.1.2.1. for more details.
+/// See RFC 9114 section 4.3. for more details.
 #[derive(Debug, Default)]
 #[cfg_attr(test, derive(PartialEq, Clone))]
 struct Pseudo {

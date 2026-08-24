@@ -545,7 +545,7 @@ where
 
     /// Calculates the size of the currently decoded header list.
     ///
-    /// According to http://httpwg.org/specs/rfc7540.html#SETTINGS_MAX_HEADER_LIST_SIZE
+    /// According to https://httpwg.org/specs/rfc9113.html#SETTINGS_MAX_HEADER_LIST_SIZE
     ///
     /// > The value is based on the uncompressed size of header fields,
     /// > including the length of the name and value in octets plus an

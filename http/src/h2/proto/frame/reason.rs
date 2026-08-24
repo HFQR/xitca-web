@@ -9,11 +9,12 @@ use core::fmt;
 ///
 /// Error codes share a common code space. Some error codes apply only to
 /// streams, others apply only to connections, and others may apply to either.
-/// See [RFC 7540] for more information.
+/// See [RFC 9113] for more information.
 ///
 /// See [Error Codes in the spec][spec].
 ///
-/// [spec]: http://httpwg.org/specs/rfc7540.html#ErrorCodes
+/// [RFC 9113]: https://httpwg.org/specs/rfc9113.html
+/// [spec]: https://httpwg.org/specs/rfc9113.html#ErrorCodes
 /// [`SendStream::send_reset`]: struct.SendStream.html#method.send_reset
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Reason(u32);

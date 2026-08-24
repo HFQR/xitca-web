@@ -22,7 +22,7 @@ impl Ping {
     /// Load and validate a PING frame.
     ///
     /// Returns `Err(InvalidStreamId)` if the stream ID is non-zero
-    /// (RFC 7540 §6.7) and `Err(BadFrameSize)` if the payload is not
+    /// (RFC 9113 §6.7) and `Err(BadFrameSize)` if the payload is not
     /// exactly 8 bytes.
     pub fn load(head: Head, payload: &[u8]) -> Result<Ping, Error> {
         if !head.stream_id().is_zero() {

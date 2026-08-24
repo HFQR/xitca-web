@@ -7,7 +7,7 @@ use super::frame::headers;
 
 pub(crate) trait BodySize {
     /// Parse content-length from headers.
-    /// Returns `Err(())` if the header is present but malformed (RFC 7540 §8.1.2.6).
+    /// Returns `Err(())` if the header is present but malformed (RFC 9113 §8.1.1).
     fn from_header(headers: &HeaderMap, is_end_stream: bool) -> Result<Self, ()>
     where
         Self: Sized;

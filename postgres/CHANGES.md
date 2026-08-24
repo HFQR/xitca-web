@@ -7,13 +7,11 @@
 
 ## Change
 - update MSRV to 1.98
-
-## Change
 - rename `pool::PoolConnection` to `pool::GenericPoolConnection`
 - `pool::GenericPoolConnection` exposes generic type requiring `pool::PermitLike` trait bound
 - `pool::PoolConnection` becomes type alias of `pool::GenericPoolConnection<pool::Permit<'_>`
 - udate `xitca-tls` to `0.6.0`
-- update `tokio-uring-xitca` to `0.2.0`
+- update `tokio-uring-xitca` to `0.2.2`
 
 # 0.4.0
 ## Fix

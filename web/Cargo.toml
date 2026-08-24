@@ -1,6 +1,6 @@
 [package]
 name = "xitca-web"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2024"
 license = "Apache-2.0"
 description = "an async web framework"

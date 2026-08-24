@@ -61,7 +61,7 @@ impl Stream {
         let recv = match self.data_check(len, flow_len, end_stream) {
             Ok(_) => {
                 if self.recv_state.is_open() {
-                    // RFC 7540 §6.9.1: padding counts toward flow control. The caller
+                    // RFC 9113 §6.9.1: padding counts toward flow control. The caller
                     // auto-releases `padded_len` on both connection and stream windows
                     // since padding is not body-observable. Mirror that here so
                     // `recv.window` only paces the data portion via body consumption.
@@ -293,7 +293,7 @@ impl Stream {
 
     fn trailers_check(&self, end_stream: bool) -> Result<(), StreamError> {
         if !end_stream {
-            // RFC 7540 §8.1: trailer HEADERS MUST carry END_STREAM.
+            // RFC 9113 §8.1: trailer HEADERS MUST carry END_STREAM.
             return Err(StreamError::TrailersNoEndStream);
         }
         self.ensure_zero()
@@ -422,7 +422,7 @@ pub(crate) enum StreamError {
     ContentLengthUnderflow,
     FlowControlOverflow,
     NoError,
-    /// WINDOW_UPDATE with zero increment (RFC 7540 §6.9.1).
+    /// WINDOW_UPDATE with zero increment (RFC 9113 §6.9.1).
     WindowUpdateZeroIncrement,
     /// WINDOW_UPDATE caused stream window overflow.
     WindowUpdateOverflow,
