@@ -41,6 +41,10 @@ where
             req.headers_mut().remove(CONTENT_LENGTH);
             false
         }
+        SizeHint::Exact(0) => {
+            req.headers_mut().insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
+            true
+        }
         SizeHint::Exact(len) => {
             let mut buf = core::fmt::NumBuffer::new();
             let val = HeaderValue::from_str(len.format_into(&mut buf)).unwrap();
@@ -50,7 +54,7 @@ where
     };
 
     // TODO: consider skipping other headers according to:
-    //       https://tools.ietf.org/html/rfc7540#section-8.1.2.2
+    //       https://tools.ietf.org/html/rfc9113#section-8.2.2
     // omit HTTP/1.x only headers
     req.headers_mut().remove(CONNECTION);
     req.headers_mut().remove(TRANSFER_ENCODING);

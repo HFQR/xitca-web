@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.8.3
+## Fix
+- add `content-length: 0` header to `Redirect`
 
 # 0.8.2
 ## Add

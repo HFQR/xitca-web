@@ -161,7 +161,7 @@ impl ContentEncoding {
         headers.remove(header::CONTENT_LENGTH);
 
         // Connection specific headers are not allowed in HTTP/2 and later versions.
-        // see https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.2
+        // see https://datatracker.ietf.org/doc/html/rfc9113#section-8.2.2
         if version == http::Version::HTTP_11 {
             headers.append(header::TRANSFER_ENCODING, header::HeaderValue::from_static("chunked"));
         }

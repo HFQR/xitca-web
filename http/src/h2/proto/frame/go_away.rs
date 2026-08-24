@@ -49,7 +49,7 @@ impl GoAway {
     }
 
     pub fn load(stream_id: StreamId, payload: &[u8]) -> Result<GoAway, Error> {
-        // RFC 7540 §6.8: GOAWAY MUST be on stream 0.
+        // RFC 9113 §6.8: GOAWAY MUST be on stream 0.
         if !stream_id.is_zero() {
             return Err(Error::InvalidStreamId);
         }

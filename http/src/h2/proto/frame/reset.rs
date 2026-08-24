@@ -31,7 +31,7 @@ impl Reset {
     }
 
     pub fn load(head: Head, payload: &[u8]) -> Result<Reset, Error> {
-        // RFC 7540 §6.4: RST_STREAM payload MUST be exactly 4 octets.
+        // RFC 9113 §6.4: RST_STREAM payload MUST be exactly 4 octets.
         if payload.len() != 4 {
             return Err(Error::InvalidPayloadLength);
         }

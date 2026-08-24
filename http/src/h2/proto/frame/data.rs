@@ -113,12 +113,12 @@ impl Data<Bytes> {
     pub fn load(head: Head, mut payload: Bytes) -> Result<Self, Error> {
         let flags = DataFlags::load(head.flag());
 
-        // The stream identifier must not be zero (RFC 7540 §6.1).
+        // The stream identifier must not be zero (RFC 9113 §6.1).
         if head.stream_id().is_zero() {
             return Err(Error::InvalidStreamId);
         }
 
-        // RFC 7540 §6.1: if PADDED flag is set, the first byte is Pad Length.
+        // RFC 9113 §6.1: if PADDED flag is set, the first byte is Pad Length.
         // The last Pad Length bytes are padding and must be stripped.
         // Pad Length >= remaining payload length is a PROTOCOL_ERROR.
         let pad_len = if flags.is_padded() {

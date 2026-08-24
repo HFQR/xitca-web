@@ -451,6 +451,37 @@ async fn handle(req: Request<RequestExt<h2::RequestBody>>) -> Result<Response<Re
 
             Ok(Response::new(Bytes::new().into()))
         }
+        (&Method::POST, "/empty") => {
+            let (parts, mut body) = req.into_parts();
+
+            assert_eq!(parts.headers.get(header::CONTENT_LENGTH).unwrap(), "0");
+            assert!(body.data().await.is_none());
+
+            Ok(Response::new(Bytes::new().into()))
+        }
         _ => todo!(),
     }
+}
+
+#[tokio::test]
+async fn h2_post_empty_body() -> Result<(), Error> {
+    let mut handle = test_h2_server(fn_service(handle))?;
+
+    let server_url = format!("https://{}/empty", handle.ip_port_string());
+
+    let c = Client::new();
+
+    let res = tokio::time::timeout(
+        Duration::from_secs(5),
+        c.post(&server_url).version(Version::HTTP_2).text("").send(),
+    )
+    .await??;
+
+    assert_eq!(res.status().as_u16(), 200);
+    assert_eq!(res.string().await?, "");
+
+    handle.try_handle()?.stop(false);
+    handle.await?;
+
+    Ok(())
 }

@@ -179,7 +179,7 @@ impl Settings {
                 }
                 Some(InitialWindowSize(val)) => {
                     if val as usize > MAX_INITIAL_WINDOW_SIZE {
-                        // RFC 7540 §6.5.2: SETTINGS_INITIAL_WINDOW_SIZE exceeding
+                        // RFC 9113 §6.5.2: SETTINGS_INITIAL_WINDOW_SIZE exceeding
                         // 2^31-1 is a connection error FLOW_CONTROL_ERROR.
                         return Err(Error::InitialWindowOverflow);
                     }

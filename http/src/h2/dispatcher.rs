@@ -180,7 +180,7 @@ impl DecodeContext {
             .take()
             .ok_or(FlowError::GoAway(Reason::PROTOCOL_ERROR))?;
 
-        // RFC 7540 §6.10: CONTINUATION without a preceding incomplete HEADERS
+        // RFC 9113 §6.10: CONTINUATION without a preceding incomplete HEADERS
         // is a connection error PROTOCOL_ERROR
         if headers.stream_id() != head.stream_id() {
             return Err(FlowError::GoAway(Reason::PROTOCOL_ERROR));
@@ -200,12 +200,12 @@ impl DecodeContext {
         if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
             return match e {
                 // NeedMore on a multi-frame header block is normal; accumulate and wait
-                // for CONTINUATION frames (RFC 7540 §6.10).
+                // for CONTINUATION frames (RFC 9113 §6.10).
                 ProtoError::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
                     self.continuation = Some((headers, payload));
                     Ok(None)
                 }
-                // Pseudo-header validation errors are stream-level (RFC 7540 §8.1.2).
+                // Pseudo-header validation errors are stream-level (RFC 9113 §8.1.1).
                 // The HPACK context was decoded successfully so no compression error.
                 ProtoError::MalformedMessage => {
                     let id = headers.stream_id();
@@ -627,7 +627,7 @@ where
     lingering_read(&io, ka, date).await?;
 
     // Send FIN so the peer sees a clean connection
-    // close rather than RST (RFC 7540 §6.8).
+    // close rather than RST (RFC 9113 §6.8).
     let _ = io.shutdown(Shutdown::Write).await;
 
     res

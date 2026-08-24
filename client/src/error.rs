@@ -23,6 +23,14 @@ pub enum Error {
     Openssl(_openssl::OpensslError),
     #[cfg(any(feature = "rustls", feature = "rustls-ring-crypto"))]
     Rustls(_rustls::RustlsError),
+    #[cfg(all(feature = "grpc", any(feature = "http2", feature = "http3")))]
+    /// How a gRPC server ended a call when it ended it with a failure.
+    ///
+    /// **Not an http status.** The head goes out as `200` before the server
+    /// knows how the call will go, so this is the only place the verdict lives:
+    /// in the trailers after a reply, or in the head itself when the server
+    /// refuses before sending anything.
+    Grpc(crate::grpc::GrpcStatusError),
     Parse(ParseError),
 }
 
@@ -36,6 +44,8 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Self::Std(e) => e.source(),
+            #[cfg(all(feature = "grpc", any(feature = "http2", feature = "http3")))]
+            Self::Grpc(e) => Some(e),
             _ => None,
         }
     }
@@ -62,6 +72,13 @@ impl From<str::Utf8Error> for Error {
 impl From<Infallible> for Error {
     fn from(e: Infallible) -> Self {
         match e {}
+    }
+}
+
+#[cfg(all(feature = "grpc", any(feature = "http2", feature = "http3")))]
+impl From<crate::grpc::GrpcStatusError> for Error {
+    fn from(e: crate::grpc::GrpcStatusError) -> Self {
+        Self::Grpc(e)
     }
 }
 
