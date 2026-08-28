@@ -1,4 +1,7 @@
 # unreleased 0.8.3
+## Add
+- expand header value extractor coverage of `handler::header::HeaderRef` throuhg more `handler::header::<const HeaderName>` types
+
 ## Fix
 - add `content-length: 0` header to `Redirect`
 
