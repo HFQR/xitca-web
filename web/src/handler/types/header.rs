@@ -42,7 +42,55 @@ macro_rules! const_header_name_impl {
     }
 }
 
-const_header_name_impl!(ACCEPT, ACCEPT_ENCODING, HOST, CONTENT_TYPE, CONTENT_LENGTH);
+const_header_name_impl!(
+    // common request headers.
+    ACCEPT,
+    ACCEPT_ENCODING,
+    ACCEPT_LANGUAGE,
+    AUTHORIZATION,
+    CACHE_CONTROL,
+    CONNECTION,
+    CONTENT_TYPE,
+    CONTENT_LENGTH,
+    COOKIE,
+    DATE,
+    HOST,
+    ORIGIN,
+    REFERER,
+    USER_AGENT,
+    // conditional and partial request.
+    RANGE,
+    IF_MATCH,
+    IF_NONE_MATCH,
+    IF_MODIFIED_SINCE,
+    IF_UNMODIFIED_SINCE,
+    IF_RANGE,
+    // request body description.
+    CONTENT_DISPOSITION,
+    CONTENT_ENCODING,
+    CONTENT_LANGUAGE,
+    CONTENT_RANGE,
+    TRANSFER_ENCODING,
+    TE,
+    EXPECT,
+    // websocket upgrade.
+    UPGRADE,
+    SEC_WEBSOCKET_KEY,
+    SEC_WEBSOCKET_VERSION,
+    SEC_WEBSOCKET_PROTOCOL,
+    SEC_WEBSOCKET_EXTENSIONS,
+    // proxy, cors preflight and misc.
+    FORWARDED,
+    VIA,
+    PROXY_AUTHORIZATION,
+    MAX_FORWARDS,
+    FROM,
+    PRAGMA,
+    DNT,
+    UPGRADE_INSECURE_REQUESTS,
+    ACCESS_CONTROL_REQUEST_METHOD,
+    ACCESS_CONTROL_REQUEST_HEADERS
+);
 
 /// typed header extractor.
 ///
