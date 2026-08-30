@@ -511,6 +511,23 @@ where
 
     flow.borrow_mut().init(settings);
 
+    // Encode and flush our initial SETTINGS frame before the main loop so it
+    // is always on the wire before we process any client frames (RFC 7540 §3.5).
+    poll_fn(|cx| {
+        let _ = enc.poll_encode(&mut write_buf, cx);
+        Poll::Ready(())
+    })
+    .await;
+    while !write_buf.is_empty() {
+        let (res, buf) = io.write(write_buf).await;
+        write_buf = buf;
+        match res {
+            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(n) => write_buf.advance(n),
+            Err(e) => return Err(e),
+        }
+    }
+
     let res = {
         let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
 
