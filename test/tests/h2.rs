@@ -30,7 +30,7 @@ async fn h2_get() -> Result<(), Error> {
         assert_eq!("GET Response", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -56,7 +56,7 @@ async fn h2_no_host_header() -> Result<(), Error> {
         assert_eq!("", body);
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -88,7 +88,7 @@ async fn h2_post() -> Result<(), Error> {
         let _ = res.body().await;
     }
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
@@ -128,7 +128,7 @@ async fn h2_connect() -> Result<(), Error> {
 
     core::future::poll_fn(|cx| core::pin::Pin::new(&mut tunnel).poll_shutdown(cx)).await?;
 
-    handle.try_handle()?.stop(false);
+    handle.try_handle()?.stop(true);
 
     handle.await?;
 
