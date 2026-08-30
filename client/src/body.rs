@@ -63,17 +63,29 @@ impl ResponseBody {
     pub(crate) fn destroy_on_drop(&mut self) {
         #[cfg(feature = "http1")]
         if let Self::H1(ref mut body) = *self {
-            body.conn_mut().mark_destroy()
+            body.mark_destroy();
         }
     }
 
     pub(crate) fn can_destroy_on_drop(&mut self) -> bool {
         #[cfg(feature = "http1")]
         if let Self::H1(ref mut body) = *self {
-            return body.conn_mut().is_marked_destroy();
+            return body.is_marked_destroy();
         }
 
         false
+    }
+
+    pub fn detach_from_pool(&mut self) {
+        match self {
+            #[cfg(feature = "http1")]
+            Self::H1(body) => body.detach_from_pool(),
+            #[cfg(feature = "http2")]
+            Self::H1(body) => body.detach_from_pool(),
+            #[cfg(feature = "http3")]
+            Self::H1(body) => body.detach_from_pool(),
+            _ => (),
+        }
     }
 }
 

@@ -145,6 +145,12 @@ pub trait Leaser<Conn>: Send + Sync + DerefMut<Target = Conn> {
 
     /// returns true when the connection is marked as destroy-on-drop.
     fn is_marked_destroy(&self) -> bool;
+
+    /// Extract the raw connection, releasing the pool capacity slot immediately.
+    /// The returned connection is no longer tracked by the pool.
+    /// Use this for long-lived responses (e.g. Server-Sent Events) that must
+    /// not hold a pool permit for their entire lifetime.
+    fn detach(&mut self) -> Conn;
 }
 
 /// run dns resolve + transport connect + tls handshake + (when requested)
@@ -282,6 +288,10 @@ impl Leaser<ConnectionExclusive> for exclusive::Conn<ConnectionKey, ConnectionEx
     fn is_marked_destroy(&self) -> bool {
         self.is_destroy_on_drop()
     }
+
+    fn detach(&mut self) -> ConnectionExclusive {
+        self.take_raw_conn().expect("Conn always contains a connection")
+    }
 }
 
 impl Leaser<ConnectionShared> for shared::Conn<ConnectionKey, ConnectionShared> {
@@ -291,6 +301,10 @@ impl Leaser<ConnectionShared> for shared::Conn<ConnectionKey, ConnectionShared> 
 
     fn is_marked_destroy(&self) -> bool {
         self.is_destroy_on_drop()
+    }
+
+    fn detach(&mut self) -> ConnectionShared {
+        self.conn.clone()
     }
 }
 
