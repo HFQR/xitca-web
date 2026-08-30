@@ -45,6 +45,8 @@ where
         // decide if content-length or transfer-encoding header would be skipped.
         let skip_ct_te = match status {
             StatusCode::SWITCHING_PROTOCOLS => true,
+            // 204 and 304 responses MUST NOT include a message body per RFC 7230.
+            StatusCode::NO_CONTENT | StatusCode::NOT_MODIFIED => true,
             // Sending content-length or transfer-encoding header on 2xx response
             // to CONNECT is forbidden in RFC 7231.
             s if self.is_connect_method() && s.is_success() => true,
@@ -172,7 +174,10 @@ where
         // encode transfer-encoding or content-length if header map didn't provide them.
         } else if !skip_ct_te {
             encoding = match size {
-                SizeHint::None => TransferCoding::eof(),
+                SizeHint::None => {
+                    write_length_header(buf, 0);
+                    TransferCoding::length(0)
+                }
                 SizeHint::Unknown => {
                     buf.extend_from_slice(CHUNKED_HEADER);
                     TransferCoding::encode_chunked()
@@ -210,6 +215,10 @@ fn try_remove_body(buf: &mut BytesMut, skip_ct_te: bool, size: SizeHint, encodin
     *encoding = TransferCoding::eof();
 
     match size {
+        SizeHint::None if !skip_ct_te => {
+            write_length_header(buf, 0);
+            return;
+        }
         SizeHint::None => return,
         SizeHint::Unknown if !skip_ct_te => {
             buf.extend_from_slice(CHUNKED_HEADER);
