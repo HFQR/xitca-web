@@ -25,7 +25,9 @@ pub(crate) fn base_service() -> HttpService {
 
             let ServiceRequest { req, client, timeout } = req;
 
-            let uri = Uri::try_parse(req.uri())?;
+            let http_uri = req.uri();
+            let extensions = req.extensions();
+            let uri = Uri::try_parse(http_uri)?;
             let version = req.version();
             let connect = Connect::new(uri);
 
@@ -43,6 +45,8 @@ pub(crate) fn base_service() -> HttpService {
                 PoolRequest {
                     client,
                     connect,
+                    uri: http_uri,
+                    extensions,
                     version,
                     allow_h2c_downgrade,
                 },

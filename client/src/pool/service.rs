@@ -15,16 +15,16 @@
 //! [ClientBuilder::pool]: crate::builder::ClientBuilder::pool
 //! [Service]: crate::service::Service
 
-use core::{ops::DerefMut, time::Duration};
+use core::{hash::Hash, ops::DerefMut};
 
 use crate::{
     client::Client,
     connect::Connect,
-    connection::{ConnectionExclusive, ConnectionKey, ConnectionShared},
+    connection::{ConnectionExclusive, ConnectionShared},
     error::Error,
-    http::Version,
+    http::{Extensions, Uri as HttpUri, Version},
     pool::{exclusive, shared},
-    service::{Service, ServiceDyn},
+    service::ServiceDyn,
 };
 
 /// type alias for an object safe [Service] implementation for connection pools.
@@ -52,6 +52,18 @@ pub struct PoolRequest<'a, 'c> {
     pub client: &'a Client,
     /// connection info. dns resolution (if any) will mutate this value.
     pub connect: Connect<'c>,
+    /// the original request's URI. exposed independently of [Connect] (which
+    /// only retains the parts relevant to connection establishment) so pool
+    /// implementations -- [LoadBalance] / [HashKey] strategies in particular --
+    /// can factor in e.g. the request path when selecting a connection target.
+    ///
+    /// [LoadBalance]: crate::pool::balance::LoadBalance
+    /// [HashKey]: crate::pool::balance::HashKey
+    pub uri: &'c HttpUri,
+    /// the original request's extensions, e.g. for request-scoped routing hints
+    /// stashed there by middleware that pool / load balancing strategies can
+    /// inspect to influence connection caching or address selection.
+    pub extensions: &'c Extensions,
     /// requested http version. [PoolRequest::spawn] may downgrade this when
     /// alpn negotiates a lower version or an h3 connection cannot be
     /// established; the actually negotiated version is carried on [Lease].
@@ -159,7 +171,7 @@ async fn establish(
     #[cfg(feature = "http2")]
     use crate::uri::Uri as UriKind;
     #[cfg(feature = "http3")]
-    use crate::{error::TimeoutError, timeout::Timeout};
+    use crate::{error::TimeoutError, service::Service, timeout::Timeout};
 
     let mut timer = Box::pin(tokio::time::sleep(client.timeout_config.resolve_timeout));
 
@@ -274,7 +286,13 @@ pub enum SpawnOutCome {
 // default pool implementation
 // -----------------------------------------------------------------------------
 
-impl Leaser<ConnectionExclusive> for exclusive::Conn<ConnectionKey, ConnectionExclusive> {
+// generic over the cache key so alternative pool implementations (e.g. the load
+// balancing pool in `pool::balance`, which caches per selected address) can reuse
+// the same exclusive / shared pool machinery and [Lease] wiring with their own key type.
+impl<K> Leaser<ConnectionExclusive> for exclusive::Conn<K, ConnectionExclusive>
+where
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+{
     fn mark_destroy(&mut self) {
         self.set_destroy_on_drop();
     }
@@ -284,91 +302,16 @@ impl Leaser<ConnectionExclusive> for exclusive::Conn<ConnectionKey, ConnectionEx
     }
 }
 
-impl Leaser<ConnectionShared> for shared::Conn<ConnectionKey, ConnectionShared> {
+impl<K> Leaser<ConnectionShared> for shared::Conn<K, ConnectionShared>
+where
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+{
     fn mark_destroy(&mut self) {
         self.set_destroy_on_drop();
     }
 
     fn is_marked_destroy(&self) -> bool {
         self.is_destroy_on_drop()
-    }
-}
-
-pub(crate) struct DefaultPool {
-    exclusive: exclusive::Pool<ConnectionKey, ConnectionExclusive>,
-    shared: shared::Pool<ConnectionKey, ConnectionShared>,
-}
-
-/// construct the default [PoolService] implementation.
-pub(crate) fn base_pool(cap: usize, keep_alive_idle: Duration, keep_alive_born: Duration) -> PoolService {
-    Box::new(DefaultPool {
-        exclusive: exclusive::Pool::new(cap, keep_alive_idle, keep_alive_born),
-        shared: shared::Pool::with_capacity(cap),
-    })
-}
-
-impl<'a, 'c> Service<PoolRequest<'a, 'c>> for DefaultPool {
-    type Response = Lease;
-    type Error = Error;
-
-    async fn call(&self, mut req: PoolRequest<'a, 'c>) -> Result<Self::Response, Self::Error> {
-        loop {
-            match req.version {
-                Version::HTTP_2 | Version::HTTP_3 => match self.shared.acquire(&req.connect.uri).await {
-                    shared::AcquireOutput::Conn(c) => {
-                        // shared::Pool::acquire has already probed the cached
-                        // entry via the Ready trait — by this point the
-                        // connection is known to accept new streams.
-                        return Ok(Lease::shared(c, req.version));
-                    }
-                    shared::AcquireOutput::Spawner(spawner) => {
-                        match establish(req.client, &mut req.connect, req.version, req.allow_h2c_downgrade).await? {
-                            SpawnOutCome::Shared { conn, version } => {
-                                spawner.spawned(conn);
-                                // re-enter loop to pick up the newly inserted shared connection.
-                                req.version = version;
-                            }
-                            SpawnOutCome::Exclusive { conn, version } => {
-                                // alpn downgraded to http/1. release shared slot and insert into
-                                // exclusive cache so future callers at this key benefit too.
-                                drop(spawner);
-                                #[cfg(feature = "http1")]
-                                {
-                                    self.exclusive.try_add(&req.connect.uri, conn);
-                                    req.version = version;
-                                }
-                                #[cfg(not(feature = "http1"))]
-                                {
-                                    let _ = conn;
-                                    let _ = version;
-                                    return Err(crate::error::FeatureError::Http1NotEnabled.into());
-                                }
-                            }
-                            SpawnOutCome::RetryLower(lower) => {
-                                drop(spawner);
-                                req.version = lower;
-                            }
-                        }
-                    }
-                },
-                ver => match self.exclusive.acquire(&req.connect.uri).await {
-                    exclusive::AcquireOutput::Conn(c) => {
-                        return Ok(Lease::exclusive(c, ver));
-                    }
-                    exclusive::AcquireOutput::Spawner(spawner) => {
-                        match establish(req.client, &mut req.connect, ver, req.allow_h2c_downgrade).await? {
-                            SpawnOutCome::Exclusive { conn, .. } => {
-                                spawner.spawned(conn);
-                            }
-                            SpawnOutCome::Shared { .. } | SpawnOutCome::RetryLower(_) => {
-                                // http/1 establishment never produces shared/retry outcomes.
-                                unreachable!("establish at http/1 returned unexpected outcome");
-                            }
-                        }
-                    }
-                },
-            }
-        }
     }
 }
 
