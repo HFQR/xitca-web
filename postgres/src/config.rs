@@ -1,6 +1,6 @@
 //! Connection configuration. copy/paste from `tokio-postgres`
 
-use core::{fmt, iter, mem, str};
+use core::{fmt, iter, mem, str, time::Duration};
 
 use std::{
     borrow::Cow,
@@ -56,6 +56,12 @@ pub struct Config {
     pub(crate) port: Vec<u16>,
     target_session_attrs: TargetSessionAttrs,
     tls_server_end_point: Option<Box<[u8]>>,
+    max_queued_requests: usize,
+    keepalives: bool,
+    keepalives_idle: Option<Duration>,
+    keepalives_interval: Option<Duration>,
+    keepalives_retries: Option<u32>,
+    tcp_user_timeout: Option<Duration>,
 }
 
 impl Default for Config {
@@ -79,6 +85,12 @@ impl Config {
             port: Vec::new(),
             target_session_attrs: TargetSessionAttrs::Any,
             tls_server_end_point: None,
+            max_queued_requests: 1024,
+            keepalives: true,
+            keepalives_idle: None,
+            keepalives_interval: None,
+            keepalives_retries: None,
+            tcp_user_timeout: None,
         }
     }
 
@@ -308,6 +320,102 @@ impl Config {
         self.tls_server_end_point.as_deref()
     }
 
+    /// Sets the maximum number of requests that can be queued for write on a single connection.
+    /// Defaults to `1024`.
+    ///
+    /// a request occupies a slot from the moment it's encoded until its bytes are written to the
+    /// io. on a healthy connection this is momentary and the limit is never observed. when the
+    /// connection stops draining the queue fills up and further requests are rejected with
+    /// [`DriverBusy`] error instead of growing the write buffer without bound.
+    ///
+    /// there is no unlimited option on purpose: a connection that stops draining would grow the
+    /// write buffer until the machine runs out of memory.
+    ///
+    /// # Panics
+    /// when given `0`. it would reject or block every request.
+    ///
+    /// [`DriverBusy`]: crate::error::DriverBusy
+    pub fn max_queued_requests(&mut self, max_queued_requests: usize) -> &mut Config {
+        assert!(max_queued_requests > 0, "max_queued_requests must not be 0");
+        self.max_queued_requests = max_queued_requests;
+        self
+    }
+
+    /// Reports the maximum number of requests that can be queued for write.
+    pub fn get_max_queued_requests(&self) -> usize {
+        self.max_queued_requests
+    }
+
+    /// Controls whether TCP keepalive is used. Defaults to `true`.
+    ///
+    /// This is ignored for Unix domain and quic connections.
+    pub fn keepalives(&mut self, keepalives: bool) -> &mut Config {
+        self.keepalives = keepalives;
+        self
+    }
+
+    /// Reports whether TCP keepalive is used.
+    pub fn get_keepalives(&self) -> bool {
+        self.keepalives
+    }
+
+    /// Sets the amount of idle time before a keepalive packet is sent. Defaults to the system
+    /// value.
+    ///
+    /// This is ignored when [`Config::keepalives`] is disabled.
+    pub fn keepalives_idle(&mut self, keepalives_idle: Duration) -> &mut Config {
+        self.keepalives_idle = Some(keepalives_idle);
+        self
+    }
+
+    /// Reports the amount of idle time before a keepalive packet is sent.
+    pub fn get_keepalives_idle(&self) -> Option<Duration> {
+        self.keepalives_idle
+    }
+
+    /// Sets the time interval between keepalive probes. Defaults to the system value.
+    ///
+    /// This is ignored when [`Config::keepalives`] is disabled.
+    pub fn keepalives_interval(&mut self, keepalives_interval: Duration) -> &mut Config {
+        self.keepalives_interval = Some(keepalives_interval);
+        self
+    }
+
+    /// Reports the time interval between keepalive probes.
+    pub fn get_keepalives_interval(&self) -> Option<Duration> {
+        self.keepalives_interval
+    }
+
+    /// Sets the maximum number of keepalive probes sent before dropping a connection. Defaults
+    /// to the system value.
+    ///
+    /// This is ignored when [`Config::keepalives`] is disabled and it is not supported on every
+    /// platform.
+    pub fn keepalives_retries(&mut self, keepalives_retries: u32) -> &mut Config {
+        self.keepalives_retries = Some(keepalives_retries);
+        self
+    }
+
+    /// Reports the maximum number of keepalive probes sent before dropping a connection.
+    pub fn get_keepalives_retries(&self) -> Option<u32> {
+        self.keepalives_retries
+    }
+
+    /// Sets the `TCP_USER_TIMEOUT`: how long transmitted data may go unacknowledged before the
+    /// connection is dropped. Defaults to the system value.
+    ///
+    /// Unlike keepalive this also bounds a peer that keeps its receive window closed. It is only
+    /// applied on platforms with `TCP_USER_TIMEOUT` support and ignored elsewhere.
+    pub fn tcp_user_timeout(&mut self, tcp_user_timeout: Duration) -> &mut Config {
+        self.tcp_user_timeout = Some(tcp_user_timeout);
+        self
+    }
+
+    /// Reports the `TCP_USER_TIMEOUT`.
+    pub fn get_tcp_user_timeout(&self) -> Option<Duration> {
+        self.tcp_user_timeout
+    }
+
     fn param(&mut self, key: &str, value: &str) -> Result<(), Error> {
         match key {
             "user" => {
@@ -356,6 +464,29 @@ impl Config {
                     };
                     self.port(port);
                 }
+            }
+            "keepalives" => {
+                self.keepalives(value.parse::<u64>().map_err(|_| Error::todo())? != 0);
+            }
+            // libpq takes an explicit zero as "use the system default" for every timer below.
+            "keepalives_idle" => {
+                let idle = value.parse::<u64>().map_err(|_| Error::todo())?;
+                self.keepalives_idle = (idle != 0).then(|| Duration::from_secs(idle));
+            }
+            "keepalives_interval" => {
+                let interval = value.parse::<u64>().map_err(|_| Error::todo())?;
+                self.keepalives_interval = (interval != 0).then(|| Duration::from_secs(interval));
+            }
+            // keepalives_count is the libpq name. keepalives_retries is accepted for
+            // tokio-postgres compat where it's the setter name.
+            "keepalives_count" | "keepalives_retries" => {
+                let retries = value.parse::<u32>().map_err(|_| Error::todo())?;
+                self.keepalives_retries = (retries != 0).then_some(retries);
+            }
+            // libpq counts this one in milliseconds.
+            "tcp_user_timeout" => {
+                let timeout = value.parse::<u64>().map_err(|_| Error::todo())?;
+                self.tcp_user_timeout = (timeout != 0).then(|| Duration::from_millis(timeout));
             }
             "target_session_attrs" => {
                 let target_session_attrs = match value {
@@ -413,6 +544,12 @@ impl fmt::Debug for Config {
             .field("host", &self.host)
             .field("port", &self.port)
             .field("target_session_attrs", &self.target_session_attrs)
+            .field("max_queued_requests", &self.max_queued_requests)
+            .field("keepalives", &self.keepalives)
+            .field("keepalives_idle", &self.keepalives_idle)
+            .field("keepalives_interval", &self.keepalives_interval)
+            .field("keepalives_retries", &self.keepalives_retries)
+            .field("tcp_user_timeout", &self.tcp_user_timeout)
             .finish()
     }
 }
@@ -740,5 +877,75 @@ impl<'a> UrlParser<'a> {
         percent_encoding::percent_decode(s.as_bytes())
             .decode_utf8()
             .map_err(|_| Error::todo())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn tcp_opt_default() {
+        let cfg = Config::new();
+        // matches libpq: keepalive is on and every timer is left at the system value.
+        assert!(cfg.get_keepalives());
+        assert_eq!(cfg.get_keepalives_idle(), None);
+        assert_eq!(cfg.get_keepalives_interval(), None);
+        assert_eq!(cfg.get_keepalives_retries(), None);
+        assert_eq!(cfg.get_tcp_user_timeout(), None);
+        // a queue limit always exists. an unbounded write buffer would OOM a stalled connection.
+        assert_eq!(cfg.get_max_queued_requests(), 1024);
+    }
+
+    #[test]
+    #[should_panic = "max_queued_requests must not be 0"]
+    fn zero_queue_limit_is_rejected() {
+        Config::new().max_queued_requests(0);
+    }
+
+    #[test]
+    fn tcp_opt_from_url() {
+        let cfg = Config::try_from(
+            "postgres://user@localhost:5432/db?keepalives=1&keepalives_idle=30&\
+             keepalives_interval=5&keepalives_count=3&tcp_user_timeout=10000"
+                .to_string(),
+        )
+        .unwrap();
+
+        assert!(cfg.get_keepalives());
+        assert_eq!(cfg.get_keepalives_idle(), Some(Duration::from_secs(30)));
+        assert_eq!(cfg.get_keepalives_interval(), Some(Duration::from_secs(5)));
+        assert_eq!(cfg.get_keepalives_retries(), Some(3));
+        // libpq counts tcp_user_timeout in milliseconds while keepalives are in seconds.
+        assert_eq!(cfg.get_tcp_user_timeout(), Some(Duration::from_millis(10000)));
+    }
+
+    #[test]
+    fn tcp_opt_from_keyword_string() {
+        let cfg = Config::try_from("host=localhost keepalives=0 keepalives_retries=9".to_string()).unwrap();
+
+        assert!(!cfg.get_keepalives());
+        assert_eq!(cfg.get_keepalives_retries(), Some(9));
+    }
+
+    // libpq documents zero as "use the system default" rather than an actual zero timer.
+    #[test]
+    fn tcp_opt_zero_is_system_default() {
+        let cfg = Config::try_from(
+            "host=localhost keepalives_idle=0 keepalives_interval=0 keepalives_count=0 tcp_user_timeout=0".to_string(),
+        )
+        .unwrap();
+
+        assert!(cfg.get_keepalives());
+        assert_eq!(cfg.get_keepalives_idle(), None);
+        assert_eq!(cfg.get_keepalives_interval(), None);
+        assert_eq!(cfg.get_keepalives_retries(), None);
+        assert_eq!(cfg.get_tcp_user_timeout(), None);
+    }
+
+    #[test]
+    fn tcp_opt_reject_invalid() {
+        Config::try_from("host=localhost keepalives_idle=soon".to_string()).unwrap_err();
+        Config::try_from("host=localhost keepalives_count=-1".to_string()).unwrap_err();
     }
 }

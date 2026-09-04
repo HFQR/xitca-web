@@ -1,9 +1,6 @@
 //! example of using Execute trait to expand functionality of xitca-postgres
 
-use std::{
-    future::{Future, IntoFuture},
-    pin::Pin,
-};
+use std::future::IntoFuture;
 
 use xitca_postgres::{
     Client, Error, Execute, Postgres, RowStreamOwned, Statement, iter::AsyncLendingIteratorExt, types::Type,
@@ -34,41 +31,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // implement Execute trait
     impl<'p, 'c> Execute<&'c Client> for PrepareAndExecute<'p>
     where
-        // in execute methods both PrepareAndExecute<'p> and &'c Client are moved into async block
-        // and we use c as the output lifetime in Execute::ExecuteOutput's boxed async block.
-        // adding this means PrepareAndExecute<'p> can live as long as &'c Client and both of them
-        // will live until Execute::ExecuteOutput is resolved.
-        // the same reason goes for Execute::QueryOutput.
+        // both PrepareAndExecute<'p> and &'c Client are captured by the future the methods below
+        // return. adding this means PrepareAndExecute<'p> lives as long as &'c Client and both of
+        // them stay alive until that future resolves.
         'p: 'c,
     {
-        // new execute future we are returning is a boxed async code bock. the 'c lifetime annotation is
-        // to tell the compiler the async block referencing &'c Client can live as long as 'c is alive
-        type ExecuteOutput = Pin<Box<dyn Future<Output = Result<u64, Error>> + Send + 'c>>;
+        // the associated types are the items produced. the future producing them is opaque so
+        // there is no need to name it or to box it.
+        type ExecuteOutput = u64;
 
-        // like the execute but output an async stream iterator that produces database rows.
-        type QueryOutput = Pin<Box<dyn Future<Output = Result<RowStreamOwned, Error>> + Send + 'c>>;
+        // like execute but produces an async stream iterator of database rows.
+        type QueryOutput = RowStreamOwned;
 
-        fn execute(self, cli: &'c Client) -> Self::ExecuteOutput {
-            // move PrepareAndExecute<'p> and &'c Client into an async block.
-            // inside it we use the state and client to prepare a statement and execute it.
-            Box::pin(async move {
-                Statement::named(self.stmt, self.types)
-                    .execute(cli)
-                    .await?
-                    .execute(cli)
-                    .await
-            })
+        async fn execute(self, cli: &'c Client) -> Result<Self::ExecuteOutput, Error> {
+            // prepare a statement and execute it with the client.
+            Statement::named(self.stmt, self.types)
+                .execute(cli)
+                .await?
+                .execute(cli)
+                .await
         }
 
-        fn query(self, cli: &'c Client) -> Self::QueryOutput {
-            Box::pin(async move {
-                // prepare statement and query for async iterator of rows
-                let stmt = Statement::named(self.stmt, self.types).execute(cli).await?;
-                let stream = stmt.query(cli).await?;
-                // convert borrowed stream to owned stream. as borrowed stream reference the statement this function
-                // just produced.
-                Ok(RowStreamOwned::from(stream))
-            })
+        async fn query(self, cli: &'c Client) -> Result<Self::QueryOutput, Error> {
+            // prepare statement and query for async iterator of rows
+            let stmt = Statement::named(self.stmt, self.types).execute(cli).await?;
+            let stream = stmt.query(cli).await?;
+            // convert borrowed stream to owned stream. as borrowed stream reference the statement
+            // this function just produced.
+            Ok(RowStreamOwned::from(stream))
         }
     }
 

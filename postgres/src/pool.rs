@@ -301,7 +301,7 @@ mod test {
             let mut conn = pool.get().await.unwrap();
 
             let stmt = Statement::named("SELECT 1", &[]).execute(&mut conn).await.unwrap();
-            stmt.execute(&conn.consume()).await.unwrap();
+            stmt.execute(&conn).await.unwrap();
 
             let num = Statement::named("SELECT 1", &[])
                 .bind_none()

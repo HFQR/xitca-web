@@ -262,19 +262,50 @@ impl Client {
     }
 
     #[inline]
-    pub(crate) fn query<S>(&self, stmt: S) -> Result<<S::Output as IntoResponse>::Response, Error>
+    pub(crate) fn try_query<S>(&self, stmt: S) -> Result<<S::Output as IntoResponse>::Response, Error>
     where
         S: Encode,
     {
-        self.query_raw(stmt).map(|(opt, res)| opt.into_response(res))
+        self.try_query_raw(stmt).map(|(opt, res)| opt.into_response(res))
     }
 
     #[inline]
-    pub(crate) fn query_raw<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    pub(crate) fn try_query_raw<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
     where
         S: Encode,
     {
-        self.tx.send(|buf| stmt.encode(buf))
+        self.tx.try_send(|buf| stmt.encode(buf))
+    }
+
+    /// [`Client::try_query_raw`] that bypasses the driver queue limit. see
+    /// [`DriverTx::send_unbounded`] for when it's used.
+    ///
+    /// [`DriverTx::send_unbounded`]: crate::driver::DriverTx::send_unbounded
+    #[inline]
+    pub(crate) fn query_unbounded<S>(&self, stmt: S) -> Result<<S::Output as IntoResponse>::Response, Error>
+    where
+        S: Encode,
+    {
+        self.tx
+            .send_unbounded(|buf| stmt.encode(buf))
+            .map(|(opt, res)| opt.into_response(res))
+    }
+
+    pub(crate) async fn query<S>(&self, stmt: S) -> Result<<S::Output as IntoResponse>::Response, Error>
+    where
+        S: Encode,
+    {
+        self.query_raw(stmt).await.map(|(opt, res)| opt.into_response(res))
+    }
+
+    /// waits for a queue slot when the driver is backed up instead of failing. nothing is encoded
+    /// until the slot is granted so a caller that goes away first never sends its request.
+    #[inline]
+    pub(crate) async fn query_raw<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        self.tx.send(|buf| stmt.encode(buf)).await
     }
 
     pub(crate) fn new(tx: DriverTx, session: Session) -> Self {

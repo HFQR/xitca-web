@@ -199,6 +199,28 @@ impl error::Error for DriverDown {}
 
 from_impl!(DriverDown);
 
+/// error indicate [`Client`]'s [`Driver`] has too many requests queued for write and can not
+/// accept more. it happens when the connection stops draining: a stalled socket or a peer that
+/// went silent. the request has not been sent to database and it's safe to retry.
+///
+/// the limit is configured with [`Config::max_queued_requests`].
+///
+/// [`Client`]: crate::client::Client
+/// [`Driver`]: crate::driver::Driver
+/// [`Config::max_queued_requests`]: crate::config::Config::max_queued_requests
+#[derive(Debug, Default)]
+pub struct DriverBusy;
+
+impl fmt::Display for DriverBusy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Client's Driver has too many queued request. Associated query has not been sent to database.")
+    }
+}
+
+impl error::Error for DriverBusy {}
+
+from_impl!(DriverBusy);
+
 /// error indicate [`Client`]'s [`Driver`] has dropped the response. There are two cases this error can happen:
 ///
 /// - database response has finished and further polling it would result in error

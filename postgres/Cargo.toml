@@ -41,6 +41,7 @@ lru = { workspace = true }
 percent-encoding = { workspace = true }
 postgres-protocol = { workspace = true }
 postgres-types = { workspace = true }
+socket2 = { workspace = true, features = ["all"] }
 tokio = { workspace = true, features = ["rt", "sync"] }
 tracing = { workspace = true }
 

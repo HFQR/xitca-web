@@ -41,6 +41,21 @@ pub(super) enum State {
     Closed(Option<io::Error>),
 }
 
+// postgres has no half close state so read and write half are closed in pair. the shared state
+// stops accepting new request while message already received are still dispatched.
+//
+// it takes fields instead of &mut self because the read and write future borrow self for the
+// whole driver loop.
+fn on_close(rx: &DriverRx, read_state: &mut State, write_state: &mut State) {
+    rx.guarded.lock().unwrap().close();
+    if !matches!(read_state, State::Closed(_)) {
+        *read_state = State::Closed(None);
+    }
+    if !matches!(write_state, State::Closed(_)) {
+        *write_state = State::Closed(None);
+    }
+}
+
 impl<Io> GenericUringDriver<Io>
 where
     Io: AsyncBufRead + AsyncBufWrite + 'static,
@@ -113,17 +128,32 @@ where
                     };
 
                     match res {
+                        // client asked for shutdown. keep draining read until remote closes.
                         SelectOutput::A(Ok(_)) => self.write_state = State::Closed(None),
-                        SelectOutput::A(Err(e)) => self.write_state = State::Closed(Some(e)),
+                        SelectOutput::A(Err(e)) => {
+                            self.write_state = State::Closed(Some(e));
+                            on_close(&self.rx, &mut self.read_state, &mut self.write_state);
+                        }
                         SelectOutput::B(Some(Ok(msg))) => yield Ok(msg),
                         SelectOutput::B(Some(Err(e))) => match e {
-                            SelectOutput::A(e) => break Err(e),
-                            SelectOutput::B(e) => self.read_state = State::Closed(Some(e)),
+                            SelectOutput::A(e) => {
+                                self.rx.guarded.lock().unwrap().close();
+                                break Err(e);
+                            }
+                            SelectOutput::B(e) => {
+                                self.read_state = State::Closed(Some(e));
+                                on_close(&self.rx, &mut self.read_state, &mut self.write_state);
+                            }
                         },
-                        SelectOutput::B(None) => self.read_state = State::Closed(None),
+                        SelectOutput::B(None) => {
+                            self.read_state = State::Closed(None);
+                            on_close(&self.rx, &mut self.read_state, &mut self.write_state);
+                        }
                     }
                 }
             };
+
+            self.rx.guarded.lock().unwrap().shutdown();
 
             let _ = self.io.shutdown(Shutdown::Both).await;
 

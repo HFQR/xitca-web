@@ -11,6 +11,7 @@ use super::{
     error::Error,
     execute::Execute,
     pool::{GenericPoolConnection, PermitLike},
+    query::RowAffected,
     statement::Statement,
     types::ToSql,
 };
@@ -44,16 +45,20 @@ impl SavePoint {
     fn rollback(&mut self, cli: impl ClientBorrowMut) -> impl Future<Output = Result<(), Error>> + Send {
         self.state = State::Finish;
 
-        let fut = match self.depth {
+        let sql = match self.depth {
             0 => Cow::Borrowed("ROLLBACK"),
             depth => match self.name {
                 None => Cow::Owned(format!("ROLLBACK TO sp_{depth}")),
                 Some(ref name) => Cow::Owned(format!("ROLLBACK TO {name}")),
             },
-        }
-        .execute(cli.borrow_cli_ref());
+        };
 
-        async { fut.await.map(|_| ()) }
+        let res = cli
+            .borrow_cli_ref()
+            .query_unbounded(sql.as_ref())
+            .map(RowAffected::from);
+
+        async { res?.await.map(|_| ()) }
     }
 
     async fn commit(&mut self, cli: impl ClientBorrowMut) -> Result<(), Error> {
@@ -237,12 +242,12 @@ where
     type QueryOutput = QO;
 
     #[inline]
-    fn execute(self, cli: &'c Transaction<'_, C>) -> Self::ExecuteOutput {
+    fn execute(self, cli: &'c Transaction<'_, C>) -> impl Future<Output = Result<Self::ExecuteOutput, Error>> + Send {
         Q::execute(self, cli.client.borrow_cli_ref())
     }
 
     #[inline]
-    fn query(self, cli: &'c Transaction<C>) -> Self::QueryOutput {
+    fn query(self, cli: &'c Transaction<'_, C>) -> impl Future<Output = Result<Self::QueryOutput, Error>> + Send {
         Q::query(self, cli.client.borrow_cli_ref())
     }
 }
@@ -257,12 +262,18 @@ where
     type QueryOutput = QO;
 
     #[inline]
-    fn execute(self, cli: &'c mut Transaction<'_, GenericPoolConnection<P>>) -> Self::ExecuteOutput {
+    fn execute(
+        self,
+        cli: &'c mut Transaction<'_, GenericPoolConnection<P>>,
+    ) -> impl Future<Output = Result<Self::ExecuteOutput, Error>> + Send {
         Q::execute(self, cli.client.deref_mut())
     }
 
     #[inline]
-    fn query(self, cli: &'c mut Transaction<GenericPoolConnection<P>>) -> Self::QueryOutput {
+    fn query(
+        self,
+        cli: &'c mut Transaction<'_, GenericPoolConnection<P>>,
+    ) -> impl Future<Output = Result<Self::QueryOutput, Error>> + Send {
         Q::query(self, cli.client.deref_mut())
     }
 }

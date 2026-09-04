@@ -204,9 +204,13 @@ async fn query_portal() {
         .unwrap();
 
     let portal = transaction.bind_dyn(&stmt, &[]).await.unwrap();
-    let mut stream1 = portal.query_portal(2).unwrap();
-    let mut stream2 = portal.query_portal(2).unwrap();
-    let mut stream3 = portal.query_portal(2).unwrap();
+    // portal query is admitted in call order so the three execute messages reach the server in
+    // the same order. polling them together keeps them in one write.
+    let (stream1, stream2, stream3) =
+        tokio::join!(portal.query_portal(2), portal.query_portal(2), portal.query_portal(2));
+    let mut stream1 = stream1.unwrap();
+    let mut stream2 = stream2.unwrap();
+    let mut stream3 = stream3.unwrap();
 
     let row = stream1.try_next().await.unwrap().unwrap();
     assert_eq!(row.get::<i32>(0), 1);
