@@ -19,7 +19,7 @@ tls = ["dep:xitca-tls", "xitca-tls/rustls-poll-ring-crypto", "dep:sha2", "dep:we
 
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
-quic = ["dep:quinn", "dep:rustls-pemfile", "tls"]
+quic = ["dep:quinn", "dep:rustls-pemfile", "dep:tracing", "tls"]
 
 # compatibility feature to enable implements with `futures` crate
 compat = ["dep:futures-core"]
@@ -48,6 +48,7 @@ xitca-tls = { workspace = true, optional = true }
 # quic
 quinn = { workspace = true, default-features = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
 #io-uring
 tokio-uring-xitca = { workspace = true, optional = true }

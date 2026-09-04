@@ -3332,6 +3332,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-uring-xitca",
+ "tracing",
  "uuid",
  "webpki-roots",
  "xitca-io",
