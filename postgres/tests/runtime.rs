@@ -124,13 +124,13 @@ async fn cancel_query() {
 
     let cancel_token = client.cancel_token();
 
-    let sleep = "SELECT pg_sleep(10)".execute(&client);
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        cancel_token.query_cancel().await.unwrap();
+    });
 
-    cancel_token.query_cancel().await.unwrap();
-
-    let e = sleep.await.unwrap_err();
+    let e = "SELECT pg_sleep(10)".execute(&client).await.unwrap_err();
 
     let e = e.downcast_ref::<DbError>().unwrap();
     assert_eq!(e.code(), &SqlState::QUERY_CANCELED);

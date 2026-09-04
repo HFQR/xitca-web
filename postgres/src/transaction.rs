@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 use super::{
     client::{Client, ClientBorrowMut},
-    driver::codec::AsParams,
+    driver::codec::{AsParams, response::IntoResponse},
     error::Error,
     execute::Execute,
     pool::{GenericPoolConnection, PermitLike},
@@ -55,7 +55,8 @@ impl SavePoint {
 
         let res = cli
             .borrow_cli_ref()
-            .query_unbounded(sql.as_ref())
+            .query_unbounded_raw(sql.as_ref())
+            .map(|(opt, res)| opt.into_response(res))
             .map(RowAffected::from);
 
         async { res?.await.map(|_| ()) }

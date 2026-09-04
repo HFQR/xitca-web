@@ -35,7 +35,7 @@ where
         let _ = self
             .cli
             .borrow_cli_ref()
-            .query_unbounded(PortalCancel { name: &self.name });
+            .query_unbounded_raw(PortalCancel { name: &self.name });
     }
 }
 

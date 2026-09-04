@@ -302,20 +302,22 @@ mod test {
 
             let stmt = Statement::named("SELECT 1", &[]).execute(&mut conn).await.unwrap();
             stmt.execute(&conn).await.unwrap();
-
-            let num = Statement::named("SELECT 1", &[])
-                .bind_none()
-                .query(&pool)
-                .await
-                .unwrap()
-                .try_next()
-                .await
-                .unwrap()
-                .unwrap()
-                .get::<i32>(0);
-
-            assert_eq!(num, 1);
         }
+
+        // pool capacity is 1 by default. the connection above must be released before querying
+        // through the pool or Pool::get waits on a permit that is never returned.
+        let num = Statement::named("SELECT 1", &[])
+            .bind_none()
+            .query(&pool)
+            .await
+            .unwrap()
+            .try_next()
+            .await
+            .unwrap()
+            .unwrap()
+            .get::<i32>(0);
+
+        assert_eq!(num, 1);
 
         let res = [
             Statement::named("SELECT 1", &[]).bind_none(),

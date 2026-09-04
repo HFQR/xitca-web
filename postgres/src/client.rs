@@ -266,28 +266,8 @@ impl Client {
     where
         S: Encode,
     {
-        self.try_query_raw(stmt).map(|(opt, res)| opt.into_response(res))
-    }
-
-    #[inline]
-    pub(crate) fn try_query_raw<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
-    where
-        S: Encode,
-    {
-        self.tx.try_send(|buf| stmt.encode(buf))
-    }
-
-    /// [`Client::try_query_raw`] that bypasses the driver queue limit. see
-    /// [`DriverTx::send_unbounded`] for when it's used.
-    ///
-    /// [`DriverTx::send_unbounded`]: crate::driver::DriverTx::send_unbounded
-    #[inline]
-    pub(crate) fn query_unbounded<S>(&self, stmt: S) -> Result<<S::Output as IntoResponse>::Response, Error>
-    where
-        S: Encode,
-    {
         self.tx
-            .send_unbounded(|buf| stmt.encode(buf))
+            .try_send(|buf| stmt.encode(buf))
             .map(|(opt, res)| opt.into_response(res))
     }
 
@@ -306,6 +286,16 @@ impl Client {
         S: Encode,
     {
         self.tx.send(|buf| stmt.encode(buf)).await
+    }
+
+    /// send a request bypassing the driver queue limit, without constructing a row stream from
+    /// the response.
+    #[inline]
+    pub(crate) fn query_unbounded_raw<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>
+    where
+        S: Encode,
+    {
+        self.tx.send_unbounded(|buf| stmt.encode(buf))
     }
 
     pub(crate) fn new(tx: DriverTx, session: Session) -> Self {
