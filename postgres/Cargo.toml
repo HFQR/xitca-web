@@ -8,7 +8,6 @@ repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca-web", "database", "postgres", "sql", "async"]
 categories = ["database"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
-readme= "README.md"
 rust-version.workspace = true
 
 [lints]
@@ -23,27 +22,23 @@ tls = ["dep:xitca-tls", "xitca-tls/rustls-poll-ring-crypto", "dep:sha2", "dep:we
 quic = ["dep:quinn", "dep:rustls-pemfile", "tls"]
 
 # compatibility feature to enable implements with `futures` crate
-compat = []
+compat = ["dep:futures-core"]
 
 # io-uring driver optional
 io-uring = ["xitca-io/runtime-uring", "dep:tokio-uring-xitca"]
-
-# nightly compiler specific feature. can only be enabled with nightly Rust
-nightly = []
 
 [dependencies]
 xitca-io = { workspace = true, features = ["runtime"] }
 xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
 fallible-iterator = { workspace = true }
-futures-core = { workspace = true }
+futures-core = { workspace = true, optional = true }
 lru = { workspace = true }
 percent-encoding = { workspace = true }
 postgres-protocol = { workspace = true }
 postgres-types = { workspace = true }
 socket2 = { workspace = true, features = ["all"] }
 tokio = { workspace = true, features = ["rt", "sync"] }
-tracing = { workspace = true }
 
 # tls
 sha2 = { workspace = true, optional = true }

@@ -23,6 +23,7 @@
 
 ## Remove
 - removed `pool::GenericPoolConnection::consume` method. it existed to release a connection back to pool before awaiting eagerly encoded requests which no longer applies
+- removed `nightly` crate feature
 
 ## Fix
 - improve driver shutdown handling

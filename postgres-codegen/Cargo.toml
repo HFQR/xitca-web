@@ -5,7 +5,9 @@ edition = "2021"
 license = "Apache-2.0"
 description = "proc macro example for xitca-postgres"
 repository = "https://github.com/HFQR/xitca-web"
-readme= "README.md"
+
+[lints]
+workspace = true
 
 [lib]
 proc-macro = true
