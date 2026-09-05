@@ -89,8 +89,20 @@ async fn request_limit_one_preserves_protocol_progress() {
         .unwrap();
 }
 
+#[cfg(not(feature = "io-uring"))]
 #[tokio::test]
 async fn pool_request_limit_one_supports_cached_and_concurrent_queries() {
+    check_pool_request_limit_one().await;
+}
+
+#[cfg(feature = "io-uring")]
+#[test]
+fn pool_request_limit_one_supports_cached_and_concurrent_queries() {
+    // The default TCP pool connector uses spawn_local and the io-uring driver context.
+    tokio_uring_xitca::start(check_pool_request_limit_one());
+}
+
+async fn check_pool_request_limit_one() {
     let mut cfg = xitca_postgres::Config::try_from("postgres://postgres:postgres@localhost:5432").unwrap();
     cfg.max_in_flight_requests(1);
     let pool = xitca_postgres::pool::Pool::builder(cfg.clone())
