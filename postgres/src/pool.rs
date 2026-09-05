@@ -2,6 +2,9 @@ mod connect;
 mod connection;
 mod execute;
 
+#[cfg(test)]
+mod concurrency_test;
+
 pub use self::connect::Connect;
 pub use self::connection::{CachedStatement, GenericPoolConnection};
 
@@ -125,16 +128,15 @@ impl Pool {
         }
     }
 
-    /// try to get a connection from pool.
-    /// when pool is empty it will try to spawn new connection to database and if the process failed the outcome will
-    /// return as [`Error`]
+    /// Get a connection, preferring one with capacity for another outstanding request.
+    /// If all pooled connections are busy, select the first in FIFO order;
+    /// its sends wait for request capacity. Open a connection only when none is pooled.
+    /// When all connections are checked out, wait for a checkout to be returned.
+    /// Connection creation failures are returned as [`Error`].
     pub async fn get(&self) -> Result<PoolConnection<'_>, Error> {
         let _permit = self.permits.acquire().await.expect("Semaphore must not be closed");
 
-        let conn = match self.pool.try_get() {
-            Some(conn) => conn,
-            None => self.pool.connect().await?,
-        };
+        let conn = self.pool.get().await?;
 
         Ok(PoolConnection {
             conn: Some(conn),
@@ -162,9 +164,7 @@ pub struct PoolOwned {
 }
 
 impl PoolOwned {
-    /// try to get a connection from pool.
-    /// when pool is empty it will try to spawn new connection to database and if the process failed the outcome will
-    /// return as [`Error`]
+    /// Owned version of [`Pool::get`], with the same capacity-aware selection and waiting behavior.
     pub async fn get(&self) -> Result<PoolConnectionOwned, Error> {
         let _permit = self
             .permits
@@ -173,10 +173,7 @@ impl PoolOwned {
             .await
             .expect("Semaphore must not be closed");
 
-        let conn = match self.pool.try_get() {
-            Some(conn) => conn,
-            None => self.pool.connect().await?,
-        };
+        let conn = self.pool.get().await?;
 
         Ok(PoolConnectionOwned {
             conn: Some(conn),
@@ -259,16 +256,32 @@ impl _Pool {
         &self.config.cfg
     }
 
+    // The caller holds a checkout permit throughout selection and any connection attempt.
+    async fn get(&self) -> Result<PoolClient, Error> {
+        match self.try_get() {
+            Some(conn) => Ok(conn),
+            None => self.connect().await,
+        }
+    }
+
     fn try_get(&self) -> Option<PoolClient> {
         let mut inner = self.conn.lock().unwrap();
 
-        while let Some(conn) = inner.pop_front() {
-            if !conn.closed() {
-                return Some(conn);
+        // Inspect candidates in place so skipping busy connections preserves their FIFO order.
+        let mut index = 0;
+        while let Some(conn) = inner.get(index) {
+            if conn.closed() {
+                inner.remove(index);
+            } else if conn.has_capacity() {
+                return inner.remove(index);
+            } else {
+                index += 1;
             }
         }
 
-        None
+        // Saturated checkouts take the front; returned connections join the back.
+        // An empty queue allows creation under the existing checkout semaphore's bound.
+        inner.pop_front()
     }
 
     fn put_back(&self, conn: PoolClient) {

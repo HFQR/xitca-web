@@ -1,5 +1,7 @@
 use core::net::SocketAddr;
 
+use std::io;
+
 use xitca_io::net::TcpStream;
 
 use crate::{
@@ -14,9 +16,8 @@ use super::{
     prepare_driver, should_connect_tls,
 };
 
-// applied on socket creation. errors are ignored: a platform refusing an option must not fail
-// an otherwise healthy connection.
-fn set_tcp_opt(stream: &TcpStream, cfg: &Config) {
+// applied on socket creation. a socket is not usable until its configured options succeed.
+fn set_tcp_opt(stream: &TcpStream, cfg: &Config) -> io::Result<()> {
     let _ = stream.set_nodelay(true);
 
     let socket = socket2::SockRef::from(stream);
@@ -34,20 +35,22 @@ fn set_tcp_opt(stream: &TcpStream, cfg: &Config) {
             keepalive = keepalive.with_interval(interval);
         }
 
-        #[cfg(not(any(target_os = "openbsd", target_os = "redox", target_os = "solaris", windows)))]
+        #[cfg(not(any(target_os = "openbsd", target_os = "redox", target_os = "solaris")))]
         if let Some(retries) = cfg.get_keepalives_retries() {
             keepalive = keepalive.with_retries(retries);
         }
 
-        let _ = socket.set_tcp_keepalive(&keepalive);
+        socket.set_tcp_keepalive(&keepalive)?;
     }
 
     // keepalive can not observe a peer that keeps its receive window closed: it answers the zero
     // window probes so nothing ever times out. TCP_USER_TIMEOUT bounds that case.
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     if let Some(timeout) = cfg.get_tcp_user_timeout() {
-        let _ = socket.set_tcp_user_timeout(Some(timeout));
+        socket.set_tcp_user_timeout(Some(timeout))?;
     }
+
+    Ok(())
 }
 
 #[cold]
@@ -59,11 +62,14 @@ pub(super) async fn connect_host(host: Host, cfg: &mut Config) -> Result<(Driver
         let mut err = None;
 
         for addr in addrs {
-            match TcpStream::connect(addr).await {
-                Ok(stream) => {
-                    set_tcp_opt(&stream, cfg);
-                    return Ok((stream, addr));
-                }
+            // Option errors fail this address attempt too. Drop the partially configured
+            // socket and keep trying the remaining addresses before returning the last error.
+            let res = TcpStream::connect(addr).await.and_then(|stream| {
+                set_tcp_opt(&stream, cfg)?;
+                Ok(stream)
+            });
+            match res {
+                Ok(stream) => return Ok((stream, addr)),
                 Err(e) => err = Some(e),
             }
         }
@@ -147,12 +153,12 @@ pub(super) async fn connect_info(info: ConnectInfo) -> Result<(DriverTx, Driver)
 
     #[allow(unused_mut)]
     let mut cfg = Config::default();
-    let concurrency = cfg.get_max_queued_requests();
+    let concurrency = cfg.get_max_in_flight_requests();
 
     match addr {
         Addr::Tcp(_host, addr) => {
             let mut io = TcpStream::connect(addr).await?;
-            let _ = io.set_nodelay(true);
+            io.set_nodelay(true)?;
 
             if should_connect_tls(&mut io, ssl_mode, ssl_negotiation).await? {
                 #[cfg(feature = "tls")]
@@ -221,16 +227,18 @@ mod test {
             .keepalives_retries(3)
             .tcp_user_timeout(Duration::from_millis(10_000));
 
-        set_tcp_opt(&stream, &cfg);
+        set_tcp_opt(&stream, &cfg).unwrap();
 
         let socket = socket2::SockRef::from(&stream);
         assert!(socket.keepalive().unwrap());
+
+        #[cfg(any(target_os = "linux", windows))]
+        assert_eq!(socket.tcp_keepalive_retries().unwrap(), 3);
 
         #[cfg(target_os = "linux")]
         {
             assert_eq!(socket.tcp_keepalive_time().unwrap(), Duration::from_secs(30));
             assert_eq!(socket.tcp_keepalive_interval().unwrap(), Duration::from_secs(5));
-            assert_eq!(socket.tcp_keepalive_retries().unwrap(), 3);
             assert_eq!(socket.tcp_user_timeout().unwrap(), Some(Duration::from_millis(10_000)));
         }
     }
@@ -250,7 +258,7 @@ mod test {
             )
         };
 
-        set_tcp_opt(&stream, &Config::new());
+        set_tcp_opt(&stream, &Config::new()).unwrap();
 
         let socket = socket2::SockRef::from(&stream);
         assert!(socket.keepalive().unwrap());
@@ -271,8 +279,67 @@ mod test {
         let mut cfg = Config::new();
         cfg.keepalives(false);
 
-        set_tcp_opt(&stream, &cfg);
+        set_tcp_opt(&stream, &cfg).unwrap();
 
         assert!(!socket2::SockRef::from(&stream).keepalive().unwrap());
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[tokio::test]
+    async fn tcp_opt_preserves_socket_error() {
+        let stream = connected_stream().await;
+        // Both Linux and Windows reject a probe count of 256.
+        let expected = socket2::SockRef::from(&stream)
+            .set_tcp_keepalive(&socket2::TcpKeepalive::new().with_retries(256))
+            .unwrap_err();
+
+        let mut cfg = Config::new();
+        cfg.keepalives_retries(256);
+        let err = set_tcp_opt(&stream, &cfg).unwrap_err();
+
+        assert_eq!(err.kind(), expected.kind());
+        assert_eq!(err.raw_os_error(), expected.raw_os_error());
+        assert!(err.raw_os_error().is_some());
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[tokio::test]
+    async fn tcp_opt_failure_tries_remaining_addresses_before_returning_error() {
+        let first = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let second = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+        let mut cfg = Config::new();
+        cfg.host("127.0.0.1")
+            .port(first.local_addr().unwrap().port())
+            .port(second.local_addr().unwrap().port())
+            .ssl_mode(crate::config::SslMode::Disable)
+            .keepalives_retries(256);
+
+        let expected = set_tcp_opt(&connected_stream().await, &cfg).unwrap_err();
+        let result = tokio::time::timeout(Duration::from_secs(5), crate::Postgres::new(cfg).connect())
+            .await
+            .expect("socket configuration failure must return before session preparation");
+        let err = result.err().expect("invalid socket configuration must fail to connect");
+        let err = err
+            .downcast_ref::<io::Error>()
+            .expect("socket error must remain downcastable");
+        assert_eq!(err.raw_os_error(), expected.raw_os_error());
+
+        // Both addresses were attempted and closed without writing an SSL or startup message.
+        for listener in [first, second] {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                let (stream, _) = listener.accept().await.unwrap();
+                loop {
+                    stream.readable().await.unwrap();
+                    match stream.try_read(&mut [0; 1]) {
+                        Ok(0) => break,
+                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
+                        res => panic!("expected EOF before session preparation, got {res:?}"),
+                    }
+                }
+            })
+            .await
+            .expect("each failed address attempt must release its socket");
+        }
     }
 }

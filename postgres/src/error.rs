@@ -199,21 +199,23 @@ impl error::Error for DriverDown {}
 
 from_impl!(DriverDown);
 
-/// error indicate [`Client`]'s [`Driver`] has too many requests queued for write and can not
-/// accept more. it happens when the connection stops draining: a stalled socket or a peer that
-/// went silent. the request has not been sent to database and it's safe to retry.
+/// error indicating [`Client`]'s [`Driver`] has reached its outstanding request limit and can
+/// not accept more synchronously. This can happen on a healthy, busy connection or a stalled
+/// connection. The request has not been sent to the database and is safe to retry.
 ///
-/// the limit is configured with [`Config::max_queued_requests`].
+/// the limit is configured with [`Config::max_in_flight_requests`].
 ///
 /// [`Client`]: crate::client::Client
 /// [`Driver`]: crate::driver::Driver
-/// [`Config::max_queued_requests`]: crate::config::Config::max_queued_requests
+/// [`Config::max_in_flight_requests`]: crate::config::Config::max_in_flight_requests
 #[derive(Debug, Default)]
 pub struct DriverBusy;
 
 impl fmt::Display for DriverBusy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Client's Driver has too many queued request. Associated query has not been sent to database.")
+        f.write_str(
+            "Client's Driver has too many outstanding requests. Associated query has not been sent to database.",
+        )
     }
 }
 

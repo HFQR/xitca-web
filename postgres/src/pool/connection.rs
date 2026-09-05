@@ -209,6 +209,10 @@ impl PoolClient {
     pub(super) fn closed(&self) -> bool {
         self.client.closed()
     }
+
+    pub(super) fn has_capacity(&self) -> bool {
+        self.client.tx.has_capacity()
+    }
 }
 
 type Cache = LruCache<Box<str>, CachedStatement>;

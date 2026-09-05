@@ -88,7 +88,7 @@ async fn prepare_driver<Io>(
 where
     Io: AsyncIo + Send + 'static,
 {
-    let (mut drv, tx) = GenericDriver::new(io, cfg.get_max_queued_requests());
+    let (mut drv, tx) = GenericDriver::new(io, cfg.get_max_in_flight_requests());
     let session = Session::prepare_session(info, &mut drv, cfg).await?;
     Ok((tx, session, drv))
 }

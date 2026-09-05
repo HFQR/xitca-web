@@ -6,7 +6,7 @@
 - add `pool::PoolConnectionOwned` type alias
 - add `ExecuteDyn` trait for dynamic dispatching of `Execute` trait
 - add `error::DriverBusy` for expressing a busy driver entered backpressure state
-- add `Config::max_queued_requests` for driver backpressure configuration
+- add `Config::max_in_flight_requests` for driver backpressure configuration
 - add `Config::{keepalives, keepalives_idle, keepalives_interval, keepalives_retries, tcp_user_timeout}` for driver socket option configuration
 
 ## Change

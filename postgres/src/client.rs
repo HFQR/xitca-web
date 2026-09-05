@@ -278,7 +278,7 @@ impl Client {
         self.query_raw(stmt).await.map(|(opt, res)| opt.into_response(res))
     }
 
-    /// waits for a queue slot when the driver is backed up instead of failing. nothing is encoded
+    /// waits for outstanding request capacity instead of failing. nothing is encoded
     /// until the slot is granted so a caller that goes away first never sends its request.
     #[inline]
     pub(crate) async fn query_raw<S>(&self, stmt: S) -> Result<(S::Output, Response), Error>

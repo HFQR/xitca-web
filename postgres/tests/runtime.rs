@@ -35,6 +35,91 @@ async fn tcp() {
 }
 
 #[tokio::test]
+async fn request_limit_one_preserves_protocol_progress() {
+    let mut cfg = xitca_postgres::Config::try_from("postgres://postgres:postgres@localhost:5432").unwrap();
+    cfg.max_in_flight_requests(1);
+    let (mut client, driver) = Postgres::new(cfg).connect().await.unwrap();
+    let handle = tokio::spawn(driver.into_future());
+
+    tokio::time::timeout(core::time::Duration::from_secs(10), async {
+        "CREATE TEMP TABLE lifecycle_items (value INT); CREATE TYPE pg_temp.lifecycle_enum AS ENUM ('x')"
+            .execute(&client)
+            .await
+            .unwrap();
+        // Type discovery submits additional requests while the prepare response still exists.
+        let stmt = Statement::named("SELECT NULL::pg_temp.lifecycle_enum", &[])
+            .execute(&client)
+            .await
+            .unwrap();
+        stmt.query(&client).await.unwrap();
+        drop(stmt);
+
+        let (first, second) = tokio::join!("SELECT 1".execute(&client), "SELECT 2".execute(&client));
+        assert_eq!(first.unwrap(), 1);
+        assert_eq!(second.unwrap(), 1);
+        assert!("SELECT 1 / 0".execute(&client).await.is_err());
+        assert_eq!("SELECT 1".execute(&client).await.unwrap(), 1);
+
+        let stmt = Statement::named("COPY lifecycle_items FROM STDIN", &[])
+            .execute(&client)
+            .await
+            .unwrap()
+            .leak();
+        let mut copy = client.copy_in(&stmt).await.unwrap();
+        copy.copy(&b"1\n2\n"[..]).unwrap();
+        assert_eq!(copy.finish().await.unwrap(), 2);
+        let mut copy = client.copy_in(&stmt).await.unwrap();
+        copy.copy(&b"3\n"[..]).unwrap();
+        drop(copy);
+        assert_eq!("SELECT 1".execute(&client).await.unwrap(), 1);
+
+        let transaction = client.transaction().await.unwrap();
+        "SELECT 1".query(&transaction).await.unwrap();
+        drop(transaction);
+        assert_eq!("SELECT 1".execute(&client).await.unwrap(), 1);
+    })
+    .await
+    .expect("request capacity blocked protocol progress");
+
+    drop(client);
+    tokio::time::timeout(core::time::Duration::from_secs(5), handle)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn pool_request_limit_one_supports_cached_and_concurrent_queries() {
+    let mut cfg = xitca_postgres::Config::try_from("postgres://postgres:postgres@localhost:5432").unwrap();
+    cfg.max_in_flight_requests(1);
+    let pool = xitca_postgres::pool::Pool::builder(cfg.clone())
+        .capacity(2)
+        .build()
+        .unwrap();
+    let owned = xitca_postgres::pool::Pool::builder(cfg)
+        .capacity(2)
+        .build_owned()
+        .unwrap();
+    tokio::time::timeout(core::time::Duration::from_secs(10), async {
+        for _ in 0..3 {
+            let (a, b) = tokio::join!(
+                Statement::named("SELECT 1", &[]).bind_none().execute(&pool),
+                Statement::named("SELECT 2", &[]).bind_none().execute(&pool),
+            );
+            assert_eq!((a.unwrap(), b.unwrap()), (1, 1));
+            let (a, b) = tokio::join!(
+                Statement::named("SELECT 1", &[]).bind_none().execute(&owned),
+                Statement::named("SELECT 2", &[]).bind_none().execute(&owned),
+            );
+            assert_eq!((a.unwrap(), b.unwrap()), (1, 1));
+        }
+    })
+    .await
+    .expect("pool capacity blocked statement preparation or execution");
+}
+
+#[tokio::test]
 async fn multiple_hosts_one_port() {
     smoke_test("host=foobar.invalid,localhost port=5432 user=postgres password=postgres").await;
 }

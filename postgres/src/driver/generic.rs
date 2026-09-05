@@ -45,14 +45,19 @@ impl Drop for DriverTx {
 
 impl DriverTx {
     pub(crate) fn is_closed(&self) -> bool {
-        Arc::strong_count(&self.0) == 1
+        self.0.sem.is_closed()
+    }
+
+    // A scheduling hint only. send still acquires a permit and checks for closure.
+    pub(crate) fn has_capacity(&self) -> bool {
+        self.0.sem.available_permits() != 0
     }
 
     pub(crate) fn try_send<F, O>(&self, func: F) -> Result<(O, Response), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<O, Error>,
     {
-        // sync caller can not wait for a queue slot. it's told the driver is backed up instead.
+        // sync caller can not wait for an outstanding request to complete.
         let permit = self.0.sem.try_acquire().map_err(|e| match e {
             tokio::sync::TryAcquireError::Closed => Error::from(DriverDown),
             tokio::sync::TryAcquireError::NoPermits => Error::from(DriverBusy),
@@ -60,7 +65,7 @@ impl DriverTx {
         self._send(Some(permit), func, response_pair)
     }
 
-    /// waits for a queue slot instead of failing when the driver is backed up. a caller that goes
+    /// waits for request capacity instead of failing when the driver is backed up. a caller that goes
     /// away while waiting never encodes its request so the query is not sent to database.
     pub(crate) async fn send<F, O>(&self, func: F) -> Result<(O, Response), Error>
     where
@@ -89,14 +94,14 @@ impl DriverTx {
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
-        self._send(None, func, |_| {})?;
+        self._send(None, func, |_, _| {})?;
         Ok(())
     }
 
     fn _send<F, F2, O, T>(&self, permit: Option<SemaphorePermit<'_>>, func: F, on_send: F2) -> Result<(O, T), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<O, Error>,
-        F2: FnOnce(&mut State) -> T,
+        F2: FnOnce(&mut State, bool) -> T,
     {
         let mut inner = self.0.guarded.lock().unwrap();
 
@@ -107,9 +112,7 @@ impl DriverTx {
         let len = inner.buf.len();
 
         let o = func(&mut inner.buf).inspect_err(|_| inner.buf.truncate(len))?;
-        let size = inner.buf.len() - len;
-        inner.pending.push_back(Pending::new(size, permit.is_some()));
-        let t = on_send(&mut inner);
+        let t = on_send(&mut inner, permit.is_some());
 
         if let Some(permit) = permit {
             permit.forget();
@@ -120,9 +123,9 @@ impl DriverTx {
     }
 }
 
-fn response_pair(inner: &mut State) -> Response {
+fn response_pair(inner: &mut State, counted: bool) -> Response {
     let (tx, rx) = super::codec::request_pair();
-    inner.res.push_back(tx);
+    inner.res.push_back(PendingResponse { sender: tx, counted });
     rx
 }
 
@@ -139,18 +142,30 @@ impl Deref for DriverRx {
 // in case driver is dropped without closing the shared state
 impl Drop for DriverRx {
     fn drop(&mut self) {
-        self.guarded.lock().unwrap().shutdown();
+        self.shutdown();
     }
 }
 
 pub(crate) struct SharedState {
     pub(super) guarded: Mutex<State>,
-    // slots for request queued but not yet written to io. a permit is taken on send and given
-    // back by the driver once the request left the write buffer.
+    // slots for requests queued or awaiting a complete protocol response. send forgets its
+    // borrowed permit; removing a counted response returns it, independent of socket writes.
     pub(super) sem: Semaphore,
 }
 
 impl SharedState {
+    // DriverTx can outlive DriverRx and keeps the semaphore alive. close it explicitly so
+    // callers waiting for a queue slot observe DriverDown even when every permit is in use.
+    pub(super) fn close(&self) {
+        self.guarded.lock().unwrap().close();
+        self.sem.close();
+    }
+
+    pub(super) fn shutdown(&self) {
+        self.sem.close();
+        self.guarded.lock().unwrap().shutdown();
+    }
+
     pub(super) fn wait(&self) -> impl Future<Output = WriteState> + use<'_> {
         poll_fn(|cx| {
             let mut inner = self.guarded.lock().unwrap();
@@ -166,44 +181,16 @@ impl SharedState {
     }
 }
 
-// encoded byte length of a request paired with whether it holds a semaphore permit. an
-// unbounded request holds none but is still tracked: its bytes have to be accounted for or a
-// permit holding request behind it would be released before its own bytes left the buffer.
-//
-// the pair is packed into one usize with the low bit as the flag. a request is never large
-// enough for the shift to matter.
-#[derive(Clone, Copy)]
-pub(super) struct Pending(usize);
-
-impl Pending {
-    const MAX: usize = usize::MAX >> 1;
-
-    fn new(size: usize, counted: bool) -> Self {
-        debug_assert!(size <= Self::MAX, "byte length must not exceed {}", Self::MAX);
-        Self(size << 1 | usize::from(counted))
-    }
-
-    fn size(self) -> usize {
-        self.0 >> 1
-    }
-
-    fn counted(self) -> bool {
-        self.0 & 1 == 1
-    }
-
-    // shrink by the bytes written without disturbing the flag.
-    fn advance(&mut self, written: usize) {
-        debug_assert!(written <= self.size(), "can not advance beyond the byte length");
-        self.0 -= written << 1;
-    }
+// Unbounded cleanup also expects responses, but must not return a permit it never acquired.
+pub(super) struct PendingResponse {
+    sender: ResponseSender,
+    counted: bool,
 }
 
 pub(super) struct State {
     pub(super) closed: bool,
     pub(super) buf: BytesMut,
-    // every request in buf that has not been fully written yet.
-    pub(super) pending: VecDeque<Pending>,
-    pub(super) res: VecDeque<ResponseSender>,
+    pub(super) res: VecDeque<PendingResponse>,
     pub(super) waker: Option<Waker>,
 }
 
@@ -213,7 +200,6 @@ impl State {
     pub(super) fn close(&mut self) {
         self.closed = true;
         self.buf.clear();
-        self.pending.clear();
         self.wake();
     }
 
@@ -222,23 +208,6 @@ impl State {
     pub(super) fn shutdown(&mut self) {
         self.close();
         self.res.clear();
-    }
-
-    // count the request fully written to io and drop their entries. the returned count is the
-    // number of permits to give back to the semaphore.
-    fn on_write(&mut self, mut written: usize) -> usize {
-        let mut done = 0;
-        while let Some(front) = self.pending.front_mut() {
-            let size = front.size();
-            if size > written {
-                front.advance(written);
-                break;
-            }
-            written -= size;
-            done += usize::from(front.counted());
-            self.pending.pop_front();
-        }
-        done
     }
 
     fn register(&mut self, waker: &Waker) {
@@ -280,16 +249,15 @@ impl<Io> GenericDriver<Io>
 where
     Io: AsyncIo + Send,
 {
-    pub(crate) fn new(io: Io, max_queued_requests: usize) -> (Self, DriverTx) {
+    pub(crate) fn new(io: Io, max_in_flight_requests: usize) -> (Self, DriverTx) {
         let state = Arc::new(SharedState {
             guarded: Mutex::new(State {
                 closed: false,
                 buf: BytesMut::new(),
-                pending: VecDeque::new(),
                 res: VecDeque::new(),
                 waker: None,
             }),
-            sem: Semaphore::new(max_queued_requests),
+            sem: Semaphore::new(max_in_flight_requests),
         });
 
         (
@@ -304,8 +272,8 @@ where
         )
     }
 
-    // session preparation writes directly without taking a permit. DriverTx is not shared with
-    // a Client at this point so State::pending is empty and stays untouched.
+    // session preparation writes and reads directly without taking a request permit.
+    // DriverTx is not shared with a Client at this point.
     pub(crate) async fn send(&mut self, msg: BytesMut) -> Result<(), Error> {
         self.rx.guarded.lock().unwrap().buf.extend_from_slice(&msg);
         self.write_state = WriteState::WantWrite;
@@ -349,7 +317,7 @@ where
                 (ReadState::Closed(read_err), WriteState::Closed(write_err)) => {
                     // every message that could be decoded has been dispatched by now. requests
                     // still pending can never be answered.
-                    self.rx.guarded.lock().unwrap().shutdown();
+                    self.rx.shutdown();
                     return match (read_err, write_err) {
                         // decode above consumed every complete message so a non empty read buffer
                         // can only hold a partial one. remote closed in the middle of it.
@@ -368,6 +336,9 @@ where
 
             match res {
                 SelectOutput::A(res) => {
+                    // AsyncIo::ready only errors on runtime shutdown, when no further IO is
+                    // possible. abort immediately and leave cleanup to driver drop. connection
+                    // errors must come from Read/Write and follow the close paths below.
                     let ready = res?;
                     if ready.is_readable() {
                         let state = match self.try_read() {
@@ -437,10 +408,7 @@ where
                 inner.buf.advance(written);
             }
 
-            // hand back one slot for every request that made it out.
-            let done = inner.on_write(written);
             drop(inner);
-            self.rx.sem.add_permits(done);
 
             match res {
                 Ok(_) => self.write_state = WriteState::WantFlush,
@@ -461,7 +429,7 @@ where
     #[cold]
     #[inline(never)]
     fn on_read_close(&mut self, reason: Option<io::Error>) {
-        self.rx.guarded.lock().unwrap().close();
+        self.rx.close();
         self.read_state = ReadState::Closed(reason);
         self.on_close();
     }
@@ -469,7 +437,7 @@ where
     #[cold]
     #[inline(never)]
     fn on_write_err(&mut self, e: io::Error) {
-        self.rx.guarded.lock().unwrap().close();
+        self.rx.close();
         self.write_state = WriteState::Closed(Some(e));
         self.on_close();
     }
@@ -487,23 +455,37 @@ where
 impl DriverRx {
     pub(super) fn try_decode(&self, read_buf: &mut BytesMut) -> Result<Option<backend::Message>, Error> {
         let mut guard = None;
+        let mut completed = 0;
 
-        while let Some(res) = ResponseMessage::try_from_buf(read_buf)? {
-            match res {
-                ResponseMessage::Normal(mut msg) => {
+        let result = loop {
+            match ResponseMessage::try_from_buf(read_buf) {
+                Ok(Some(ResponseMessage::Normal(mut msg))) => {
                     // lock the shared state only when needed and keep the lock around a bit for possible multiple messages
                     let inner = guard.get_or_insert_with(|| self.guarded.lock().unwrap());
-                    let res = inner.res.pop_front().ok_or_else(|| msg.parse_error())?;
-                    let _ = res.send(msg.buf);
+
+                    let Some(res) = inner.res.pop_front() else {
+                        break Err(msg.parse_error());
+                    };
+
+                    let _ = res.sender.send(msg.buf);
+                    completed += usize::from(msg.complete & res.counted);
+
                     if !msg.complete {
                         inner.res.push_front(res);
                     }
                 }
-                ResponseMessage::Async(msg) => return Ok(Some(msg)),
+                Ok(Some(ResponseMessage::Async(msg))) => break Ok(Some(msg)),
+                Ok(None) => break Ok(None),
+                Err(e) => break Err(e),
             }
-        }
+        };
 
-        Ok(None)
+        // Also return completed slots when a later message is asynchronous or malformed.
+        // Wake senders after releasing the state lock they need to enqueue their requests.
+        drop(guard);
+        self.sem.add_permits(completed);
+
+        result
     }
 }
 
@@ -990,6 +972,24 @@ mod test {
     }
 
     const REQUEST: &[u8] = b"request";
+    const READY: &[u8] = b"Z\x00\x00\x00\x05I";
+
+    fn backend_message(tag: u8, body: &[u8]) -> BytesMut {
+        let mut msg = BytesMut::new();
+        msg.extend_from_slice(&[tag]);
+        msg.extend_from_slice(&((body.len() + 4) as u32).to_be_bytes());
+        msg.extend_from_slice(body);
+        msg
+    }
+
+    fn complete<Io>(drv: &GenericDriver<Io>, count: usize) {
+        let mut buf = BytesMut::new();
+        for _ in 0..count {
+            buf.extend_from_slice(READY);
+        }
+        assert!(drv.rx.try_decode(&mut buf).unwrap().is_none());
+        assert!(buf.is_empty());
+    }
 
     fn assert_busy(res: Result<Response, Error>) {
         match res {
@@ -1065,7 +1065,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn permit_is_released_once_written() {
+    async fn permit_is_released_only_after_response_completion() {
         let (mut drv, tx) = GenericDriver::new(WriteOkIo, 2);
 
         let _r1 = request(&tx).unwrap();
@@ -1074,15 +1074,18 @@ mod test {
 
         drive_once(&mut drv).await;
 
-        // both request left the write buffer so both slots are back.
+        assert!(drv.rx.guarded.lock().unwrap().buf.is_empty());
+        assert_busy(request(&tx));
+
+        complete(&drv, 2);
         let _r3 = request(&tx).unwrap();
         let _r4 = request(&tx).unwrap();
         assert_busy(request(&tx));
     }
 
-    // only request fully written to io give their slot back. a half written one keeps it.
+    // socket writes, including complete requests in a partial batch, never return slots.
     #[tokio::test]
-    async fn partial_write_releases_whole_request_only() {
+    async fn partial_write_retains_request_slots() {
         let budget = REQUEST.len() + 1;
         let (mut drv, tx) = GenericDriver::new(PartialWriteIo { budget }, 3);
 
@@ -1093,7 +1096,9 @@ mod test {
 
         drive_once(&mut drv).await;
 
-        // one request went out whole. the second is one byte in and holds its slot.
+        assert_eq!(drv.rx.guarded.lock().unwrap().buf.len(), REQUEST.len() * 3 - budget);
+        assert_busy(request(&tx));
+        complete(&drv, 1);
         let _r4 = request(&tx).unwrap();
         assert_busy(request(&tx));
     }
@@ -1114,37 +1119,134 @@ mod test {
         })
         .unwrap();
 
-        // the bypassing request is tracked for write accounting but holds no slot.
-        assert_eq!(drv.rx.guarded.lock().unwrap().pending.len(), 2);
+        // a one-way continuation has no independent response or request slot.
+        assert_eq!(drv.rx.guarded.lock().unwrap().res.len(), 1);
 
         drive_once(&mut drv).await;
 
-        // exactly one slot comes back. the bypassing request never took one so it must not
-        // release one either.
+        assert_busy(request(&tx));
+        complete(&drv, 1);
         let _r2 = request(&tx).unwrap();
         assert_busy(request(&tx));
     }
 
-    // an untracked teardown request would let the request behind it release its slot before its
-    // own bytes were written. a tight rollback loop on a stalled connection would drift far.
     #[tokio::test]
-    async fn teardown_send_does_not_release_a_slot_early() {
-        let budget = REQUEST.len();
-        let (mut drv, tx) = GenericDriver::new(PartialWriteIo { budget }, 1);
+    async fn unbounded_responses_do_not_inflate_capacity() {
+        let (drv, tx) = GenericDriver::new(WriteOkIo, 2);
+        let cleanup = || {
+            tx.send_unbounded(|buf| {
+                buf.extend_from_slice(b"rollback");
+                Ok(())
+            })
+            .unwrap()
+        };
+        let _cleanup1 = cleanup();
+        let _r1 = request(&tx).unwrap();
+        let _cleanup2 = cleanup();
+        let _r2 = request(&tx).unwrap();
+        assert_busy(request(&tx));
 
-        // queue a teardown ahead of the only slot holding request.
-        tx.send_one_way_unbounded(|buf| {
+        complete(&drv, 1);
+        assert_busy(request(&tx));
+        complete(&drv, 2);
+        let _r3 = request(&tx).unwrap();
+        assert_busy(request(&tx));
+        complete(&drv, 2);
+        assert_eq!(tx.0.sem.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn partial_response_and_sql_error_retain_the_slot() {
+        let (drv, tx) = GenericDriver::new(WriteOkIo, 1);
+        let mut res = request(&tx).unwrap();
+        let mut buf = backend_message(b'2', b"");
+        drv.rx.try_decode(&mut buf).unwrap();
+        assert!(matches!(res.recv().await.unwrap(), backend::Message::BindComplete));
+        assert_busy(request(&tx));
+
+        buf.extend_from_slice(&backend_message(b'E', b"SERROR\0C42601\0Mbad query\0\0"));
+        drv.rx.try_decode(&mut buf).unwrap();
+        assert!(res.recv().await.err().unwrap().downcast_ref::<DbError>().is_some());
+        assert_busy(request(&tx));
+
+        buf.extend_from_slice(&READY[..4]);
+        drv.rx.try_decode(&mut buf).unwrap();
+        assert_busy(request(&tx));
+        buf.extend_from_slice(&READY[4..]);
+        drv.rx.try_decode(&mut buf).unwrap();
+        request(&tx).unwrap();
+        assert_busy(request(&tx));
+    }
+
+    #[tokio::test]
+    async fn dropped_receiver_holds_capacity_until_protocol_completion() {
+        let (drv, tx) = GenericDriver::new(WriteOkIo, 1);
+        drop(request(&tx).unwrap());
+        assert_busy(request(&tx));
+        complete(&drv, 1);
+        request(&tx).unwrap();
+    }
+
+    #[tokio::test]
+    async fn completed_response_wakes_waiting_send() {
+        let (drv, tx) = GenericDriver::new(WriteOkIo, 1);
+        let _res = request(&tx).unwrap();
+        let mut waiting = core::pin::pin!(tx.send(|buf| {
             buf.extend_from_slice(REQUEST);
+            Ok(())
+        }));
+        let wake = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        struct WakeFlag(Arc<std::sync::atomic::AtomicBool>);
+        impl std::task::Wake for WakeFlag {
+            fn wake(self: Arc<Self>) {
+                self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        let waker = Waker::from(Arc::new(WakeFlag(wake.clone())));
+        assert!(waiting.as_mut().poll(&mut Context::from_waker(&waker)).is_pending());
+        complete(&drv, 1);
+        assert!(wake.load(std::sync::atomic::Ordering::Relaxed));
+        no_hang(waiting).await.unwrap();
+        assert_busy(request(&tx));
+    }
+
+    #[tokio::test]
+    async fn completion_before_async_message_or_decode_error_returns_capacity() {
+        for tail in [
+            backend_message(b'S', b"key\0value\0"),
+            BytesMut::from(&b"Z\0\0\0\x03"[..]),
+        ] {
+            let (drv, tx) = GenericDriver::new(WriteOkIo, 1);
+            let _res = request(&tx).unwrap();
+            let mut buf = BytesMut::from(READY);
+            buf.extend_from_slice(&tail);
+            let result = drv.rx.try_decode(&mut buf);
+            if tail[0] == b'S' {
+                assert!(matches!(result.unwrap(), Some(backend::Message::ParameterStatus(_))));
+            } else {
+                assert!(result.is_err());
+            }
+            assert_eq!(tx.0.sem.available_permits(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn copy_continuation_progresses_at_capacity_one() {
+        let (mut drv, tx) = GenericDriver::new(WriteOkIo, 1);
+        let _res = request(&tx).unwrap();
+        let mut buf = backend_message(b'G', b"\0\0\0");
+        drv.rx.try_decode(&mut buf).unwrap();
+        assert_busy(request(&tx));
+        tx.send_one_way_unbounded(|buf| {
+            frontend::copy_done(buf);
+            frontend::sync(buf);
             Ok(())
         })
         .unwrap();
-        let _r1 = request(&tx).unwrap();
-        assert_busy(request(&tx));
-
-        // io accepts exactly the teardown bytes. the slot holder has not moved at all.
         drive_once(&mut drv).await;
-
         assert_busy(request(&tx));
+        complete(&drv, 1);
+        request(&tx).unwrap();
     }
 
     #[tokio::test]
@@ -1182,7 +1284,7 @@ mod test {
         });
         drop(fut);
 
-        assert!(drv.rx.guarded.lock().unwrap().pending.is_empty());
+        assert!(drv.rx.guarded.lock().unwrap().res.is_empty());
 
         drive_once(&mut drv).await;
 
@@ -1214,7 +1316,7 @@ mod test {
         assert!(tokio::time::timeout(dur, waiting).await.is_err());
 
         // and it gave up without queuing anything.
-        assert_eq!(drv.rx.guarded.lock().unwrap().pending.len(), 1);
+        assert_eq!(drv.rx.guarded.lock().unwrap().res.len(), 1);
     }
 
     // request encoded before the driver's next write share one write syscall. polling them
@@ -1237,7 +1339,7 @@ mod test {
         r3.unwrap();
 
         assert_eq!(io.writes(), 0, "nothing is written until the driver runs");
-        assert_eq!(drv.rx.guarded.lock().unwrap().pending.len(), 3);
+        assert_eq!(drv.rx.guarded.lock().unwrap().res.len(), 3);
 
         drive_once(&mut drv).await;
 
@@ -1280,7 +1382,8 @@ mod test {
         assert!(no_hang(drv.try_next()).await.unwrap().is_none());
         assert_driver_down(request(&tx).map(|_| unreachable!()));
 
-        // driver terminates on close so the lossy hint catches up when it's dropped.
+        // Closure is visible even when the terminated driver value is retained.
+        assert!(tx.is_closed());
         drop(drv);
         assert!(tx.is_closed());
     }
@@ -1369,5 +1472,47 @@ mod test {
 
         assert_driver_down(no_hang(res.recv()).await);
         assert!(tx.is_closed());
+    }
+
+    // the waiting send owns no permit and has not encoded anything. closing the response
+    // channels alone cannot release it: the shared semaphore must be closed as well.
+    #[tokio::test]
+    async fn full_queue_waiter_released_on_driver_drop() {
+        let (drv, tx) = GenericDriver::new(WriteOkIo, 1);
+        let mut res = request(&tx).unwrap();
+        let mut waiting = core::pin::pin!(tx.send::<_, ()>(|_| panic!("closed driver must not encode")));
+        assert!(poll_fn(|cx| Poll::Ready(waiting.as_mut().poll(cx))).await.is_pending());
+
+        drop(drv);
+
+        assert_driver_down(no_hang(res.recv()).await);
+        assert_driver_down(no_hang(waiting).await.map(|_| unreachable!()));
+        assert_driver_down(request(&tx).map(|_| unreachable!()));
+    }
+
+    #[tokio::test]
+    async fn full_queue_waiter_released_on_eof() {
+        let (mut drv, tx) = GenericDriver::new(EofIo, 1);
+        let _res = request(&tx).unwrap();
+        let mut waiting = core::pin::pin!(tx.send::<_, ()>(|_| panic!("closed driver must not encode")));
+        assert!(poll_fn(|cx| Poll::Ready(waiting.as_mut().poll(cx))).await.is_pending());
+
+        assert!(no_hang(drv.try_next()).await.unwrap().is_none());
+
+        assert_driver_down(no_hang(waiting).await.map(|_| unreachable!()));
+        assert_driver_down(request(&tx).map(|_| unreachable!()));
+    }
+
+    #[tokio::test]
+    async fn full_queue_waiter_released_on_write_error() {
+        let (mut drv, tx) = GenericDriver::new(WriteErrIo, 1);
+        let _res = request(&tx).unwrap();
+        let mut waiting = core::pin::pin!(tx.send::<_, ()>(|_| panic!("closed driver must not encode")));
+        assert!(poll_fn(|cx| Poll::Ready(waiting.as_mut().poll(cx))).await.is_pending());
+
+        assert_io_err(no_hang(drv.try_next()).await, io::ErrorKind::ConnectionReset);
+
+        assert_driver_down(no_hang(waiting).await.map(|_| unreachable!()));
+        assert_driver_down(request(&tx).map(|_| unreachable!()));
     }
 }

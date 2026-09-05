@@ -56,7 +56,7 @@ pub struct Config {
     pub(crate) port: Vec<u16>,
     target_session_attrs: TargetSessionAttrs,
     tls_server_end_point: Option<Box<[u8]>>,
-    max_queued_requests: usize,
+    max_in_flight_requests: usize,
     keepalives: bool,
     keepalives_idle: Option<Duration>,
     keepalives_interval: Option<Duration>,
@@ -85,7 +85,7 @@ impl Config {
             port: Vec::new(),
             target_session_attrs: TargetSessionAttrs::Any,
             tls_server_end_point: None,
-            max_queued_requests: 1024,
+            max_in_flight_requests: 1024,
             keepalives: true,
             keepalives_idle: None,
             keepalives_interval: None,
@@ -320,30 +320,31 @@ impl Config {
         self.tls_server_end_point.as_deref()
     }
 
-    /// Sets the maximum number of requests that can be queued for write on a single connection.
+    /// Sets the maximum number of outstanding requests on a single connection.
     /// Defaults to `1024`.
     ///
-    /// a request occupies a slot from the moment it's encoded until its bytes are written to the
-    /// io. on a healthy connection this is momentary and the limit is never observed. when the
-    /// connection stops draining the queue fills up and further requests are rejected with
-    /// [`DriverBusy`] error instead of growing the write buffer without bound.
+    /// A request occupies a slot from encoding until the driver receives its complete protocol
+    /// response (`ReadyForQuery`). Socket writes do not release slots. At the limit, asynchronous
+    /// sends wait and synchronous sends return [`DriverBusy`] without encoding the request.
+    /// Protocol continuation and cleanup messages bypass the limit so they can complete work
+    /// already in progress.
     ///
-    /// there is no unlimited option on purpose: a connection that stops draining would grow the
-    /// write buffer until the machine runs out of memory.
+    /// This also bounds the number of ordinary requests queued for write. It is a request count,
+    /// not a byte limit or a connection health check.
     ///
     /// # Panics
     /// when given `0`. it would reject or block every request.
     ///
     /// [`DriverBusy`]: crate::error::DriverBusy
-    pub fn max_queued_requests(&mut self, max_queued_requests: usize) -> &mut Config {
-        assert!(max_queued_requests > 0, "max_queued_requests must not be 0");
-        self.max_queued_requests = max_queued_requests;
+    pub fn max_in_flight_requests(&mut self, max_in_flight_requests: usize) -> &mut Config {
+        assert!(max_in_flight_requests > 0, "max_in_flight_requests must not be 0");
+        self.max_in_flight_requests = max_in_flight_requests;
         self
     }
 
-    /// Reports the maximum number of requests that can be queued for write.
-    pub fn get_max_queued_requests(&self) -> usize {
-        self.max_queued_requests
+    /// Reports the maximum number of outstanding requests.
+    pub fn get_max_in_flight_requests(&self) -> usize {
+        self.max_in_flight_requests
     }
 
     /// Controls whether TCP keepalive is used. Defaults to `true`.
@@ -544,7 +545,7 @@ impl fmt::Debug for Config {
             .field("host", &self.host)
             .field("port", &self.port)
             .field("target_session_attrs", &self.target_session_attrs)
-            .field("max_queued_requests", &self.max_queued_requests)
+            .field("max_in_flight_requests", &self.max_in_flight_requests)
             .field("keepalives", &self.keepalives)
             .field("keepalives_idle", &self.keepalives_idle)
             .field("keepalives_interval", &self.keepalives_interval)
@@ -894,13 +895,13 @@ mod test {
         assert_eq!(cfg.get_keepalives_retries(), None);
         assert_eq!(cfg.get_tcp_user_timeout(), None);
         // a queue limit always exists. an unbounded write buffer would OOM a stalled connection.
-        assert_eq!(cfg.get_max_queued_requests(), 1024);
+        assert_eq!(cfg.get_max_in_flight_requests(), 1024);
     }
 
     #[test]
-    #[should_panic = "max_queued_requests must not be 0"]
+    #[should_panic = "max_in_flight_requests must not be 0"]
     fn zero_queue_limit_is_rejected() {
-        Config::new().max_queued_requests(0);
+        Config::new().max_in_flight_requests(0);
     }
 
     #[test]
