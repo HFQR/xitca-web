@@ -3328,6 +3328,7 @@ dependencies = [
  "rcgen",
  "rustls-pemfile",
  "sha2 0.11.0",
+ "socket2",
  "tempfile",
  "tokio",
  "tokio-uring-xitca",

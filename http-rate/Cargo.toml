@@ -7,7 +7,9 @@ license = "MIT"
 description = "rate limit for http crate types"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "rate-limit"]
-readme= "README.md"
+
+[lints]
+workspace = true
 
 [dependencies]
 http = { workspace = true }

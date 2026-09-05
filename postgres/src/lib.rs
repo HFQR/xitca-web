@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![cfg_attr(feature = "io-uring", feature(async_iterator, gen_blocks))]
-#![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
 
 mod cancel;
 mod client;
@@ -35,7 +34,7 @@ pub use self::{
     config::Config,
     driver::Driver,
     error::Error,
-    execute::{Execute, ExecuteBlocking},
+    execute::{Execute, ExecuteBlocking, ExecuteDyn},
     from_sql::FromSqlExt,
     query::{RowSimpleStream, RowSimpleStreamOwned, RowStream, RowStreamOwned},
     session::Session,

@@ -45,7 +45,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli.borrow_cli_ref().query(self)
+        cli.borrow_cli_ref().try_query(self)
     }
 }
 
@@ -60,7 +60,7 @@ where
     fn execute_blocking(self, cli: &'c C) -> Self::ExecuteOutput {
         let stmt = cli
             .borrow_cli_ref()
-            .query(StatementCreateBlocking::from((self, cli)))??;
+            .try_query(StatementCreateBlocking::from((self, cli)))??;
         Ok(stmt.into_guarded(cli))
     }
 
@@ -86,7 +86,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli.borrow_cli_ref().query(self)
+        cli.borrow_cli_ref().try_query(self)
     }
 }
 
@@ -106,7 +106,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &C) -> Self::QueryOutput {
-        cli.borrow_cli_ref().query(self)
+        cli.borrow_cli_ref().try_query(self)
     }
 }
 
@@ -145,7 +145,7 @@ where
 
     #[inline]
     fn query_blocking(self, cli: &'c C) -> Self::QueryOutput {
-        cli.borrow_cli_ref().query(self.into_with_cli(cli))
+        cli.borrow_cli_ref().try_query(self.into_with_cli(cli))
     }
 }
 

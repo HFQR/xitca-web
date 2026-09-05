@@ -7,7 +7,9 @@ description = "tls utility for xitca"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
-readme= "README.md"
+
+[lints]
+workspace = true
 
 [features]
 openssl = ["dep:openssl"]

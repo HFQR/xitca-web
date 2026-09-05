@@ -7,7 +7,9 @@ description = "async network io types and traits"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca", "xitca-web"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
-readme= "README.md"
+
+[lints]
+workspace = true
 
 [features]
 default = []

@@ -4,206 +4,95 @@ use crate::{
     driver::codec::AsParams,
     error::Error,
     execute::Execute,
-    query::{RowSimpleStream, RowStreamOwned},
+    query::{RowAffected, RowSimpleStream, RowStreamOwned},
     statement::StatementQuery,
 };
 
 use super::{Pool, PoolOwned};
 
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's> Execute<&'c Pool> for &'s str
 where
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<RowSimpleStream, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = RowSimpleStream;
 
     #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        Box::pin(async {
-            {
-                let conn = pool.get().await?;
-                self.execute(&conn)
-            }
-            // return connection to pool before await on execution future
-            .await
-        })
+    async fn execute(self, pool: &'c Pool) -> Result<Self::ExecuteOutput, Error> {
+        // response is owned so the connection goes back to the pool before it's awaited.
+        let affected = {
+            let conn = pool.get().await?;
+            self.query(&conn).await.map(RowAffected::from)
+        };
+        affected?.await
     }
 
     #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        Box::pin(async {
-            let conn = pool.get().await?;
-            self.query(&conn).await
-        })
+    async fn query(self, pool: &'c Pool) -> Result<Self::QueryOutput, Error> {
+        let conn = pool.get().await?;
+        self.query(&conn).await
     }
 }
 
-#[cfg(feature = "nightly")]
-impl<'c, 's> Execute<&'c Pool> for &'s str
-where
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<RowSimpleStream, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        async {
-            {
-                let conn = pool.get().await?;
-                self.execute(&conn)
-            }
-            // return connection to pool before await on execution future
-            .await
-        }
-    }
-
-    #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        async {
-            let conn = pool.get().await?;
-            self.query(&conn).await
-        }
-    }
-}
-
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P> Execute<&'c Pool> for StatementQuery<'s, P>
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<RowStreamOwned, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = RowStreamOwned;
 
     #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        Box::pin(async {
-            {
-                let mut conn = pool.get().await?;
-                self.execute(&mut conn).await?
-            }
-            // return connection to pool before await on execution future
-            .await
-        })
+    async fn execute(self, pool: &'c Pool) -> Result<Self::ExecuteOutput, Error> {
+        {
+            let mut conn = pool.get().await?;
+            self.execute(&mut conn).await?
+        }
+        // return connection to pool before await on execution future
+        .await
     }
 
     #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        Box::pin(async {
-            let mut conn = pool.get().await?;
-            self.query(&mut conn).await
-        })
+    async fn query(self, pool: &'c Pool) -> Result<Self::QueryOutput, Error> {
+        let mut conn = pool.get().await?;
+        self.query(&mut conn).await
     }
 }
 
-#[cfg(feature = "nightly")]
-impl<'c, 's, P> Execute<&'c Pool> for StatementQuery<'s, P>
-where
-    P: AsParams + Send + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        async {
-            {
-                let mut conn = pool.get().await?;
-                self.execute(&mut conn).await?
-            }
-            // return connection to pool before await on execution future
-            .await
-        }
-    }
-
-    #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        async {
-            let mut conn = pool.get().await?;
-            self.query(&mut conn).await
-        }
-    }
-}
-
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P, const N: usize> Execute<&'c Pool> for [StatementQuery<'s, P>; N]
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<Vec<RowStreamOwned>, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = Vec<RowStreamOwned>;
 
     #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        Box::pin(execute_iter_with_pool(self.into_iter(), pool))
-    }
-
-    #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        Box::pin(query_iter_with_pool(self.into_iter(), pool))
-    }
-}
-
-#[cfg(feature = "nightly")]
-impl<'c, 's, P, const N: usize> Execute<&'c Pool> for [StatementQuery<'s, P>; N]
-where
-    P: AsParams + Send + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<Vec<RowStreamOwned>, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
+    fn execute(self, pool: &'c Pool) -> impl Future<Output = Result<Self::ExecuteOutput, Error>> + Send {
         execute_iter_with_pool(self.into_iter(), pool)
     }
 
     #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
+    fn query(self, pool: &'c Pool) -> impl Future<Output = Result<Self::QueryOutput, Error>> + Send {
         query_iter_with_pool(self.into_iter(), pool)
     }
 }
 
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P> Execute<&'c Pool> for Vec<StatementQuery<'s, P>>
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<Vec<RowStreamOwned>, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = Vec<RowStreamOwned>;
 
     #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
-        Box::pin(execute_iter_with_pool(self.into_iter(), pool))
-    }
-
-    #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
-        Box::pin(query_iter_with_pool(self.into_iter(), pool))
-    }
-}
-
-#[cfg(feature = "nightly")]
-impl<'c, 's, P> Execute<&'c Pool> for Vec<StatementQuery<'s, P>>
-where
-    P: AsParams + Send + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<Vec<RowStreamOwned>, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c Pool) -> Self::ExecuteOutput {
+    fn execute(self, pool: &'c Pool) -> impl Future<Output = Result<Self::ExecuteOutput, Error>> + Send {
         execute_iter_with_pool(self.into_iter(), pool)
     }
 
     #[inline]
-    fn query(self, pool: &'c Pool) -> Self::QueryOutput {
+    fn query(self, pool: &'c Pool) -> impl Future<Output = Result<Self::QueryOutput, Error>> + Send {
         query_iter_with_pool(self.into_iter(), pool)
     }
 }
@@ -262,210 +151,99 @@ where
     type QueryOutput = Q::QueryOutput;
 
     #[inline]
-    fn execute(self, pool: &'c Arc<Pool>) -> Self::ExecuteOutput {
+    fn execute(self, pool: &'c Arc<Pool>) -> impl Future<Output = Result<Self::ExecuteOutput, Error>> + Send {
         Q::execute(self, pool)
     }
 
     #[inline]
-    fn query(self, pool: &'c Arc<Pool>) -> Self::QueryOutput {
+    fn query(self, pool: &'c Arc<Pool>) -> impl Future<Output = Result<Self::QueryOutput, Error>> + Send {
         Q::query(self, pool)
     }
 }
 
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's> Execute<&'c PoolOwned> for &'s str
 where
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<RowSimpleStream, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = RowSimpleStream;
 
     #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
-        Box::pin(async {
-            {
-                let conn = pool.get().await?;
-                self.execute(&conn)
-            }
-            // return connection to pool before await on execution future
-            .await
-        })
+    async fn execute(self, pool: &'c PoolOwned) -> Result<Self::ExecuteOutput, Error> {
+        // response is owned so the connection goes back to the pool before it's awaited.
+        let affected = {
+            let conn = pool.get().await?;
+            self.query(&conn).await.map(RowAffected::from)
+        };
+        affected?.await
     }
 
     #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
-        Box::pin(async {
-            let conn = pool.get().await?;
-            self.query(&conn).await
-        })
+    async fn query(self, pool: &'c PoolOwned) -> Result<Self::QueryOutput, Error> {
+        let conn = pool.get().await?;
+        self.query(&conn).await
     }
 }
 
-#[cfg(feature = "nightly")]
-impl<'c, 's> Execute<&'c PoolOwned> for &'s str
-where
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<RowSimpleStream, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
-        async {
-            {
-                let conn = pool.get().await?;
-                self.execute(&conn)
-            }
-            // return connection to pool before await on execution future
-            .await
-        }
-    }
-
-    #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
-        async {
-            let conn = pool.get().await?;
-            self.query(&conn).await
-        }
-    }
-}
-
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P> Execute<&'c PoolOwned> for StatementQuery<'s, P>
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<RowStreamOwned, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = RowStreamOwned;
 
     #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
-        Box::pin(async {
-            {
-                let mut conn = pool.get().await?;
-                self.execute(&mut conn).await?
-            }
-            // return connection to pool before await on execution future
-            .await
-        })
+    async fn execute(self, pool: &'c PoolOwned) -> Result<Self::ExecuteOutput, Error> {
+        {
+            let mut conn = pool.get().await?;
+            self.execute(&mut conn).await?
+        }
+        // return connection to pool before await on execution future
+        .await
     }
 
     #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
-        Box::pin(async {
-            let mut conn = pool.get().await?;
-            self.query(&mut conn).await
-        })
+    async fn query(self, pool: &'c PoolOwned) -> Result<Self::QueryOutput, Error> {
+        let mut conn = pool.get().await?;
+        self.query(&mut conn).await
     }
 }
 
-#[cfg(feature = "nightly")]
-impl<'c, 's, P> Execute<&'c PoolOwned> for StatementQuery<'s, P>
-where
-    P: AsParams + Send + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<RowStreamOwned, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
-        async {
-            {
-                let mut conn = pool.get().await?;
-                self.execute(&mut conn).await?
-            }
-            // return connection to pool before await on execution future
-            .await
-        }
-    }
-
-    #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
-        async {
-            let mut conn = pool.get().await?;
-            self.query(&mut conn).await
-        }
-    }
-}
-
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P, const N: usize> Execute<&'c PoolOwned> for [StatementQuery<'s, P>; N]
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<Vec<RowStreamOwned>, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = Vec<RowStreamOwned>;
 
     #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
-        Box::pin(execute_iter_with_pool_owned(self.into_iter(), pool))
-    }
-
-    #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
-        Box::pin(query_iter_with_pool_owned(self.into_iter(), pool))
-    }
-}
-
-#[cfg(feature = "nightly")]
-impl<'c, 's, P, const N: usize> Execute<&'c PoolOwned> for [StatementQuery<'s, P>; N]
-where
-    P: AsParams + Send + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<Vec<RowStreamOwned>, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
+    fn execute(self, pool: &'c PoolOwned) -> impl Future<Output = Result<Self::ExecuteOutput, Error>> + Send {
         execute_iter_with_pool_owned(self.into_iter(), pool)
     }
 
     #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
+    fn query(self, pool: &'c PoolOwned) -> impl Future<Output = Result<Self::QueryOutput, Error>> + Send {
         query_iter_with_pool_owned(self.into_iter(), pool)
     }
 }
 
-#[cfg(not(feature = "nightly"))]
 impl<'c, 's, P> Execute<&'c PoolOwned> for Vec<StatementQuery<'s, P>>
 where
     P: AsParams + Send + 'c,
     's: 'c,
 {
-    type ExecuteOutput = crate::BoxedFuture<'c, Result<u64, Error>>;
-    type QueryOutput = crate::BoxedFuture<'c, Result<Vec<RowStreamOwned>, Error>>;
+    type ExecuteOutput = u64;
+    type QueryOutput = Vec<RowStreamOwned>;
 
     #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
-        Box::pin(execute_iter_with_pool_owned(self.into_iter(), pool))
-    }
-
-    #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
-        Box::pin(query_iter_with_pool_owned(self.into_iter(), pool))
-    }
-}
-
-#[cfg(feature = "nightly")]
-impl<'c, 's, P> Execute<&'c PoolOwned> for Vec<StatementQuery<'s, P>>
-where
-    P: AsParams + Send + 'c,
-    's: 'c,
-{
-    type ExecuteOutput = impl Future<Output = Result<u64, Error>> + Send + 'c;
-    type QueryOutput = impl Future<Output = Result<Vec<RowStreamOwned>, Error>> + Send + 'c;
-
-    #[inline]
-    fn execute(self, pool: &'c PoolOwned) -> Self::ExecuteOutput {
+    fn execute(self, pool: &'c PoolOwned) -> impl Future<Output = Result<Self::ExecuteOutput, Error>> + Send {
         execute_iter_with_pool_owned(self.into_iter(), pool)
     }
 
     #[inline]
-    fn query(self, pool: &'c PoolOwned) -> Self::QueryOutput {
+    fn query(self, pool: &'c PoolOwned) -> impl Future<Output = Result<Self::QueryOutput, Error>> + Send {
         query_iter_with_pool_owned(self.into_iter(), pool)
     }
 }

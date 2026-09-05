@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use xitca_io::bytes::{Buf, Bytes, BytesMut};
 
 use super::{
@@ -12,6 +10,9 @@ use super::{
 };
 
 pub trait r#Copy: ClientBorrowMut {
+    /// copy messages are issued from sync methods that can not wait for a queue slot. copy data
+    /// is rate limited by the caller and copy done/fail complete a copy already in progress, so
+    /// none of them take part in backpressure.
     fn send_one_way<F>(&self, func: F) -> Result<(), Error>
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>;
@@ -23,7 +24,7 @@ impl r#Copy for Client {
     where
         F: FnOnce(&mut BytesMut) -> Result<(), Error>,
     {
-        self.tx.send_one_way(func)
+        self.tx.send_one_way_unbounded(func)
     }
 }
 
@@ -52,11 +53,15 @@ impl<'a, C> CopyIn<'a, C>
 where
     C: r#Copy + Send,
 {
-    pub fn new(client: &'a mut C, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
+    pub async fn new(client: &'a mut C, stmt: &Statement) -> Result<Self, Error> {
         // marker check to ensure exclusive borrowing Client. see ClientBorrowMut for detail
-        let res = client.borrow_cli_mut().query_raw(stmt.bind_none()).map(|(_, res)| res);
+        let res = client
+            .borrow_cli_mut()
+            .query_raw(stmt.bind_none())
+            .await
+            .map(|(_, res)| res);
 
-        async {
+        {
             let mut res = res?;
             match res.recv().await? {
                 backend::Message::BindComplete => {}
@@ -111,10 +116,14 @@ pub struct CopyOut {
 }
 
 impl CopyOut {
-    pub fn new(cli: &impl ClientBorrow, stmt: &Statement) -> impl Future<Output = Result<Self, Error>> + Send {
-        let res = cli.borrow_cli_ref().query_raw(stmt.bind_none()).map(|(_, res)| res);
+    pub async fn new(cli: &impl ClientBorrow, stmt: &Statement) -> Result<Self, Error> {
+        let res = cli
+            .borrow_cli_ref()
+            .query_raw(stmt.bind_none())
+            .await
+            .map(|(_, res)| res);
 
-        async {
+        {
             let mut res = res?;
 
             match res.recv().await? {

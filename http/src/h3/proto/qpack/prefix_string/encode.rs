@@ -57,13 +57,11 @@ impl HuffmanEncoder {
         self.ensure_free_space(encode_value.bit_count);
 
         let mut rest = encode_value.bit_count;
-        for i in 0..encode_value.buffer.len() {
-            let part = encode_value.buffer[i];
-
+        for part in encode_value.buffer {
             self.buffer_pos.forwards(if rest < 8 { rest } else { 8 });
             rest -= self.buffer_pos.count;
 
-            write_bits(&mut self.buffer, &self.buffer_pos, part)
+            write_bits(&mut self.buffer, &self.buffer_pos, *part)
         }
 
         Ok(())

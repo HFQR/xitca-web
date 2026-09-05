@@ -51,7 +51,7 @@ where
 {
     fn drop(&mut self) {
         if let Some(stmt) = self.stmt.take() {
-            let _ = self.cli.borrow_cli_ref().query_raw(stmt.cancel());
+            let _ = self.cli.borrow_cli_ref().query_unbounded_raw(stmt.cancel());
         }
     }
 }
@@ -387,7 +387,7 @@ where
         if Arc::strong_count(&self.stmt.name) == 1 {
             debug_assert_eq!(Arc::strong_count(&self.stmt.params), 1);
             debug_assert_eq!(Arc::strong_count(&self.stmt.columns), 1);
-            let _ = self.cli.borrow_cli_ref().query_raw(self.stmt.cancel());
+            let _ = self.cli.borrow_cli_ref().query_unbounded_raw(self.stmt.cancel());
         }
     }
 }

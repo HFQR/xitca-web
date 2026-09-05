@@ -7,7 +7,9 @@ description = "multipart for http crate type"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "multipart"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
-readme= "README.md"
+
+[lints]
+workspace = true
 
 [dependencies]
 bytes = { workspace = true }

@@ -7,7 +7,6 @@ description = "websocket for http crate type"
 repository = "https://github.com/HFQR/xitca-web"
 keywords = ["http", "websocket"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
-readme= "README.md"
 rust-version.workspace = true
 
 [lints]

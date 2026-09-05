@@ -8,7 +8,6 @@ repository = "https://github.com/HFQR/xitca-web"
 keywords = ["xitca-web", "database", "postgres", "sql", "async"]
 categories = ["database"]
 authors = ["fakeshadow <everestshadow@gmail.com>"]
-readme= "README.md"
 rust-version.workspace = true
 
 [lints]
@@ -20,29 +19,26 @@ tls = ["dep:xitca-tls", "xitca-tls/rustls-poll-ring-crypto", "dep:sha2", "dep:we
 
 # feature for using quic as client/server transport layer for better congetion handling on lossy connection.
 # note: it does not work as stand alone and server side proxy for translating quic message to tcp is needed.
-quic = ["dep:quinn", "dep:rustls-pemfile", "tls"]
+quic = ["dep:quinn", "dep:rustls-pemfile", "dep:tracing", "tls"]
 
 # compatibility feature to enable implements with `futures` crate
-compat = []
+compat = ["dep:futures-core"]
 
 # io-uring driver optional
 io-uring = ["xitca-io/runtime-uring", "dep:tokio-uring-xitca"]
-
-# nightly compiler specific feature. can only be enabled with nightly Rust
-nightly = []
 
 [dependencies]
 xitca-io = { workspace = true, features = ["runtime"] }
 xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
 fallible-iterator = { workspace = true }
-futures-core = { workspace = true }
+futures-core = { workspace = true, optional = true }
 lru = { workspace = true }
 percent-encoding = { workspace = true }
 postgres-protocol = { workspace = true }
 postgres-types = { workspace = true }
+socket2 = { workspace = true, features = ["all"] }
 tokio = { workspace = true, features = ["rt", "sync"] }
-tracing = { workspace = true }
 
 # tls
 sha2 = { workspace = true, optional = true }
@@ -52,6 +48,7 @@ xitca-tls = { workspace = true, optional = true }
 # quic
 quinn = { workspace = true, default-features = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
 #io-uring
 tokio-uring-xitca = { workspace = true, optional = true }

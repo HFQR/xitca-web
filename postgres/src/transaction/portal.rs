@@ -30,7 +30,12 @@ where
     C: ClientBorrow,
 {
     fn drop(&mut self) {
-        let _ = self.cli.borrow_cli_ref().query_raw(PortalCancel { name: &self.name });
+        // portal cancel completes a portal already opened on the server. a queue limit must
+        // not apply or the portal leaks until the connection closes.
+        let _ = self
+            .cli
+            .borrow_cli_ref()
+            .query_unbounded_raw(PortalCancel { name: &self.name });
     }
 }
 
@@ -44,12 +49,15 @@ where
     {
         let name = format!("p{}", crate::NEXT_ID.fetch_add(1, Ordering::Relaxed));
 
-        let (_, mut res) = cli.borrow_cli_ref().query_raw(PortalCreate {
-            name: &name,
-            stmt: stmt.name(),
-            types: stmt.params(),
-            params,
-        })?;
+        let (_, mut res) = cli
+            .borrow_cli_ref()
+            .query_raw(PortalCreate {
+                name: &name,
+                stmt: stmt.name(),
+                types: stmt.params(),
+                params,
+            })
+            .await?;
 
         match res.recv().await? {
             backend::Message::BindComplete => {}
@@ -59,14 +67,17 @@ where
         Ok(Portal { cli, name, stmt })
     }
 
-    pub fn query_portal(
+    pub async fn query_portal(
         &self,
         max_rows: i32,
     ) -> Result<<<PortalQuery<'_> as Encode>::Output as IntoResponse>::Response, Error> {
-        self.cli.borrow_cli_ref().query(PortalQuery {
-            name: &self.name,
-            columns: self.stmt.columns(),
-            max_rows,
-        })
+        self.cli
+            .borrow_cli_ref()
+            .query(PortalQuery {
+                name: &self.name,
+                columns: self.stmt.columns(),
+                max_rows,
+            })
+            .await
     }
 }

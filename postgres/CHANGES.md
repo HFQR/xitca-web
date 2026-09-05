@@ -4,14 +4,29 @@
 - add `pool::PoolOwned::get` method for acquiring pooled connection with relaxed lifetime bound
 - add `pool::PoolBuilder::build_owned` for building [`pool::PoolOwned`]
 - add `pool::PoolConnectionOwned` type alias
+- add `ExecuteDyn` trait for dynamic dispatching of `Execute` trait
+- add `error::DriverBusy` for expressing a busy driver entered backpressure state
+- add `Config::max_in_flight_requests` for driver backpressure configuration
+- add `Config::{keepalives, keepalives_idle, keepalives_interval, keepalives_retries, tcp_user_timeout}` for driver socket option configuration
 
 ## Change
 - update MSRV to 1.98
+- rework `Execute` trait into plain async trait with RPIT
 - rename `pool::PoolConnection` to `pool::GenericPoolConnection`
 - `pool::GenericPoolConnection` exposes generic type requiring `pool::PermitLike` trait bound
 - `pool::PoolConnection` becomes type alias of `pool::GenericPoolConnection<pool::Permit<'_>`
+- `Execute::execute` and `Execute::query` encode their request when the returned future is first polled rather than when they are called. a query whose future is dropped before polling is never sent to database
+- pipelining therefore needs explicit concurrent polling. polling several queries together with `join!` batches them into a single write while awaiting them one after another costs a round trip each
+- `portal::Portal::query_portal` becomes async
 - udate `xitca-tls` to `0.6.0`
 - update `tokio-uring-xitca` to `0.2.2`
+
+## Remove
+- removed `pool::GenericPoolConnection::consume` method. it existed to release a connection back to pool before awaiting eagerly encoded requests which no longer applies
+- removed `nightly` crate feature
+
+## Fix
+- improve driver shutdown handling
 
 # 0.4.0
 ## Fix
