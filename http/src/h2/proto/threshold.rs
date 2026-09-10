@@ -1,21 +1,15 @@
 use core::cmp::Ordering;
 
-use super::{
-    frame::settings::{DEFAULT_INITIAL_WINDOW_SIZE, Settings},
-    window::RecvWindow,
-};
+use super::window::RecvWindow;
 
-/// Per-stream receive window threshold (75% of SETTINGS_INITIAL_WINDOW_SIZE).
-/// When a stream's pending unconsumed bytes reach this level, a WINDOW_UPDATE
-/// is sent. Mirrors nginx's threshold, which is widely deployed and clients
-/// are tuned to work well against.
+/// Batch consumed stream credit until it reaches approximately 75% of the initial stream window.
+/// Connection credit is batched separately by the writer without a threshold.
 #[derive(Clone, Copy)]
 pub(super) struct RecvWindowThreshold(RecvWindow);
 
-impl From<&Settings> for RecvWindowThreshold {
-    fn from(settings: &Settings) -> Self {
-        let window = settings.initial_window_size().unwrap_or(DEFAULT_INITIAL_WINDOW_SIZE);
-        let threshold = window * 3 / 4;
+impl From<RecvWindow> for RecvWindowThreshold {
+    fn from(window: RecvWindow) -> Self {
+        let threshold = window.value() / 4 * 3;
         Self(RecvWindow::new(threshold))
     }
 }

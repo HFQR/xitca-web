@@ -65,7 +65,7 @@ pub(crate) struct FlowControl {
     recv_stream_initial_window: RecvWindow,
     /// Remaining bytes we are willing to receive on the whole connection.
     recv_connection_window: RecvWindow,
-    recv_threshold: RecvWindowThreshold,
+    recv_stream_threshold: RecvWindowThreshold,
     /// Per-stream state. Inserted when HEADERS arrives or response body starts;
     /// removed when both sides are done or on RST_STREAM.
     stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
@@ -98,7 +98,6 @@ impl FlowControl {
     pub(crate) fn new(settings: &Settings) -> Self {
         let recv_stream_initial_window = RecvWindow::new(settings.initial_window_size().unwrap());
         let max_concurrent_streams = settings.max_concurrent_streams().unwrap() as _;
-        let recv_threshold = RecvWindowThreshold::from(settings);
 
         Self {
             max_concurrent_streams,
@@ -109,7 +108,7 @@ impl FlowControl {
             max_frame_size: SendWindow::from_u32(settings::DEFAULT_MAX_FRAME_SIZE),
             recv_stream_initial_window,
             recv_connection_window: RecvWindow::default(),
-            recv_threshold,
+            recv_stream_threshold: RecvWindowThreshold::from(recv_stream_initial_window),
             stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
             reset_counter: ResetCounter::new(Self::RESET_MAX, Self::RESET_WINDOW),
             last_stream_id: LastStreamId::new(),
@@ -142,10 +141,12 @@ impl FlowControl {
         }
     }
 
-    pub(crate) fn request_body_drop(&mut self, id: StreamId, pending_window: RecvWindow) {
+    pub(crate) fn request_body_drop(&mut self, id: StreamId) {
         let stream = self.stream_map.get_mut(&id).expect(STREAM_MUST_EXIST);
 
-        let window = stream.maybe_close_recv(&mut self.frame_buf) + pending_window;
+        // Consumed bytes are already counted at connection scope. Release only
+        // the still-unconsumed queue here to avoid crediting those bytes twice.
+        let window = stream.maybe_close_recv(&mut self.frame_buf);
 
         let mut wake = window != RecvWindow::ZERO;
 
@@ -492,14 +493,21 @@ impl FlowControl {
             if let Some(bytes) = frame.data_ref() {
                 // bytes.len() bounded by SETTINGS_MAX_FRAME_SIZE (24-bit per RFC §6.5.2),
                 // so the cast is exact.
-                *pending_window += bytes.len() as u32;
+                let window = RecvWindow::new(bytes.len() as u32);
+                *pending_window += window;
 
-                if *pending_window >= self.recv_threshold {
+                // Connection credit is batched across bodies by the writer,
+                // independently of each stream's consumption threshold.
+                self.queue.connection_window_update(window);
+
+                if *pending_window >= self.recv_stream_threshold {
                     let window = mem::replace(pending_window, RecvWindow::ZERO);
                     stream.recv_window_update(window);
-                    self.queue.connection_window_update(window);
                     self.queue.stream_window_update(*id, window);
                 }
+
+                // A RequestBody can be polled outside the dispatcher's response queue.
+                self.queue.wake();
             }
             frame
         })
@@ -934,3 +942,6 @@ enum Message {
     GoAway { last_stream_id: StreamId, reason: Reason },
     Settings(Settings),
 }
+
+#[cfg(test)]
+mod tests;
