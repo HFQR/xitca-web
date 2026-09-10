@@ -1,5 +1,9 @@
 # unreleased
 
+# 0.9.8
+## Fix
+- fix HTTP/2 connection window update
+
 # 0.9.7
 ## Change
 - update MSRV to 1.98

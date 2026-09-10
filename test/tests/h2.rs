@@ -95,6 +95,192 @@ async fn h2_post() -> Result<(), Error> {
     Ok(())
 }
 
+/// Two uploads consume the entire 65,535-byte connection window while each
+/// remains below the per-stream receive threshold (49,149 bytes). Connection
+/// credit must be returned even though neither stream has reached its threshold.
+#[tokio::test]
+async fn h2_concurrent_uploads_replenish_connection_window() -> Result<(), Error> {
+    const UPLOAD_SIZE: usize = 64 * 1024;
+    const PREFIX_SIZES: [usize; 2] = [32_768, 32_767];
+
+    let (tx_consumed, mut rx_consumed) = tokio::sync::mpsc::unbounded_channel();
+    let svc = fn_service(move |req: Request<RequestExt<h2::RequestBody>>| {
+        let tx_consumed = tx_consumed.clone();
+        async move {
+            let index = match req.uri().path() {
+                "/upload-a" => 0,
+                "/upload-b" => 1,
+                path => return Err(format!("unexpected path {path}").into()),
+            };
+            let mut body = req.into_body();
+            let mut received = 0;
+            while let Some(data) = body.data().await {
+                received += data?.len();
+                if received == PREFIX_SIZES[index] {
+                    // Observe consumption without suspending the handler. It
+                    // continues reading and naturally waits in Body::poll_frame.
+                    let _ = tx_consumed.send((index, received));
+                }
+            }
+
+            Ok::<Response<ResponseBody>, Error>(
+                Response::builder()
+                    .header("x-uploaded-bytes", received.to_string())
+                    .body(Bytes::new().into())?,
+            )
+        }
+    });
+
+    let mut server = test_h2_server(svc)?;
+    let addr = server.addr();
+    let tcp = tokio::net::TcpStream::connect(addr).await?;
+    let (send, conn) = ::h2::client::handshake(tcp).await?;
+    let conn_task = tokio::spawn(conn);
+
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut send = send.ready().await?;
+        let request = |path| {
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("http://{addr}{path}"))
+                .version(Version::HTTP_2)
+                .header(header::CONTENT_LENGTH, UPLOAD_SIZE)
+                .body(())
+        };
+        let (response_a, mut stream_a) = send.send_request(request("/upload-a")?, false)?;
+        let (response_b, mut stream_b) = send.send_request(request("/upload-b")?, false)?;
+        let mut data_a = Bytes::from(vec![b'a'; UPLOAD_SIZE]);
+        let mut data_b = Bytes::from(vec![b'b'; UPLOAD_SIZE]);
+
+        // h2 splits these into legal DATA frames. Together they use exactly the
+        // initial connection window, leaving both request bodies unfinished.
+        stream_a.send_data(data_a.split_to(PREFIX_SIZES[0]), false)?;
+        stream_b.send_data(data_b.split_to(PREFIX_SIZES[1]), false)?;
+
+        let mut consumed = [0; 2];
+        while consumed != PREFIX_SIZES {
+            let (index, bytes) = rx_consumed
+                .recv()
+                .await
+                .ok_or("upload handlers stopped before consuming prefixes")?;
+            consumed[index] = bytes;
+        }
+
+        // More upload data is now available. It cannot reach the server until
+        // connection credit is replenished; stream credit alone is sufficient.
+        stream_a.send_data(data_a, true)?;
+        stream_b.send_data(data_b, true)?;
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            futures_util::future::try_join(response_a, response_b),
+        )
+        .await
+        .map_err(|_| {
+            format!(
+                "uploads stalled after the server consumed {consumed:?} bytes: \
+                 the exhausted connection window must be replenished below the per-stream threshold"
+            )
+        })?
+        .map_err(Error::from)
+    })
+    .await;
+
+    // Clean up even when the regression times out, before reporting failure.
+    conn_task.abort();
+    let _ = conn_task.await;
+    server.try_handle()?.stop(false);
+    server.await?;
+
+    let (response_a, response_b) = result??;
+    for response in [response_a, response_b] {
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["x-uploaded-bytes"], UPLOAD_SIZE.to_string());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn h2_body_consumed_in_separate_task_wakes_writer() -> Result<(), Error> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use xitca_http::{HttpServiceBuilder, config::HttpServiceConfig};
+    use xitca_service::ServiceExt;
+
+    const UPLOAD_SIZE: usize = 256 * 1024;
+
+    let consumed = Arc::new(AtomicUsize::new(0));
+    let svc = {
+        let consumed = consumed.clone();
+        fn_service(move |req: Request<RequestExt<h2::RequestBody>>| {
+            let consumed = consumed.clone();
+            async move {
+                // The dispatcher polls this JoinHandle, while a separate task
+                // polls RequestBody. The handle wakes only when reading ends.
+                let received = tokio::task::spawn_local(async move {
+                    let mut body = req.into_body();
+                    let mut received = 0;
+                    while let Some(data) = body.data().await {
+                        received += data?.len();
+                        consumed.store(received, Ordering::Relaxed);
+                    }
+                    Ok::<_, Error>(received)
+                })
+                .await??;
+
+                Ok::<Response<ResponseBody>, Error>(
+                    Response::builder()
+                        .header("x-uploaded-bytes", received.to_string())
+                        .body(Bytes::new().into())?,
+                )
+            }
+        })
+    };
+
+    // The normal test helper uses a 500 ms keepalive. A timer waking the
+    // dispatcher could flush queued credit and conceal the missing body wake.
+    let builder = HttpServiceBuilder::h2().config(HttpServiceConfig::new().keep_alive_timeout(Duration::from_secs(30)));
+    #[cfg(feature = "io-uring")]
+    let builder = builder.io_uring();
+    let mut server = xitca_test::test_server(svc.enclosed(builder))?;
+    let tcp = tokio::net::TcpStream::connect(server.addr()).await?;
+    let (send, conn) = ::h2::client::handshake(tcp).await?;
+    let conn_task = tokio::spawn(conn);
+
+    let result = tokio::time::timeout(Duration::from_secs(2), async {
+        let mut send = send.ready().await?;
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!("http://{}/upload", server.addr()))
+            .version(Version::HTTP_2)
+            .header(header::CONTENT_LENGTH, UPLOAD_SIZE)
+            .body(())?;
+        let (response, mut stream) = send.send_request(request, false)?;
+
+        // Several windows of DATA require repeated credit returns after the
+        // handshake traffic ends. No response is produced until body EOF.
+        stream.send_data(Bytes::from(vec![b'x'; UPLOAD_SIZE]), true)?;
+        response.await.map_err(Error::from)
+    })
+    .await;
+    let received = consumed.load(Ordering::Relaxed);
+
+    // Clean up before reporting a timeout, including the stalled reader task.
+    conn_task.abort();
+    let _ = conn_task.await;
+    server.try_handle()?.stop(false);
+    server.await?;
+
+    let response = result.map_err(|_| {
+        format!(
+            "separate body task consumed {received} of {UPLOAD_SIZE} bytes, but the upload stalled: \
+             queued WINDOW_UPDATE frames must wake the dispatcher"
+        )
+    })??;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-uploaded-bytes"], UPLOAD_SIZE.to_string());
+    Ok(())
+}
+
 #[tokio::test]
 async fn h2_connect() -> Result<(), Error> {
     let mut handle = test_h2_server(fn_service(handle))?;

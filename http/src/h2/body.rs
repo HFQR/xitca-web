@@ -17,9 +17,8 @@ pub struct RequestBody {
     id: StreamId,
     size: SizeHint,
     ctx: FlowControlClone,
-    /// Bytes consumed but not yet reported back as a WINDOW_UPDATE.
-    /// Flushed as a single message when the channel has no more items
-    /// ready, batching updates across consecutive chunks.
+    /// Consumed bytes waiting for this stream's WINDOW_UPDATE threshold.
+    /// Connection credit is accounted for separately across all request bodies.
     pending_window: RecvWindow,
 }
 
@@ -36,7 +35,7 @@ impl RequestBody {
 
 impl Drop for RequestBody {
     fn drop(&mut self) {
-        self.ctx.borrow_mut().request_body_drop(self.id, self.pending_window);
+        self.ctx.borrow_mut().request_body_drop(self.id);
     }
 }
 
