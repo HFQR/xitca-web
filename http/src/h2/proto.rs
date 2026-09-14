@@ -4,6 +4,7 @@ mod size;
 mod stream;
 mod threshold;
 
+pub(super) mod codec;
 pub(super) mod error;
 pub(super) mod flow;
 pub(super) mod frame;
