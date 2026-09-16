@@ -1,40 +1,33 @@
 use core::{
     cell::RefCell,
     mem,
-    task::{Context, Poll, Waker, ready},
+    task::{Context, Poll, ready},
     time::Duration,
 };
 
-use std::{
-    collections::{HashMap, VecDeque},
-    io,
-    rc::Rc,
-};
+use std::{collections::HashMap, io, rc::Rc};
 
 use xitca_unsafe_collection::no_hash::NoHashBuilder;
 
 use crate::{
     body::SizeHint,
-    bytes::{BufMut, Bytes, BytesMut},
+    bytes::{Bytes, BytesMut},
     http::{Method, Protocol, Request, Version, header::HeaderMap, uri},
 };
 
 use super::{
+    codec::EncodeContext,
     error::Error as ProtoError,
     frame::{
         data::Data,
-        go_away::GoAway,
-        head,
         headers::{Headers, ResponsePseudo},
         ping::Ping,
-        priority::Priority,
         reason::Reason,
         reset::Reset,
-        settings::{self, Settings},
+        settings::Settings,
         stream_id::StreamId,
         window_update::WindowUpdate,
     },
-    hpack,
     last_stream_id::LastStreamId,
     reset_counter::ResetCounter,
     size::BodySize,
@@ -55,8 +48,6 @@ pub(crate) type FlowControlLock = RefCell<FlowControl>;
 
 pub(crate) struct FlowControl {
     max_concurrent_streams: usize,
-    /// Remote's SETTINGS_MAX_FRAME_SIZE.
-    max_frame_size: SendWindow,
     /// Remaining bytes we may send on the whole connection.
     send_connection_window: SendWindow,
     /// Default send-window for new streams (RFC 9113 §6.9.2).
@@ -80,7 +71,7 @@ pub(crate) struct FlowControl {
     /// and signals the dispatcher's main loop that the graceful drain
     /// can terminate when the in-flight queue empties.
     last_stream_id: LastStreamId,
-    queue: WriterQueue,
+    encode: EncodeContext,
     /// Shared slab backing all per-stream recv frame deques, avoiding
     /// per-stream `VecDeque` allocations.
     frame_buf: FrameBuffer,
@@ -105,14 +96,13 @@ impl FlowControl {
             // peer's SETTINGS_INITIAL_WINDOW_SIZE is received and applied.
             send_connection_window: SendWindow::default(),
             send_stream_initial_window: SendWindow::default(),
-            max_frame_size: SendWindow::from_u32(settings::DEFAULT_MAX_FRAME_SIZE),
             recv_stream_initial_window,
             recv_connection_window: RecvWindow::default(),
             recv_stream_threshold: RecvWindowThreshold::from(recv_stream_initial_window),
             stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
             reset_counter: ResetCounter::new(Self::RESET_MAX, Self::RESET_WINDOW),
             last_stream_id: LastStreamId::new(),
-            queue: WriterQueue::new(),
+            encode: EncodeContext::new(),
             frame_buf: FrameBuffer::new(),
         }
     }
@@ -150,7 +140,7 @@ impl FlowControl {
 
         let mut wake = window != RecvWindow::ZERO;
 
-        self.queue.connection_window_update(window);
+        self.encode.connection_window_update(window);
 
         let remove = stream.try_remove();
 
@@ -162,11 +152,11 @@ impl FlowControl {
             }
         }
 
-        // body is detached from Decode/EncodeContext. wake up WriterQueue
+        // body is detached from Decode/EncodeContext. wake up the encoder
         // if there are connection window and/or reset/goaway message scheduled
         // to be sent
         if wake {
-            self.queue.wake();
+            self.encode.wake();
         }
     }
 
@@ -224,7 +214,7 @@ impl FlowControl {
             self.try_tick_reset()?;
         }
 
-        self.queue.push(Message::Reset { stream_id: id, reason });
+        self.encode.push_reset(id, reason);
         Ok(())
     }
 
@@ -347,7 +337,7 @@ impl FlowControl {
         self.recv_window_dec(flow_len)?;
 
         let stream = self.stream_map.get_mut(&id).ok_or_else(|| {
-            self.queue.connection_window_update(flow_len);
+            self.encode.connection_window_update(flow_len);
             Error::Reset(Reason::STREAM_CLOSED)
         })?;
 
@@ -370,8 +360,8 @@ impl FlowControl {
                 RecvData::StreamReset(size) => (size, RecvWindow::ZERO, true),
             };
 
-        self.queue.connection_window_update(conn_window);
-        self.queue.stream_window_update(id, stream_window);
+        self.encode.connection_window_update(conn_window);
+        self.encode.stream_window_update(id, stream_window);
 
         // try remove stream from map in case RequestBody is dropped before reaching end_stream or rst_stream state
         if want_remove {
@@ -417,14 +407,7 @@ impl FlowControl {
     }
 
     pub(crate) fn recv_ping(&mut self, ping: Ping) {
-        if ping.is_ack {
-            // ACK for our keepalive PING: return to Idle so `PingPong::tick`
-            // does not time out on the next tick.
-            self.queue.keepalive_ping = KeepalivePing::Idle;
-        } else {
-            // Client-initiated PING: always overwrite; we reply with ACK.
-            self.queue.pending_client_ping = Some(ping.payload);
-        }
+        self.encode.recv_ping(ping);
     }
 
     #[cold]
@@ -469,13 +452,13 @@ impl FlowControl {
         };
 
         if let Some(last_stream_id) = self.last_stream_id.try_go_away() {
-            self.queue.push(Message::GoAway { last_stream_id, reason });
+            self.encode.push_go_away(last_stream_id, reason);
         }
 
         let fatal = reason != Reason::NO_ERROR;
 
         if fatal {
-            self.queue.close();
+            self.encode.close();
         }
 
         fatal
@@ -498,16 +481,16 @@ impl FlowControl {
 
                 // Connection credit is batched across bodies by the writer,
                 // independently of each stream's consumption threshold.
-                self.queue.connection_window_update(window);
+                self.encode.connection_window_update(window);
 
                 if *pending_window >= self.recv_stream_threshold {
                     let window = mem::replace(pending_window, RecvWindow::ZERO);
                     stream.recv_window_update(window);
-                    self.queue.stream_window_update(*id, window);
+                    self.encode.stream_window_update(*id, window);
                 }
 
                 // A RequestBody can be polled outside the dispatcher's response queue.
-                self.queue.wake();
+                self.encode.wake();
             }
             frame
         })
@@ -518,7 +501,7 @@ impl FlowControl {
     }
 
     pub(super) fn try_set_pending_ping(&mut self) -> io::Result<()> {
-        self.queue.keepalive_ping.try_set_pending_ping()
+        self.encode.try_set_pending_ping()
     }
 
     fn try_tick_reset(&mut self) -> Result<(), Error> {
@@ -531,16 +514,7 @@ impl FlowControl {
 
     #[cold]
     #[inline(never)]
-    pub(crate) fn recv_priority(&mut self, head: head::Head, frame: &BytesMut) -> Result<(), Error> {
-        Priority::load(head, frame)?;
-        Ok(())
-    }
-
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn recv_setting(&mut self, head: head::Head, frame: &BytesMut) -> Result<(), Error> {
-        let setting = Settings::load(head, frame)?;
-
+    pub(crate) fn recv_setting(&mut self, setting: Settings) -> Result<(), Error> {
         if setting.is_ack() {
             return Ok(());
         }
@@ -563,79 +537,15 @@ impl FlowControl {
             }
         }
 
-        if let Some(frame_size) = setting.max_frame_size() {
-            self.max_frame_size = SendWindow::new(frame_size as i32);
-        }
-
-        // Record the pending ACK. A second SETTINGS before the first is ACKed
-        // is a protocol violation and returns ENHANCE_YOUR_CALM (CVE-2019-9515).
-        self.queue.pending_settings.try_update(setting)
+        self.encode.recv_setting(setting)
     }
 
-    pub(crate) fn poll_encode(
-        &mut self,
-        write_buf: &mut BytesMut,
-        encoder: &mut hpack::Encoder,
-        cx: &mut Context<'_>,
-    ) -> Poll<bool> {
-        while let Some(msg) = self.queue.try_recv() {
-            match msg {
-                Message::Head(headers) => {
-                    let frame_size = self.max_frame_size.as_frame_size();
-                    let mut cont = headers.encode(encoder, &mut write_buf.limit(frame_size));
-                    while let Some(c) = cont {
-                        cont = c.encode(&mut write_buf.limit(frame_size));
-                    }
-                }
-                Message::Trailer(headers) => {
-                    let frame_size = self.max_frame_size.as_frame_size();
-                    let mut cont = headers.encode(encoder, &mut write_buf.limit(frame_size));
-                    while let Some(c) = cont {
-                        cont = c.encode(&mut write_buf.limit(frame_size));
-                    }
-                }
-                Message::Data(mut data) => data.encode_chunk(write_buf),
-                Message::Reset { stream_id, reason } => Reset::new(stream_id, reason).encode(write_buf),
-                Message::WindowUpdate { stream_id, size } => {
-                    WindowUpdate::new(stream_id, size.value()).encode(write_buf)
-                }
-                Message::GoAway { last_stream_id, reason } => {
-                    GoAway::new(last_stream_id, reason).encode(write_buf);
-                    // GoAway may be graceful (queue stays open to drain in-flight frames)
-                    // or forceful (queue closed). The pusher decides via FlowControl::go_away;
-                    // we keep draining either way.
-                }
-                Message::Settings(settings) => settings.encode(write_buf),
-            }
-        }
-
-        self.queue.pending_settings.encode(encoder, write_buf);
-
-        let pending = mem::replace(&mut self.queue.pending_conn_window, RecvWindow::ZERO);
-        if pending != RecvWindow::ZERO {
-            self.recv_connection_window += pending;
-            WindowUpdate::new(StreamId::zero(), pending.value()).encode(write_buf);
-        }
-
-        // Encode a client PING ACK if one is waiting (take-and-clear).
-        if let Some(payload) = self.queue.pending_client_ping.take() {
-            Ping::new(payload, true).encode(write_buf);
-        }
-
-        self.queue.keepalive_ping.encode(write_buf);
-
-        if !write_buf.is_empty() {
-            Poll::Ready(true)
-        } else if self.queue.is_closed() {
-            Poll::Ready(false)
-        } else {
-            self.queue.register(cx);
-            Poll::Pending
-        }
+    pub(crate) fn poll_encode(&mut self, write_buf: &mut BytesMut, cx: &mut Context<'_>) -> Poll<bool> {
+        self.encode.poll_encode(write_buf, &mut self.recv_connection_window, cx)
     }
 
     pub(crate) fn send_headers(&mut self, headers: Headers<ResponsePseudo>) {
-        self.queue.push(Message::Head(headers));
+        self.encode.push_headers(headers);
     }
 
     pub(crate) fn poll_send_data(
@@ -655,7 +565,7 @@ impl FlowControl {
                 None
             } else {
                 let payload = mem::take(data);
-                self.queue.push_data(id, payload, end_stream);
+                self.encode.push_data(id, payload, end_stream);
                 Some(())
             };
             return Poll::Ready(opt);
@@ -666,7 +576,7 @@ impl FlowControl {
         loop {
             let len = data.len();
 
-            let req = SendWindow::from_usize_saturating(len).min(self.max_frame_size);
+            let req = SendWindow::from_usize_saturating(len).min(self.encode.max_frame_size());
 
             let Some(Ok(aval)) = ready!(stream.poll_send_window(req, &mut self.send_connection_window, cx)) else {
                 return Poll::Ready(Some(()));
@@ -683,7 +593,7 @@ impl FlowControl {
 
             let end_stream = all_consumed && end_stream;
 
-            self.queue.push_data(id, payload, end_stream);
+            self.encode.push_data(id, payload, end_stream);
 
             if end_stream {
                 return Poll::Ready(Some(()));
@@ -694,15 +604,15 @@ impl FlowControl {
     }
 
     pub(crate) fn send_trailers(&mut self, id: StreamId, trailers: HeaderMap) {
-        self.queue.push_trailers(id, trailers);
+        self.encode.push_trailers(id, trailers);
     }
 
     pub(crate) fn send_end_stream(&mut self, id: StreamId) {
-        self.queue.push_end_stream(id);
+        self.encode.push_end_stream(id);
     }
 
     pub(crate) fn close_write_queue(&mut self) {
-        self.queue.close();
+        self.encode.close();
     }
 
     pub(crate) fn reset_all_stream(&mut self, res: &io::Result<()>) {
@@ -719,196 +629,8 @@ impl FlowControl {
 
     pub(crate) fn init(&mut self, settings: Settings) {
         let delta = self.recv_stream_initial_window.saturating_sub(RecvWindow::default());
-        self.queue.connection_window_update(delta);
-        self.queue.push(Message::Settings(settings));
-    }
-}
-
-struct WriterQueue {
-    messages: VecDeque<Message>,
-    closed: bool,
-    /// The peer's latest SETTINGS frame, pending an ACK (CVE-2019-9515).
-    /// A well-behaved peer sends one SETTINGS and waits for the ACK before
-    /// sending another (RFC 9113 §6.5.3). A second SETTINGS arriving while
-    /// one is already pending kills the connection with ENHANCE_YOUR_CALM.
-    pending_settings: RemoteSettings,
-    /// Accumulated connection-level WINDOW_UPDATE increment. Mutated at push
-    /// time by all callers; flushed to a single connection frame after
-    /// `poll_encode` drains the queue.
-    pending_conn_window: RecvWindow,
-    /// State of the server-initiated keepalive PING. Replaces the old
-    /// `pending_ack` boolean; see `KeepalivePing` for the state transitions.
-    keepalive_ping: KeepalivePing,
-    /// A client-initiated PING whose ACK we must send. Stored outside the
-    /// write queue so queue depth is permanently bounded (CVE-2019-9512).
-    /// Always overwritten by the latest client PING; poll_encode takes and
-    /// clears it after encoding the ACK.
-    pending_client_ping: Option<[u8; 8]>,
-    waker: Option<Waker>,
-}
-
-impl WriterQueue {
-    fn new() -> Self {
-        Self {
-            messages: VecDeque::new(),
-            closed: false,
-            pending_settings: RemoteSettings::default(),
-            pending_conn_window: RecvWindow::ZERO,
-            keepalive_ping: KeepalivePing::Idle,
-            pending_client_ping: None,
-            waker: None,
-        }
-    }
-
-    fn push(&mut self, msg: Message) {
-        self.messages.push_back(msg);
-    }
-
-    /// Accumulate a connection-level WINDOW_UPDATE into `pending_conn_window`.
-    /// Flushed as a single connection frame after `poll_encode` drains the queue.
-    fn connection_window_update(&mut self, size: RecvWindow) {
-        self.pending_conn_window += size;
-    }
-
-    fn stream_window_update(&mut self, id: StreamId, size: RecvWindow) {
-        if size != RecvWindow::ZERO {
-            self.push(Message::WindowUpdate { stream_id: id, size })
-        }
-    }
-
-    fn push_data(&mut self, id: StreamId, payload: Bytes, end_stream: bool) {
-        let mut data = Data::new(id, payload);
-        data.set_end_stream(end_stream);
-        self.push(Message::Data(data));
-    }
-
-    fn push_trailers(&mut self, id: StreamId, trailers: HeaderMap) {
-        let trailer = Headers::trailers(id, trailers);
-        self.push(Message::Trailer(trailer));
-    }
-
-    /// Set END_STREAM on the most recent DATA frame for `stream_id` in place,
-    /// avoiding an extra zero-length frame in the common case (O(1)).
-    ///
-    /// On a single thread the body stream yields `None` immediately after its
-    /// last chunk with no intervening yield point, so the tail of the queue IS
-    /// the last DATA frame for this stream in the vast majority of cases.
-    /// The O(n) search and zero-length fallback handle the rare exceptions.
-    fn push_end_stream(&mut self, stream_id: StreamId) {
-        for msg in self.messages.iter_mut().rev() {
-            if let Message::Data(d) = msg
-                && d.stream_id() == stream_id
-            {
-                d.set_end_stream(true);
-                return;
-            }
-        }
-
-        // Fallback: last DATA already consumed by writer. Send a zero-length
-        // DATA frame with END_STREAM (9 bytes on the wire, no window cost).
-        self.push_data(stream_id, Bytes::new(), true);
-    }
-
-    fn close(&mut self) {
-        self.closed = true;
-    }
-
-    fn try_recv(&mut self) -> Option<Message> {
-        self.messages.pop_front()
-    }
-
-    fn is_closed(&self) -> bool {
-        self.closed
-    }
-
-    fn register(&mut self, cx: &mut Context<'_>) {
-        if self
-            .waker
-            .as_ref()
-            .filter(|waker| waker.will_wake(cx.waker()))
-            .is_none()
-        {
-            self.waker = Some(cx.waker().clone());
-        }
-    }
-
-    fn wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
-}
-
-#[derive(Default)]
-struct RemoteSettings {
-    header_table_size: Option<Option<u32>>,
-}
-
-impl RemoteSettings {
-    // Store incoming peer SETTINGS. Errors with ENHANCE_YOUR_CALM if a
-    // previous SETTINGS has not yet been ACKed (CVE-2019-9515).
-    #[cold]
-    #[inline(never)]
-    fn try_update(&mut self, settings: Settings) -> Result<(), Error> {
-        // Only one in flight peer settings is allowed. This is over restricted according
-        // to RFC and multiple settings on wire should be allowed. That said in practice
-        // only malicous peer would initliaze mutliple settings in short time burst.
-        if self.header_table_size.is_some() {
-            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
-        }
-        self.header_table_size = Some(settings.header_table_size());
-        Ok(())
-    }
-
-    /// Encode a SETTINGS ACK if one is pending and stage the peer's HPACK table size.
-    /// `Encoder` emits the staged size update at the head of the next header block,
-    /// therefore after this ACK on the wire as RFC 7541 §4.2 wants.
-    ///
-    /// MUST be called after `poll_encode` drained the write queue. The connection
-    /// preface pushed by `FlowControl::init` is a queue message and this is the only
-    /// writer that would otherwise get ahead of it. No-ops when nothing is pending.
-    fn encode(&mut self, encoder: &mut hpack::Encoder, buf: &mut BytesMut) {
-        if let Some(header_table_size) = self.header_table_size.take() {
-            if let Some(size) = header_table_size {
-                encoder.update_max_size(size as usize);
-            }
-            Settings::ack().encode(buf);
-        }
-    }
-}
-
-/// State machine for the server-initiated keepalive PING (CVE-2019-9512,
-/// CVE-2019-9517).
-///
-/// - `Idle`     — no keepalive in flight; `PingPong::tick` may queue one.
-/// - `Pending`  — `PingPong::tick` queued a PING; poll_encode has not encoded it yet.
-/// - `InFlight` — poll_encode sent the PING; waiting for the peer's ACK.
-///
-/// `PingPong::tick` treats both `Pending` and `InFlight` as "not yet ACKed",
-/// so it fires a timeout regardless of whether write_io is stalled (PING
-/// never left) or the peer is silent (PING was sent but no ACK arrived).
-enum KeepalivePing {
-    Idle,
-    Pending,
-    InFlight,
-}
-
-impl KeepalivePing {
-    fn encode(&mut self, write_buf: &mut BytesMut) {
-        // Encode our keepalive PING if it is queued but not yet sent, then
-        // transition to InFlight so we do not re-send it on the next pass.
-        if matches!(self, KeepalivePing::Pending) {
-            Ping::new([0u8; 8], false).encode(write_buf);
-            *self = KeepalivePing::InFlight;
-        }
-    }
-
-    fn try_set_pending_ping(&mut self) -> io::Result<()> {
-        if !matches!(self, KeepalivePing::Idle) {
-            return Err(io::Error::new(io::ErrorKind::TimedOut, "h2 ping timeout"));
-        }
-        *self = KeepalivePing::Pending;
-        Ok(())
+        self.encode.connection_window_update(delta);
+        self.encode.push_settings(settings);
     }
 }
 
@@ -931,16 +653,6 @@ impl From<StreamError> for Error {
     fn from(err: StreamError) -> Self {
         Self::Reset(err.reason())
     }
-}
-
-enum Message {
-    Head(Headers<ResponsePseudo>),
-    Data(Data),
-    Trailer(Headers<()>),
-    Reset { stream_id: StreamId, reason: Reason },
-    WindowUpdate { stream_id: StreamId, size: RecvWindow },
-    GoAway { last_stream_id: StreamId, reason: Reason },
-    Settings(Settings),
 }
 
 #[cfg(test)]

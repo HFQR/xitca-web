@@ -1,4 +1,6 @@
-# unreleased
+# unreleased 0.7.1
+## Add
+- add `ServerFuture::run_to_shutdown` and `ServerShutDownFuture::shutdown` methods
 
 # 0.7.0
 ## Change

@@ -155,8 +155,8 @@ impl Builder {
     pub fn build(self) -> ServerFuture {
         let enable_signal = self.enable_signal;
         match Server::new(self) {
-            Ok(server) => ServerFuture::Init { server, enable_signal },
-            Err(e) => ServerFuture::Error(e),
+            Ok(server) => ServerFuture::new(server, enable_signal),
+            Err(e) => ServerFuture::error(e),
         }
     }
 }

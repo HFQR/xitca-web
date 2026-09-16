@@ -149,7 +149,7 @@ xitca-http = { version = "0.9.8", default-features = false }
 xitca-io = "0.6.0"
 xitca-postgres-codegen = "0.1.0"
 xitca-router = "0.4.3"
-xitca-server = "0.7.0"
+xitca-server = "0.7.1"
 xitca-service = "0.3.0"
 xitca-tls = "0.6.0"
 xitca-unsafe-collection = "0.2.0"

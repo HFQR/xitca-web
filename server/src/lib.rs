@@ -27,4 +27,21 @@ mod test {
             .listen("test", listener, fn_service(|_: TcpStream| async { Ok::<_, ()>(()) }))
             .build();
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_two_phase_shutdown() -> std::io::Result<()> {
+        let listener = std::net::TcpListener::bind("localhost:0")?;
+        let mut server = crate::builder::Builder::new()
+            .disable_signal()
+            .listen("test", listener, fn_service(|_: TcpStream| async { Ok::<_, ()>(()) }))
+            .build();
+
+        let handle = server.handle()?;
+        let waiting = tokio::spawn(async move { server.run_to_shutdown().await });
+
+        handle.stop(true);
+
+        let shutdown = waiting.await.expect("shutdown waiter panicked")?;
+        shutdown.await
+    }
 }

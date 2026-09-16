@@ -1,14 +1,15 @@
 use super::*;
 
-use crate::bytes::Buf;
+use core::task::Waker;
 
-use super::super::frame::headers::Pseudo;
+use crate::bytes::{Buf, BufMut};
+
+use super::super::frame::{head, headers::Pseudo, settings};
 
 fn window_updates(flow: &mut FlowControl) -> Vec<(u32, u32)> {
     let mut buf = BytesMut::new();
-    let mut encoder = hpack::Encoder::default();
     let mut cx = Context::from_waker(Waker::noop());
-    let _ = flow.poll_encode(&mut buf, &mut encoder, &mut cx);
+    let _ = flow.poll_encode(&mut buf, &mut cx);
     let mut updates = Vec::new();
     while !buf.is_empty() {
         let len = buf.get_uint(3) as usize;
@@ -376,12 +377,11 @@ fn consuming_body_wakes_writer_and_coalesces_wakeups() {
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
     let mut buf = BytesMut::new();
-    let mut encoder = hpack::Encoder::default();
     let mut flow = new_flow(65_535);
     let mut pending_a = RecvWindow::ZERO;
     let mut pending_b = RecvWindow::ZERO;
 
-    assert!(flow.poll_encode(&mut buf, &mut encoder, &mut cx).is_pending());
+    assert!(flow.poll_encode(&mut buf, &mut cx).is_pending());
     receive(&mut flow, 1, 1024);
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
 
@@ -395,14 +395,14 @@ fn consuming_body_wakes_writer_and_coalesces_wakeups() {
     assert_eq!(window_updates(&mut flow), [(0, 2048)]);
 
     // The next consumption wakes the writer again after it parks.
-    assert!(flow.poll_encode(&mut buf, &mut encoder, &mut cx).is_pending());
+    assert!(flow.poll_encode(&mut buf, &mut cx).is_pending());
     receive(&mut flow, 1, 1024);
     assert_eq!(consume(&mut flow, 1, &mut pending_a), 1024);
     assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
     assert_eq!(window_updates(&mut flow), [(0, 1024)]);
 
     // Dropping unread DATA outside the dispatcher must also wake the writer.
-    assert!(flow.poll_encode(&mut buf, &mut encoder, &mut cx).is_pending());
+    assert!(flow.poll_encode(&mut buf, &mut cx).is_pending());
     receive(&mut flow, 3, 1024);
     flow.request_body_drop(StreamId::from(3));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 3);

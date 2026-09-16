@@ -2,7 +2,6 @@ use core::{
     cell::RefCell,
     fmt,
     future::poll_fn,
-    mem,
     net::SocketAddr,
     pin::{Pin, pin},
     task::{Context, Poll, ready},
@@ -38,22 +37,9 @@ use crate::{
 use super::{
     body::RequestBody,
     proto::{
-        error::Error as ProtoError,
-        flow::{DecodedRequest, FlowControlClone, FlowControlLock},
-        flow::{Error as FlowError, FlowControl, Frame},
-        frame::{
-            PREFACE,
-            data::Data,
-            go_away::GoAway,
-            head, headers,
-            ping::Ping,
-            reason::Reason,
-            reset::Reset,
-            settings::{self},
-            stream_id::StreamId,
-            window_update::WindowUpdate,
-        },
-        hpack,
+        codec::DecodeContext,
+        flow::{FlowControl, FlowControlClone, FlowControlLock, Frame},
+        frame::{PREFACE, headers, settings, stream_id::StreamId},
         ping_pong::PingPong,
     },
 };
@@ -66,169 +52,6 @@ struct Decoder<'a, S> {
     addr: SocketAddr,
 }
 
-struct DecodeContext {
-    max_frame_size: usize,
-    max_header_list_size: usize,
-    decoder: hpack::Decoder,
-    next_frame_len: usize,
-    continuation: Option<(headers::Headers, BytesMut)>,
-}
-
-impl DecodeContext {
-    fn try_decode(&mut self, buf: &mut BytesMut, flow: &mut FlowControl) -> Result<Option<DecodedRequest>, FlowError> {
-        loop {
-            if self.next_frame_len == 0 {
-                if buf.len() < 3 {
-                    return Ok(None);
-                }
-                let payload_len = buf.get_uint(3) as usize;
-                if payload_len > self.max_frame_size {
-                    return Err(FlowError::GoAway(Reason::FRAME_SIZE_ERROR));
-                }
-                self.next_frame_len = payload_len + 6;
-            }
-
-            if buf.len() < self.next_frame_len {
-                return Ok(None);
-            }
-
-            let len = mem::replace(&mut self.next_frame_len, 0);
-            let mut frame = buf.split_to(len);
-            let head = head::Head::parse(&frame);
-
-            // TODO: Make Head::parse auto advance the frame?
-            frame.advance(6);
-
-            if let Some(decoded) = self.decode_frame(head, frame, flow)? {
-                return Ok(Some(decoded));
-            }
-        }
-    }
-
-    fn decode_frame(
-        &mut self,
-        head: head::Head,
-        frame: BytesMut,
-        flow: &mut FlowControl,
-    ) -> Result<Option<DecodedRequest>, FlowError> {
-        match self._decode_frame(head, frame, flow) {
-            Err(FlowError::Reset(reason)) => {
-                flow.try_push_reset(head.stream_id(), reason)?;
-                Ok(None)
-            }
-            res => res,
-        }
-    }
-
-    fn _decode_frame(
-        &mut self,
-        head: head::Head,
-        frame: BytesMut,
-        flow: &mut FlowControl,
-    ) -> Result<Option<DecodedRequest>, FlowError> {
-        if self.continuation.is_some() && !matches!(head.kind(), head::Kind::Continuation) {
-            return Err(FlowError::GoAway(Reason::PROTOCOL_ERROR));
-        }
-
-        match head.kind() {
-            head::Kind::Headers => {
-                let (headers, payload) = headers::Headers::load(head, frame)?;
-                let is_end_headers = headers.is_end_headers();
-                return self.handle_header(headers, payload, is_end_headers, flow);
-            }
-            head::Kind::Data => {
-                let data = Data::load(head, frame.freeze())?;
-                flow.recv_data(data)?;
-            }
-            head::Kind::WindowUpdate => {
-                let window = WindowUpdate::load(head, frame.as_ref())?;
-                flow.recv_window_update(window)?;
-            }
-            head::Kind::Ping => {
-                let ping = Ping::load(head, frame.as_ref())?;
-                flow.recv_ping(ping);
-            }
-            head::Kind::Reset => {
-                let reset = Reset::load(head, frame.as_ref())?;
-                flow.recv_reset(reset)?;
-            }
-            head::Kind::GoAway => {
-                let go_away = GoAway::load(head.stream_id(), frame.as_ref())?;
-                return Err(FlowError::GoAway(go_away.reason()));
-            }
-            head::Kind::Continuation => return self.handle_continuation(head, frame, flow),
-            head::Kind::PushPromise => return Err(FlowError::GoAway(Reason::PROTOCOL_ERROR)),
-            head::Kind::Priority => flow.recv_priority(head, &frame)?,
-            head::Kind::Settings => flow.recv_setting(head, &frame)?,
-            head::Kind::Unknown => {}
-        }
-        Ok(None)
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn handle_continuation(
-        &mut self,
-        head: head::Head,
-        frame: BytesMut,
-        flow: &mut FlowControl,
-    ) -> Result<Option<DecodedRequest>, FlowError> {
-        let is_end_headers = (head.flag() & 0x4) == 0x4;
-
-        let (headers, mut payload) = self
-            .continuation
-            .take()
-            .ok_or(FlowError::GoAway(Reason::PROTOCOL_ERROR))?;
-
-        // RFC 9113 §6.10: CONTINUATION without a preceding incomplete HEADERS
-        // is a connection error PROTOCOL_ERROR
-        if headers.stream_id() != head.stream_id() {
-            return Err(FlowError::GoAway(Reason::PROTOCOL_ERROR));
-        }
-
-        payload.unsplit(frame);
-        self.handle_header(headers, payload, is_end_headers, flow)
-    }
-
-    fn handle_header(
-        &mut self,
-        mut headers: headers::Headers,
-        mut payload: BytesMut,
-        is_end_headers: bool,
-        flow: &mut FlowControl,
-    ) -> Result<Option<DecodedRequest>, FlowError> {
-        if let Err(e) = headers.load_hpack(&mut payload, self.max_header_list_size, &mut self.decoder) {
-            return match e {
-                // NeedMore on a multi-frame header block is normal; accumulate and wait
-                // for CONTINUATION frames (RFC 9113 §6.10).
-                ProtoError::Hpack(hpack::DecoderError::NeedMore(_)) if !is_end_headers => {
-                    self.continuation = Some((headers, payload));
-                    Ok(None)
-                }
-                // Pseudo-header validation errors are stream-level (RFC 9113 §8.1.1).
-                // The HPACK context was decoded successfully so no compression error.
-                ProtoError::MalformedMessage => {
-                    let id = headers.stream_id();
-                    if flow.try_set_last_stream_id(id)?.is_none() {
-                        return Ok(None);
-                    }
-                    Err(FlowError::Reset(Reason::PROTOCOL_ERROR))
-                }
-                _ => Err(FlowError::GoAway(Reason::COMPRESSION_ERROR)),
-            };
-        }
-
-        if !is_end_headers {
-            self.continuation = Some((headers, payload));
-            return Ok(None);
-        }
-
-        let id = headers.stream_id();
-
-        flow.recv_header(id, headers)
-    }
-}
-
 impl<'a, S> Decoder<'a, S> {
     fn new(
         flow: &'a FlowControlClone,
@@ -239,13 +62,7 @@ impl<'a, S> Decoder<'a, S> {
         date: &'a DateTimeHandle,
     ) -> Self {
         Self {
-            ctx: DecodeContext {
-                max_frame_size,
-                max_header_list_size,
-                decoder: hpack::Decoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE),
-                next_frame_len: 0,
-                continuation: None,
-            },
+            ctx: DecodeContext::new(max_frame_size, max_header_list_size),
             flow,
             service,
             date,
@@ -264,24 +81,6 @@ async fn read_io<const LIMIT: usize>(mut buf: BytesMut, io: &impl AsyncBufRead) 
     buf.reserve(4096);
     let (res, buf) = io.read(buf.slice(len..)).await;
     (res, buf.into_inner())
-}
-
-struct Encoder<'a> {
-    encoder: hpack::Encoder,
-    flow: &'a FlowControlLock,
-}
-
-impl<'a> Encoder<'a> {
-    fn new(flow: &'a FlowControlLock) -> Self {
-        Self {
-            encoder: hpack::Encoder::new(settings::DEFAULT_SETTINGS_HEADER_TABLE_SIZE, 4096),
-            flow,
-        }
-    }
-
-    fn poll_encode(&mut self, write_buf: &mut BytesMut, cx: &mut Context<'_>) -> Poll<bool> {
-        self.flow.borrow_mut().poll_encode(write_buf, &mut self.encoder, cx)
-    }
 }
 
 async fn response_task<S, ReqB, ResB, ResBE>(
@@ -504,7 +303,6 @@ where
     let flow = Rc::new(RefCell::new(flow));
 
     let mut ctx = Decoder::new(&flow, service, max_frame_size, max_header_list_size, addr, date);
-    let mut enc = Encoder::new(&flow);
 
     let mut queue = Queue::new();
     let mut ping_pong = PingPong::new(ka.as_mut(), &flow, date, config.keep_alive_timeout);
@@ -515,7 +313,7 @@ where
         let mut read_task = pin!(read_io::<READ_BUF_LIMIT>(read_buf, &io));
 
         let mut write_task = pin!(async {
-            while poll_fn(|cx| enc.poll_encode(&mut write_buf, cx)).await {
+            while poll_fn(|cx| flow.borrow_mut().poll_encode(&mut write_buf, cx)).await {
                 let (res, buf) = io.write(write_buf).await;
 
                 write_buf = buf;
