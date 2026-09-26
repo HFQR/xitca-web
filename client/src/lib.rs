@@ -75,6 +75,9 @@ pub use self::builder::ClientBuilder;
 pub use self::client::Client;
 pub use self::connect::Connect;
 pub use self::connection::{ConnectionExclusive, ConnectionKey, ConnectionShared, Ready};
+pub use self::pool::balance::{
+    BalancePool, HashBalance, HashKey, HostHashKey, LeastUsedBalance, LeastUsedGuard, LoadBalance, RandomBalance,
+};
 pub use self::pool::service::{Lease, Leaser, PoolRequest, SpawnOutCome};
 pub use self::request::RequestBuilder;
 pub use self::response::Response;

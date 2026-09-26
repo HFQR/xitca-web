@@ -120,6 +120,11 @@ impl<'a> Connect<'a> {
             Addrs::Multi(ref addrs) => AddrsIter::Multi(addrs.iter()),
         }
     }
+
+    /// Is connect resolved
+    pub fn is_resolved(&self) -> bool {
+        !matches!(self.addr, Addrs::None)
+    }
 }
 
 impl fmt::Display for Connect<'_> {

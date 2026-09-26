@@ -8,7 +8,10 @@ use crate::{
     date::DateTimeService,
     error::Error,
     middleware,
-    pool::service::{self as pool_service, PoolRequest, PoolService},
+    pool::{
+        balance,
+        service::{self as pool_service, PoolRequest, PoolService},
+    },
     resolver::{ResolverService, base_resolver},
     response::Response,
     service::{HttpService, Service, ServiceRequest, async_fn::AsyncFn, http::base_service},
@@ -563,9 +566,21 @@ impl ClientBuilder {
             endpoint
         };
 
-        let pool = self
-            .pool
-            .unwrap_or_else(|| pool_service::base_pool(self.pool_capacity, self.keep_alive_idle, self.keep_alive_born));
+        let pool = self.pool.unwrap_or_else(|| {
+            // resolve through the (potentially TTL-aware / cached) resolver on every
+            // request rather than baking a hostname -> address mapping into the
+            // connection cache: a pool keyed purely on hostname would keep reusing
+            // connections to addresses dns has since rotated away from. balancing
+            // across the resolved addresses is a side benefit of doing the lookup
+            // up front; `RandomBalance` picks among them when there's more than one,
+            // and is a no-op when (as is the common case) there's just one.
+            Box::new(balance::BalancePool::new(
+                balance::RandomBalance,
+                self.pool_capacity,
+                self.keep_alive_idle,
+                self.keep_alive_born,
+            ))
+        });
 
         Client {
             pool,
