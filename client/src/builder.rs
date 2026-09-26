@@ -174,7 +174,7 @@ impl ClientBuilder {
     ///
     /// // a lease of customized connection pool
     /// struct MyPoolLease {
-    ///     conn: ConnectionExclusive,
+    ///     conn: Option<ConnectionExclusive>,
     /// }
     ///
     /// // trait impls required for lease type
@@ -182,13 +182,13 @@ impl ClientBuilder {
     ///     type Target = ConnectionExclusive;
     ///
     ///     fn deref(&self) -> &Self::Target {
-    ///         &self.conn
+    ///         self.conn.as_ref().expect("conn must not be none")
     ///     }
     /// }
     ///
     /// impl DerefMut for MyPoolLease {
     ///     fn deref_mut(&mut self) -> &mut Self::Target {
-    ///         &mut self.conn
+    ///         self.conn.as_mut().expect("conn must not be none")
     ///     }
     /// }
     ///
@@ -197,6 +197,10 @@ impl ClientBuilder {
     ///
     ///     fn is_marked_destroy(&self) -> bool {
     ///         true
+    ///     }
+    ///
+    ///     fn detach(&mut self) -> ConnectionExclusive {
+    ///         self.conn.take().expect("Conn always contains a connection")
     ///     }
     /// }
     ///
@@ -210,7 +214,7 @@ impl ClientBuilder {
     ///         match req.spawn().await? {
     ///             SpawnOutCome::Exclusive { conn, version } => {
     ///                 // construct the customized lease type and return as result.
-    ///                 let lease = Lease::exclusive(MyPoolLease { conn }, version);
+    ///                 let lease = Lease::exclusive(MyPoolLease { conn: Some(conn) }, version);
     ///                 Ok(lease)
     ///             }
     ///             SpawnOutCome::Shared { .. } => todo!("shared connection for http2/http3"),

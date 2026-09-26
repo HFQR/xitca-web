@@ -2,6 +2,7 @@ use crate::{
     Service, ServiceRequest,
     connect::Connect,
     error::Error,
+    http::header,
     pool::service::{Lease, PoolRequest},
     response::Response,
     service::ServiceDyn,
@@ -103,10 +104,14 @@ pub(crate) fn base_service() -> HttpService {
 
                         match res {
                             Ok(Ok((res, buf, decoder, is_close))) => {
+                                let is_sse = is_event_source(&res);
                                 if is_close {
                                     _conn.mark_destroy();
                                 }
-                                let body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
+                                let mut body = crate::h1::body::ResponseBody::new(_conn, buf, decoder);
+                                if is_sse {
+                                    body.detach_from_pool();
+                                }
                                 let res = res.map(|_| crate::body::ResponseBody::H1(body));
                                 let timeout = client.timeout_config.response_timeout;
                                 Ok(Response::new(res, timer, timeout))
@@ -133,4 +138,11 @@ pub(crate) fn base_service() -> HttpService {
     }
 
     Box::new(HttpService)
+}
+
+fn is_event_source(res: &crate::http::Response<()>) -> bool {
+    res.headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/event-stream"))
 }

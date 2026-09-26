@@ -65,7 +65,9 @@ impl WsRequest<'_> {
             }));
         }
 
-        let body = res.res.into_body();
+        let mut body = res.res.into_body();
+        body.detach_from_pool();
+
         Ok(WebSocket::new(WebSocketTunnel {
             codec: Codec::new().client_mode(),
             send_buf: BytesMut::new(),
@@ -156,7 +158,7 @@ impl Sink<Message> for WebSocketTunnel {
         match self.get_mut().recv_stream.inner_mut() {
             #[cfg(feature = "http1")]
             ResponseBody::H1(body) => {
-                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(body.conn_mut().deref_mut()), cx).map_err(Into::into)
+                xitca_io::io::AsyncIo::poll_shutdown(Pin::new(body.conn_mut()), cx).map_err(Into::into)
             }
             #[cfg(feature = "http2")]
             ResponseBody::H2(body) => {
