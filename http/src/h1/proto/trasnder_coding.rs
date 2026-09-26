@@ -33,6 +33,9 @@ pub enum TransferCoding {
     EncodeChunked,
     /// Upgrade type coder that pass through body as is without transforming.
     Upgrade,
+    /// Decoder for HTTP/1.0-style responses where the body is delimited by
+    /// connection closure (no Content-Length, no Transfer-Encoding, Connection: close).
+    CloseDelimited,
 }
 
 /// State for accumulating chunked trailer headers during decode.
@@ -149,6 +152,11 @@ impl TransferCoding {
         Self::Upgrade
     }
 
+    #[inline]
+    pub const fn close_delimited() -> Self {
+        Self::CloseDelimited
+    }
+
     /// Check if Self is in EOF state. An EOF state means TransferCoding is ended gracefully
     /// and can not decode any value. See [TransferCoding::decode] for detail.
     #[inline]
@@ -163,6 +171,11 @@ impl TransferCoding {
     #[inline]
     pub fn is_upgrade(&self) -> bool {
         matches!(self, Self::Upgrade)
+    }
+
+    #[inline]
+    pub fn is_close_delimited(&self) -> bool {
+        matches!(self, Self::CloseDelimited)
     }
 }
 
@@ -408,7 +421,7 @@ impl TransferCoding {
         }
 
         match *self {
-            Self::Upgrade => buf.write_buf_bytes(bytes),
+            Self::Upgrade | Self::CloseDelimited => buf.write_buf_bytes(bytes),
             Self::EncodeChunked => buf.write_buf_bytes_chunked(bytes),
             Self::Length(ref mut rem) => {
                 let len = bytes.len() as u64;
@@ -433,7 +446,7 @@ impl TransferCoding {
         W: H1BufWrite,
     {
         match *self {
-            Self::Eof | Self::Upgrade | Self::Length(0) => {}
+            Self::Eof | Self::Upgrade | Self::CloseDelimited | Self::Length(0) => {}
             Self::EncodeChunked => match trailers {
                 Some(trailers) => buf.write_buf_trailers(trailers),
                 None => buf.write_buf_static(b"0\r\n\r\n"),
@@ -462,7 +475,7 @@ impl TransferCoding {
             Self::Corrupted => ChunkResult::Corrupted,
             ref _this if src.is_empty() => ChunkResult::InsufficientData,
             Self::Length(ref mut rem) => ChunkResult::Ok(bounded_split(rem, src)),
-            Self::Upgrade => ChunkResult::Ok(src.split().freeze()),
+            Self::Upgrade | Self::CloseDelimited => ChunkResult::Ok(src.split().freeze()),
             Self::DecodeChunked {
                 ref mut state,
                 ref mut size,
