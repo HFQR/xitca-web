@@ -1,6 +1,10 @@
 //! Connection configuration. copy/paste from `tokio-postgres`
 
-use core::{fmt, iter, mem, str, time::Duration};
+use core::{
+    fmt, iter, mem,
+    str::{CharIndices, FromStr},
+    time::Duration,
+};
 
 use std::{
     borrow::Cow,
@@ -511,7 +515,7 @@ impl TryFrom<String> for Config {
     type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        Self::try_from(s.as_str())
+        s.as_str().try_into()
     }
 }
 
@@ -519,6 +523,14 @@ impl TryFrom<&str> for Config {
     type Error = Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
+        FromStr::from_str(s)
+    }
+}
+
+impl FromStr for Config {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match UrlParser::parse(s)? {
             Some(config) => Ok(config),
             None => Parser::parse(s),
@@ -557,7 +569,7 @@ impl fmt::Debug for Config {
 
 struct Parser<'a> {
     s: &'a str,
-    it: iter::Peekable<str::CharIndices<'a>>,
+    it: iter::Peekable<CharIndices<'a>>,
 }
 
 impl<'a> Parser<'a> {
