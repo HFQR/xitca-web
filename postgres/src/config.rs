@@ -515,7 +515,15 @@ impl TryFrom<String> for Config {
     type Error = Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        FromStr::from_str(s.as_str())
+        s.as_str().try_into()
+    }
+}
+
+impl TryFrom<&str> for Config {
+    type Error = Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        FromStr::from_str(s)
     }
 }
 
