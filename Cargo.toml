@@ -129,7 +129,7 @@ tower-service = "0.3"
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = "0.3"
 uuid = "1"
-webpki-roots = "1"
+webpki-roots = "1.0.10"
 zstd = "0.13"
 
 # workspace member crates. keep versions in sync with each crate's own version:
