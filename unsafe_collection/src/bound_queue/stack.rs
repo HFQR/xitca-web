@@ -228,8 +228,6 @@ mod test {
 
     #[test]
     fn drop() {
-        extern crate alloc;
-
         use alloc::sync::Arc;
 
         let item = Arc::new(123);

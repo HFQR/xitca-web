@@ -1,8 +1,10 @@
+#[cfg(feature = "std")]
 use core::{
     mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
 };
 
+#[cfg(feature = "std")]
 use std::thread::{self, ThreadId};
 
 /// thread id guarded wrapper for `!Send` type to make it `Send` bound.
@@ -12,6 +14,7 @@ use std::thread::{self, ThreadId};
 ///
 /// Drop `FakeSend<B>` on a foreign thread will not trigger de structure of B(if it has one). The
 /// memory of B allocation would be leaked.
+#[cfg(feature = "std")]
 pub struct FakeSend<B> {
     id: ThreadId,
     inner: ManuallyDrop<B>,
@@ -19,8 +22,10 @@ pub struct FakeSend<B> {
 
 // SAFETY:
 // safe to impl Send bound as B type never get accessed from other threads it constructed from.
+#[cfg(feature = "std")]
 unsafe impl<B> Send for FakeSend<B> {}
 
+#[cfg(feature = "std")]
 impl<B> FakeSend<B> {
     /// Construct a new Send type from B. preferably B is bound to `!Send`.
     ///
@@ -75,6 +80,7 @@ impl<B> FakeSend<B> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<B> Deref for FakeSend<B> {
     type Target = B;
 
@@ -84,6 +90,7 @@ impl<B> Deref for FakeSend<B> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<B> DerefMut for FakeSend<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.assert_thread_id();
@@ -91,6 +98,7 @@ impl<B> DerefMut for FakeSend<B> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<B> Drop for FakeSend<B> {
     fn drop(&mut self) {
         // drop B when possible. leak B if not.

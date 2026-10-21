@@ -1,5 +1,7 @@
 use core::mem::ManuallyDrop;
 
+use alloc::vec::Vec;
+
 use super::{Bounded, PushError, Queueable};
 
 pub struct HeapQueue<T, const CAP: usize> {
@@ -230,8 +232,6 @@ mod test {
 
     #[test]
     fn drop() {
-        extern crate alloc;
-
         use alloc::sync::Arc;
 
         let item = Arc::new(123);

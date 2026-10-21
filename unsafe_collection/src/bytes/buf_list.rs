@@ -175,7 +175,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ptr;
+    use core::ptr;
 
     use super::*;
 

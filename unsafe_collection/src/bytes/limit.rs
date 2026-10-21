@@ -186,7 +186,7 @@ mod test {
         assert_eq!(buf.chunk(), input);
         assert_eq!(buf.chunk_mut().len(), PAGE - input.len());
 
-        let mut io = io::Cursor::new(vec![0; 4096 * 2]);
+        let mut io = io::Cursor::new(std::vec![0; 4096 * 2]);
 
         let n = read_buf(&mut io, &mut buf).unwrap();
         assert_eq!(n, PAGE - input.len());

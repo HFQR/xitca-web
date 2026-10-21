@@ -1,12 +1,25 @@
 use core::{
-    any::Any,
     fmt,
-    future::{Future, pending},
-    mem::{self, ManuallyDrop},
-    panic::{AssertUnwindSafe, UnwindSafe},
+    future::Future,
     pin::Pin,
     ptr,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+};
+
+#[cfg(feature = "alloc")]
+use core::{
+    alloc::Layout,
+    future::pending,
+    mem::{self, ManuallyDrop},
+};
+
+#[cfg(feature = "alloc")]
+use alloc::boxed::Box;
+
+#[cfg(feature = "std")]
+use core::{
+    any::Any,
+    panic::{AssertUnwindSafe, UnwindSafe},
 };
 
 /// Biased select always prioritize polling Self.
@@ -115,10 +128,12 @@ where
 }
 
 /// Future for the catch unwind async block.
+#[cfg(feature = "std")]
 pub struct CatchUnwind<Fut> {
     fut: Fut,
 }
 
+#[cfg(feature = "std")]
 impl<Fut> CatchUnwind<Fut>
 where
     Fut: Future + UnwindSafe,
@@ -129,6 +144,7 @@ where
     }
 }
 
+#[cfg(feature = "std")]
 impl<Fut> Future for CatchUnwind<Fut>
 where
     Fut: Future + UnwindSafe,
@@ -147,10 +163,12 @@ where
 
 /// Copied from [ReusableBoxFuture](https://docs.rs/tokio-util/latest/tokio_util/sync/struct.ReusableBoxFuture.html).
 /// But without `Send` bound.
+#[cfg(feature = "alloc")]
 pub struct ReusableLocalBoxFuture<'a, T> {
     boxed: Pin<Box<dyn Future<Output = T> + 'a>>,
 }
 
+#[cfg(feature = "alloc")]
 impl<'a, T> ReusableLocalBoxFuture<'a, T> {
     pub fn new<F>(future: F) -> Self
     where
@@ -196,18 +214,18 @@ impl<'a, T> ReusableLocalBoxFuture<'a, T> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T> fmt::Debug for ReusableLocalBoxFuture<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReusableLocalBoxFuture").finish()
     }
 }
 
+#[cfg(feature = "alloc")]
 fn reuse_pin_box<T: ?Sized, U, O, F>(boxed: Pin<Box<T>>, new_value: U, callback: F) -> Result<O, U>
 where
     F: FnOnce(Box<U>) -> O,
 {
-    use std::alloc::Layout;
-
     let layout = Layout::for_value::<T>(&*boxed);
     if layout != Layout::new::<U>() {
         return Err(new_value);
@@ -239,10 +257,12 @@ where
     Ok(guard.call())
 }
 
+#[cfg(feature = "alloc")]
 struct CallOnDrop<O, F: FnOnce() -> O> {
     f: ManuallyDrop<F>,
 }
 
+#[cfg(feature = "alloc")]
 impl<O, F: FnOnce() -> O> CallOnDrop<O, F> {
     fn new(f: F) -> Self {
         let f = ManuallyDrop::new(f);
@@ -255,6 +275,7 @@ impl<O, F: FnOnce() -> O> CallOnDrop<O, F> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<O, F: FnOnce() -> O> Drop for CallOnDrop<O, F> {
     fn drop(&mut self) {
         let f = unsafe { ManuallyDrop::take(&mut self.f) };

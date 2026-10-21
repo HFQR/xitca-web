@@ -1,6 +1,6 @@
 [package]
 name = "xitca-unsafe-collection"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "unsafe keyword enabled utilities for xitca"
@@ -13,7 +13,11 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-bytes = ["dep:bytes"]
+default = []
+alloc = []
+std = ["alloc"]
+# bytes feature depends on std::io for IoSlice and Read.
+bytes = ["std", "dep:bytes", "bytes/std"]
 
 [dependencies]
 bytes = { workspace = true, optional = true }

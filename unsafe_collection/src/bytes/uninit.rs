@@ -1,4 +1,6 @@
-use std::{io::IoSlice, mem::MaybeUninit};
+use core::mem::MaybeUninit;
+
+use std::io::IoSlice;
 
 use bytes::{Buf, Bytes, buf::Chain};
 

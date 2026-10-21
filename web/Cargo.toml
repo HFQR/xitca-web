@@ -92,7 +92,7 @@ __server = ["xitca-http/runtime", "xitca-server"]
 [dependencies]
 xitca-http = { workspace = true, features = ["router"] }
 xitca-service = { workspace = true, features = ["alloc"] }
-xitca-unsafe-collection = { workspace = true }
+xitca-unsafe-collection = { workspace = true, features = ["std"] }
 
 futures-core = { workspace = true }
 pin-project-lite = { workspace = true }

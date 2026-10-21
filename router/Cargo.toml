@@ -15,7 +15,7 @@ workspace = true
 [features]
 
 [dependencies]
-xitca-unsafe-collection = { workspace = true }
+xitca-unsafe-collection = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 criterion = { workspace = true }

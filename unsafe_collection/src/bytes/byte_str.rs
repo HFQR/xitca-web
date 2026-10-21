@@ -5,6 +5,8 @@ use core::{
     str::{self, Utf8Error},
 };
 
+use alloc::{string::String, vec::Vec};
+
 use bytes::Bytes;
 
 /// reference counted String type. cheap to Clone and share between multiple threads.
