@@ -5,6 +5,7 @@ use core::{
 
 use pin_project_lite::pin_project;
 use tokio::time::{Instant, Sleep, sleep_until};
+use xitca_service::shutdown::ShutdownListener;
 
 pub(crate) trait Timeout: Sized {
     fn timeout(self, timer: Pin<&mut KeepAlive>) -> TimeoutFuture<'_, Self>;
@@ -28,7 +29,7 @@ pin_project! {
 }
 
 impl<F: Future> Future for TimeoutFuture<'_, F> {
-    type Output = Result<F::Output, ()>;
+    type Output = Result<F::Output, KeepAliveOutput>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -49,15 +50,18 @@ pin_project! {
         #[pin]
         timer: Sleep,
         deadline: Instant,
+        shutdown: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
     }
 }
 
 impl KeepAlive {
     #[inline]
-    pub fn new(deadline: Instant) -> Self {
+    pub fn new(deadline: Instant, shutdown: Option<impl ShutdownListener + 'static>) -> Self {
         Self {
             timer: sleep_until(deadline),
             deadline,
+            shutdown: shutdown
+                .map(|s| Box::pin(s.wait()) as Pin<Box<dyn Future<Output = ()> + Send>>),
         }
     }
 
@@ -79,17 +83,32 @@ impl KeepAlive {
 }
 
 impl Future for KeepAlive {
-    type Output = ();
+    type Output = KeepAliveOutput;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_mut().project();
+
+        if let Some(shutdown_fut) = this.shutdown.as_mut() {
+            if shutdown_fut.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(KeepAliveOutput::Cancel);
+            }
+        }
+
         ready!(this.timer.poll(cx));
 
         if self.is_expired() {
-            Poll::Ready(())
+            Poll::Ready(KeepAliveOutput::Expire)
         } else {
             self.as_mut().reset();
             self.poll(cx)
         }
     }
+}
+
+/// return type of timer when it's finished
+pub enum KeepAliveOutput {
+    /// Timer is canceled by foreign input (e.g. a shutdown signal)
+    Cancel,
+    /// Timer is expired
+    Expire,
 }
