@@ -62,7 +62,8 @@ pub(crate) struct FlowControl {
     stream_map: HashMap<StreamId, Stream, NoHashBuilder>,
     /// Sliding-window counter for client-caused resets (CVE-2023-44487).
     /// Counts both peer-initiated RST_STREAM and server-generated RST_STREAM
-    /// in response to client protocol errors within a time window.
+    /// in response to client protocol errors within a time window. Also
+    /// remembers recent local resets to discard frames racing them.
     reset_counter: ResetCounter,
     /// Highest accepted client stream id, with explicit lifecycle: while
     /// `Incrementable` it advances on each new HEADERS; once GOAWAY is
@@ -100,7 +101,7 @@ impl FlowControl {
             recv_connection_window: RecvWindow::default(),
             recv_stream_threshold: RecvWindowThreshold::from(recv_stream_initial_window),
             stream_map: HashMap::with_capacity_and_hasher(max_concurrent_streams, NoHashBuilder::default()),
-            reset_counter: ResetCounter::new(Self::RESET_MAX, Self::RESET_WINDOW),
+            reset_counter: ResetCounter::new(Self::RESET_MAX, Self::RESET_WINDOW, max_concurrent_streams),
             last_stream_id: LastStreamId::new(),
             encode: EncodeContext::new(),
             frame_buf: FrameBuffer::new(),
@@ -190,7 +191,6 @@ impl FlowControl {
     fn remove_stream(&mut self, id: StreamId, remove: TryRemove) -> Result<(), StreamError> {
         let res = match remove {
             TryRemove::Keep => return Ok(()),
-            TryRemove::ResetKeep(err) => return Err(err),
             TryRemove::ResetRemove(err) => Err(err),
             TryRemove::Remove => Ok(()),
         };
@@ -203,15 +203,10 @@ impl FlowControl {
     #[cold]
     #[inline(never)]
     pub(crate) fn try_push_reset(&mut self, id: StreamId, reason: Reason) -> Result<(), Error> {
-        // Count client-caused resets (protocol errors, flow-control
-        // violations, content-length mismatches) toward the sliding
-        // window. Server-originated variants (INTERNAL_ERROR from
-        // response body errors, Cancel from RequestBody drop) are
-        // excluded. When the limit is exceeded, queue GOAWAY and close
+        // When client-caused resets exceed the limit, queue GOAWAY and close
         // the write side so the connection drains and terminates.
-
-        if !matches!(reason, Reason::INTERNAL_ERROR | Reason::NO_ERROR) {
-            self.try_tick_reset()?;
+        if self.reset_counter.local_reset(id, reason) {
+            return Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM));
         }
 
         self.encode.push_reset(id, reason);
@@ -224,10 +219,16 @@ impl FlowControl {
         let (pseudo, headers) = headers.into_parts();
 
         if !self.last_stream_id.check_idle(id) {
-            let stream = self
-                .stream_map
-                .get_mut(&id)
-                .ok_or(Error::GoAway(Reason::STREAM_CLOSED))?;
+            let Some(stream) = self.stream_map.get_mut(&id) else {
+                // HPACK state is already updated. Trailers racing a local reset are discarded.
+                // Otherwise it can't be told apart from HEADERS reusing a lower stream id, which
+                // is a connection error of type PROTOCOL_ERROR (RFC 9113 §5.1.1).
+                return if self.reset_counter.is_local_reset(&id) {
+                    Ok(None)
+                } else {
+                    Err(Error::GoAway(Reason::PROTOCOL_ERROR))
+                };
+            };
 
             // pseudo is not checked for legitmacy and ignored when receiving trailers.
 
@@ -336,10 +337,16 @@ impl FlowControl {
         let flow_len = RecvWindow::new(flow_len);
         self.recv_window_dec(flow_len)?;
 
-        let stream = self.stream_map.get_mut(&id).ok_or_else(|| {
+        let Some(stream) = self.stream_map.get_mut(&id) else {
+            // DATA on a closed stream still counts toward the connection window.
             self.encode.connection_window_update(flow_len);
-            Error::Reset(Reason::STREAM_CLOSED)
-        })?;
+            // DATA racing a local reset is discarded.
+            return if self.reset_counter.is_local_reset(&id) {
+                Ok(())
+            } else {
+                Err(Error::Reset(Reason::STREAM_CLOSED))
+            };
+        };
 
         let end_stream = data.is_end_stream();
         let data = data.into_payload();

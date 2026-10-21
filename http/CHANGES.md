@@ -1,4 +1,8 @@
 # unreleased
+## Fix
+- fix HTTP/2 stream slot leak when response completes before request body is fully received
+- discard HTTP/2 frames racing a locally sent RST_STREAM instead of treating them as errors
+- respond to HTTP/2 HEADERS on a closed stream with GOAWAY(PROTOCOL_ERROR) instead of GOAWAY(STREAM_CLOSED)
 
 # 0.9.8
 ## Fix

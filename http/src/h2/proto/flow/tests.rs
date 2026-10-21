@@ -53,14 +53,18 @@ fn new_flow(initial_window: u32) -> FlowControl {
     }
 
     for id in [1, 3] {
-        let id = StreamId::from(id);
-        let pseudo = Pseudo::request(Method::POST, "http://localhost/upload".parse().unwrap(), None);
-        assert!(matches!(
-            flow.recv_header(id, Headers::new(id, pseudo, HeaderMap::new())),
-            Ok(Some(_))
-        ));
+        open(&mut flow, id);
     }
     flow
+}
+
+fn open(flow: &mut FlowControl, id: u32) {
+    let id = StreamId::from(id);
+    let pseudo = Pseudo::request(Method::POST, "http://localhost/upload".parse().unwrap(), None);
+    assert!(matches!(
+        flow.recv_header(id, Headers::new(id, pseudo, HeaderMap::new())),
+        Ok(Some(_))
+    ));
 }
 
 fn receive(flow: &mut FlowControl, id: u32, len: usize) {
@@ -163,10 +167,9 @@ fn body_drop_returns_unread_credit_without_counting_consumption_twice() {
                         let expected = unread + if encode_before_drop { 0 } else { consumed };
                         assert_connection_update(&mut flow, expected as u32);
                         assert_eq!(flow.recv_connection_window.value(), 65_535);
-                        assert_eq!(flow.stream_map.contains_key(&id), !end_before_drop);
+                        assert!(!flow.stream_map.contains_key(&id));
 
-                        // A reset after Drop may remove the retained stream,
-                        // but must not return its already-released credit again.
+                        // A late reset must not return the already-released credit again.
                         assert!(flow.recv_reset(Reset::new(id, Reason::CANCEL)).is_ok());
                         assert!(!flow.stream_map.contains_key(&id));
                         assert_connection_update(&mut flow, 0);
@@ -204,9 +207,14 @@ fn body_drop_and_later_data_return_disjoint_credit() {
             assert_connection_update(&mut flow, 2304 + if encode_before_data { 0 } else { 1024 });
             assert_eq!(flow.recv_connection_window.value(), 65_535);
 
-            // Even after removal, a rejected frame must return its own credit.
+            // Even after removal, a frame must return its own credit. It is discarded
+            // when it may have raced our RST_STREAM(NO_ERROR) and rejected otherwise.
             let res = flow.recv_data(Data::new(id, Bytes::from(vec![0; 128])));
-            assert!(matches!(res, Err(Error::Reset(Reason::STREAM_CLOSED))));
+            if response_before_data {
+                assert!(res.is_ok());
+            } else {
+                assert!(matches!(res, Err(Error::Reset(Reason::STREAM_CLOSED))));
+            }
             assert_connection_update(&mut flow, 128);
             assert_eq!(flow.recv_connection_window.value(), 65_535);
         }
@@ -433,4 +441,92 @@ fn body_drop_credit_can_share_the_startup_window_update() {
         settings::MAX_INITIAL_WINDOW_SIZE as u32
     );
     assert_connection_update(&mut flow, 0);
+}
+
+#[test]
+fn early_response_releases_stream_and_discards_late_data() {
+    let mut flow = new_flow(65_535);
+    for id in [1, 3] {
+        // The response completes without reading the body while the peer is still uploading.
+        receive(&mut flow, id, 1024);
+        flow.request_body_drop(StreamId::from(id));
+        flow.response_task_done(StreamId::from(id)).unwrap();
+    }
+    assert_connection_update(&mut flow, 2048);
+
+    // RST_STREAM(NO_ERROR) closes both streams. Their slots are released although
+    // the peer will never send END_STREAM.
+    assert!(flow.stream_map.is_empty());
+    open(&mut flow, 5);
+
+    // DATA sent before the peer saw the reset is discarded, only crediting the connection.
+    receive(&mut flow, 1, 4096);
+    assert_connection_update(&mut flow, 4096);
+}
+
+#[test]
+fn frames_racing_local_reset_are_discarded() {
+    let mut flow = new_flow(65_535);
+    let id = StreamId::from(1);
+
+    // The service fails without reading the body, resetting the stream.
+    flow.request_body_drop(id);
+    flow.internal_reset(&id);
+    flow.response_task_done(id).unwrap();
+    assert!(!flow.stream_map.contains_key(&id));
+
+    // Frames the peer sent before seeing RST_STREAM are discarded. Rejecting them
+    // would count toward the rapid reset limit or close the connection.
+    for _ in 0..=FlowControl::RESET_MAX {
+        receive(&mut flow, 1, 1024);
+    }
+    let mut trailers = Headers::new(id, Pseudo::default(), HeaderMap::new());
+    trailers.set_end_stream();
+    assert!(matches!(flow.recv_header(id, trailers), Ok(None)));
+    assert_connection_update(&mut flow, (FlowControl::RESET_MAX as u32 + 1) * 1024);
+}
+
+#[test]
+fn headers_on_closed_stream_is_protocol_error() {
+    let mut flow = new_flow(65_535);
+    let id = StreamId::from(1);
+
+    // The stream closes normally, without a local reset.
+    let mut end = Data::new(id, Bytes::new());
+    end.set_end_stream(true);
+    assert!(flow.recv_data(end).is_ok());
+    flow.request_body_drop(id);
+    flow.response_task_done(id).unwrap();
+    assert!(!flow.stream_map.contains_key(&id));
+
+    // HEADERS on it can't be told apart from reusing a lower stream id (RFC 9113 §5.1.1).
+    let headers = Headers::new(id, Pseudo::default(), HeaderMap::new());
+    assert!(matches!(
+        flow.recv_header(id, headers),
+        Err(Error::GoAway(Reason::PROTOCOL_ERROR))
+    ));
+}
+
+#[test]
+fn only_local_resets_caused_by_peer_are_counted() {
+    let id = StreamId::from(1);
+
+    // Resets caused by the server itself: early response and service failure.
+    let mut flow = new_flow(65_535);
+    for reason in [Reason::NO_ERROR, Reason::INTERNAL_ERROR] {
+        for _ in 0..=FlowControl::RESET_MAX {
+            assert!(flow.try_push_reset(id, reason).is_ok());
+        }
+    }
+
+    for reason in [Reason::PROTOCOL_ERROR, Reason::REFUSED_STREAM, Reason::STREAM_CLOSED] {
+        let mut flow = new_flow(65_535);
+        for _ in 0..FlowControl::RESET_MAX {
+            assert!(flow.try_push_reset(id, reason).is_ok());
+        }
+        assert!(matches!(
+            flow.try_push_reset(id, reason),
+            Err(Error::GoAway(Reason::ENHANCE_YOUR_CALM))
+        ));
+    }
 }

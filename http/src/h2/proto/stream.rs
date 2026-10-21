@@ -239,7 +239,7 @@ impl Stream {
                 _ => TryRemove::Remove,
             },
             (State::Cancel, State::Close) => match self.pending_error.take() {
-                Some(StreamError::NoError) => TryRemove::ResetKeep(StreamError::NoError),
+                Some(StreamError::NoError) => TryRemove::ResetRemove(StreamError::NoError),
                 _ => TryRemove::Keep,
             },
             _ => TryRemove::Keep,
@@ -364,9 +364,6 @@ pub(super) enum TryRemove {
     Keep,
     // graceful removal.
     Remove,
-    // act the same as Keep variant.
-    // AND observer must send Reason with Reset frame and send to peer
-    ResetKeep(StreamError),
     // act the same as Remove variant.
     // AND observer must send Reason with Reset frame and send to peer
     ResetRemove(StreamError),

@@ -77,7 +77,7 @@ fn large_body() -> Bytes {
 /// Scenario 1: client streams a large body that overruns its send window,
 /// handler drops the body, handler returns headers-only response.
 /// Client observes HEADERS(end_stream) followed by RST_STREAM(NO_ERROR).
-/// Exercises the `(State::Cancel, State::Close)` → `TryRemove::ResetCancel`
+/// Exercises the `(State::Cancel, State::Close)` → `TryRemove::ResetRemove`
 /// path and in-flight DATA absorption.
 #[tokio::test]
 async fn drop_large_body_empty_response() -> Result<(), Error> {
