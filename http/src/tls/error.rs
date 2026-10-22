@@ -10,6 +10,7 @@ pub enum TlsError {
     Rustls(super::rustls::RustlsError),
     #[cfg(feature = "native-tls")]
     NativeTls(super::native_tls::NativeTlsError),
+    OtherTls(Box<dyn error::Error + Send + Sync>),
 }
 
 impl fmt::Debug for TlsError {
@@ -22,6 +23,7 @@ impl fmt::Debug for TlsError {
             Self::Rustls(ref e) => fmt::Debug::fmt(e, _f),
             #[cfg(feature = "native-tls")]
             Self::NativeTls(ref e) => fmt::Debug::fmt(e, _f),
+            Self::OtherTls(ref e) => fmt::Debug::fmt(e, _f),
         }
     }
 }
@@ -36,11 +38,18 @@ impl fmt::Display for TlsError {
             Self::Rustls(ref e) => fmt::Debug::fmt(e, _f),
             #[cfg(feature = "native-tls")]
             Self::NativeTls(ref e) => fmt::Display::fmt(e, _f),
+            Self::OtherTls(ref e) => fmt::Display::fmt(e, _f),
         }
     }
 }
 
 impl error::Error for TlsError {}
+
+impl From<Box<dyn error::Error + Send + Sync>> for TlsError {
+    fn from(e: Box<dyn error::Error + Send + Sync>) -> Self {
+        Self::OtherTls(e)
+    }
+}
 
 impl<S, B> From<TlsError> for HttpServiceError<S, B> {
     fn from(e: TlsError) -> Self {
