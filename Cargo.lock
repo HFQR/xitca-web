@@ -3275,7 +3275,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-http"
-version = "0.9.8"
+version = "0.10.0"
 dependencies = [
  "assert_matches",
  "criterion",
@@ -3301,7 +3301,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-io"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "bytes",
  "quinn",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-router"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "criterion",
  "matchit",
@@ -3362,7 +3362,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-server"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "socket2",
@@ -3371,7 +3371,6 @@ dependencies = [
  "tracing",
  "xitca-io",
  "xitca-service",
- "xitca-unsafe-collection",
 ]
 
 [[package]]
@@ -3401,13 +3400,12 @@ dependencies = [
  "xitca-io",
  "xitca-server",
  "xitca-service",
- "xitca-unsafe-collection",
  "xitca-web",
 ]
 
 [[package]]
 name = "xitca-tls"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "native-tls",
  "openssl",
@@ -3417,7 +3415,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-unsafe-collection"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "tokio",
@@ -3425,7 +3423,7 @@ dependencies = [
 
 [[package]]
 name = "xitca-web"
-version = "0.8.3"
+version = "0.9.0"
 dependencies = [
  "cookie",
  "futures-core",

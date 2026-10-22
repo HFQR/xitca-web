@@ -1,6 +1,6 @@
 [package]
 name = "xitca-web"
-version = "0.8.3"
+version = "0.9.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "an async web framework"
@@ -92,7 +92,7 @@ __server = ["xitca-http/runtime", "xitca-server"]
 [dependencies]
 xitca-http = { workspace = true, features = ["router"] }
 xitca-service = { workspace = true, features = ["alloc"] }
-xitca-unsafe-collection = { workspace = true }
+xitca-unsafe-collection = { workspace = true, features = ["std"] }
 
 futures-core = { workspace = true }
 pin-project-lite = { workspace = true }

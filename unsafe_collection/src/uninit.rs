@@ -14,6 +14,7 @@ pub(crate) unsafe fn slice_assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &
 // SAFETY:
 //
 // The same rule as slice_assume_init_mut function
+#[cfg(feature = "alloc")]
 pub(crate) const unsafe fn slice_assume_init<T>(slice: &[MaybeUninit<T>]) -> &[T] {
     unsafe { &*(slice as *const [MaybeUninit<T>] as *const [T]) }
 }

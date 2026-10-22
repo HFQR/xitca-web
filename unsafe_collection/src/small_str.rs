@@ -7,13 +7,13 @@ use core::{
 use inner::Inner;
 
 mod inner {
-    extern crate alloc;
-
     use core::{
         mem::{ManuallyDrop, MaybeUninit},
         ptr::{self, NonNull},
         slice,
     };
+
+    use alloc::boxed::Box;
 
     use crate::uninit::slice_assume_init;
 

@@ -10,6 +10,9 @@
 - add `Config::{keepalives, keepalives_idle, keepalives_interval, keepalives_retries, tcp_user_timeout}` for driver socket option configuration
 
 ## Change
+- update `xitca-io` to `0.7.0`
+- update `xitca-tls` to `0.7.0`
+- update `xitca-unsafe-collection` to `0.3.0`
 - update MSRV to 1.98
 - rework `Execute` trait into plain async trait with RPIT
 - rename `pool::PoolConnection` to `pool::GenericPoolConnection`
