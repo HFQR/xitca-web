@@ -1,5 +1,6 @@
 use std::{
     io,
+    ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll, ready},
 };
@@ -13,10 +14,57 @@ use xitca_io::io::Interest;
 
 use crate::{
     body::{Body, Frame, SizeHint},
+    connection::ConnectionExclusive,
     pool::service::ExclusiveLease,
 };
 
-pub type Connection = ExclusiveLease;
+/// The connection backing an H1 response body.
+///
+/// `Pooled` holds the full pool lease (including the capacity semaphore permit).
+/// `Detached` holds only the raw TCP/TLS connection; the pool slot was already
+/// released. Use [`ResponseBody::detach_from_pool`] to transition from the
+/// former to the latter for long-lived responses such as Server-Sent Events.
+pub(crate) enum Connection {
+    Pooled(ExclusiveLease),
+    Detached(ConnectionExclusive),
+}
+
+impl Deref for Connection {
+    type Target = ConnectionExclusive;
+
+    fn deref(&self) -> &ConnectionExclusive {
+        match self {
+            Connection::Pooled(lease) => lease.deref(),
+            Connection::Detached(conn) => conn,
+        }
+    }
+}
+
+impl DerefMut for Connection {
+    fn deref_mut(&mut self) -> &mut ConnectionExclusive {
+        match self {
+            Connection::Pooled(lease) => lease.deref_mut(),
+            Connection::Detached(conn) => conn,
+        }
+    }
+}
+
+impl Connection {
+    fn mark_destroy(&mut self) {
+        if let Connection::Pooled(lease) = self {
+            lease.mark_destroy();
+        }
+    }
+
+    pub fn detach(&mut self) {
+        let conn = match self {
+            Connection::Pooled(lease) => lease.detach(),
+            Connection::Detached(_) => return,
+        };
+
+        *self = Connection::Detached(conn)
+    }
+}
 
 pub struct ResponseBody {
     conn: Connection,
@@ -25,16 +73,40 @@ pub struct ResponseBody {
 }
 
 impl ResponseBody {
-    pub(crate) fn new(conn: Connection, buf: BytesMut, decoder: TransferCoding) -> Self {
-        Self { conn, buf, decoder }
+    pub(crate) fn new(conn: ExclusiveLease, buf: BytesMut, decoder: TransferCoding) -> Self {
+        Self {
+            conn: Connection::Pooled(conn),
+            buf,
+            decoder,
+        }
     }
 
-    pub(crate) fn conn(&self) -> &Connection {
+    fn io_mut(&mut self) -> &mut ConnectionExclusive {
+        &mut self.conn
+    }
+
+    pub(crate) fn conn(&self) -> &ConnectionExclusive {
         &self.conn
     }
 
-    pub(crate) fn conn_mut(&mut self) -> &mut Connection {
-        &mut self.conn
+    pub(crate) fn conn_mut(&mut self) -> &mut ConnectionExclusive {
+        self.io_mut()
+    }
+
+    pub(crate) fn mark_destroy(&mut self) {
+        self.conn.mark_destroy();
+    }
+
+    pub(crate) fn is_marked_destroy(&self) -> bool {
+        match &self.conn {
+            Connection::Pooled(lease) => lease.is_marked_destroy(),
+            // Detached connections are never returned to the pool.
+            Connection::Detached(_) => true,
+        }
+    }
+
+    pub(crate) fn detach_from_pool(&mut self) {
+        self.conn.detach();
     }
 }
 
