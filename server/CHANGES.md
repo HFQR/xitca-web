@@ -1,6 +1,9 @@
-# unreleased 0.7.1
+# unreleased 0.8.0
 ## Add
 - add `ServerFuture::run_to_shutdown` and `ServerShutDownFuture::shutdown` methods
+
+## Change
+- update `xitca-io` to `0.7.0`
 
 # 0.7.0
 ## Change

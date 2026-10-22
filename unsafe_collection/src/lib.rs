@@ -11,16 +11,17 @@
 
 #[cfg(any(feature = "alloc", test))]
 extern crate alloc;
+
 #[cfg(any(feature = "std", test))]
 extern crate std;
 
-pub mod bound_queue;
 pub mod fake;
 pub mod futures;
 pub mod no_hash;
+pub mod uninit;
+
 #[cfg(feature = "alloc")]
 pub mod small_str;
-pub mod uninit;
 
 #[cfg(feature = "bytes")]
 pub mod bytes;

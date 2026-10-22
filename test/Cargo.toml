@@ -16,7 +16,6 @@ xitca-codegen = { workspace = true }
 xitca-io =  { workspace = true }
 xitca-server = { workspace = true, features = ["quic"] }
 xitca-service = { workspace = true }
-xitca-unsafe-collection =  { workspace = true }
 xitca-web = { workspace = true, features = ["codegen", "compress-zs", "grpc", "http2"] }
 
 http-ws = { workspace = true, features = ["stream"] }

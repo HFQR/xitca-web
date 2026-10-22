@@ -158,6 +158,9 @@ pub use router::{Match, Router};
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+
 // TODO: consider no alloc alternative of these types so alloc can become an optional feature
 use alloc::{boxed::Box, collections::VecDeque, string::String, vec::Vec};
 use xitca_unsafe_collection::small_str::SmallBoxedStr as SmallStr;

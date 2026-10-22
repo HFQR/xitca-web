@@ -16,8 +16,8 @@ workspace = true
 default = []
 alloc = []
 std = ["alloc"]
-# bytes feature depends on std::io for IoSlice and Read.
-bytes = ["std", "dep:bytes", "bytes/std"]
+# bytes feature depends on std::io::Read.
+bytes = ["std", "dep:bytes"]
 
 [dependencies]
 bytes = { workspace = true, optional = true }

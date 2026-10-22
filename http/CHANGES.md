@@ -1,4 +1,10 @@
-# unreleased
+# unreleased 0.10.0
+## Change
+- update `xitca-io` to `0.7.0`
+- update `xitca-router` to `0.5.0`. `util::service::router::Params::into_iter` yields `xitca_router::params::ParamStr` pairs
+- update `xitca-server` to `0.8.0`
+- update `xitca-tls` to `0.7.0`
+- update `xitca-unsafe-collection` to `0.3.0`
 
 # 0.9.8
 ## Fix

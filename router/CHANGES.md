@@ -1,4 +1,10 @@
-# unreleased
+# unreleased 0.5.0
+## Add
+- add `params::ParamStr`. An owned parameter key or value that dereferences to `str`
+
+## Change
+- `params::Params::into_iter` yields `(ParamStr, ParamStr)` instead of `xitca_unsafe_collection::small_str::SmallBoxedStr` pairs. `xitca-unsafe-collection` is no longer part of public API
+- update `xitca-unsafe-collection` to `0.3.0`
 
 # 0.4.3
 ## Add

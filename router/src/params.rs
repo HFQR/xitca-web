@@ -1,6 +1,12 @@
-use core::slice;
+use core::{
+    borrow::Borrow,
+    fmt,
+    hash::{Hash, Hasher},
+    ops::Deref,
+    slice,
+};
 
-use crate::{SmallStr, Vec};
+use crate::{SmallStr, String, Vec};
 
 /// A single URL parameter, consisting of a key and a value.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -113,7 +119,7 @@ impl Params {
 }
 
 impl IntoIterator for Params {
-    type Item = (SmallStr, SmallStr);
+    type Item = (ParamStr, ParamStr);
     type IntoIter = IntoIter<<Vec<Param> as IntoIterator>::IntoIter>;
 
     #[inline]
@@ -150,16 +156,93 @@ impl<I> Iterator for IntoIter<I>
 where
     I: Iterator<Item = Param>,
 {
-    type Item = (SmallStr, SmallStr);
+    type Item = (ParamStr, ParamStr);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|p| (p.key, p.value))
+        self.inner.next().map(|p| (ParamStr(p.key), ParamStr(p.value)))
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
+    }
+}
+
+/// Owned key or value of a parameter, yielded by [`Params::into_iter`].
+///
+/// Dereferences to `str`. Short strings are stored inline without heap allocation.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ParamStr(SmallStr);
+
+impl ParamStr {
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl Deref for ParamStr {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<str> for ParamStr {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Borrow<str> for ParamStr {
+    #[inline]
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+// hash as str so the Borrow<str> impl holds for hash based collections.
+impl Hash for ParamStr {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state)
+    }
+}
+
+impl PartialEq<str> for ParamStr {
+    #[inline]
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for ParamStr {
+    #[inline]
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl fmt::Debug for ParamStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
+impl fmt::Display for ParamStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<ParamStr> for String {
+    #[inline]
+    fn from(value: ParamStr) -> Self {
+        String::from(value.as_str())
     }
 }
 
@@ -176,5 +259,33 @@ mod tests {
     fn ignore_array_default() {
         let params = Params::new();
         assert!(params.get("").is_none());
+    }
+
+    #[test]
+    fn into_iter_param_str() {
+        let mut params = Params::new();
+        params.push("id", "1");
+        params.push("name", "a_value_longer_than_inline_capacity");
+
+        let mut iter = params.into_iter();
+
+        let (key, value) = iter.next().unwrap();
+        assert_eq!(key, "id");
+        assert_eq!(value, "1");
+
+        let (key, value) = iter.next().unwrap();
+        assert_eq!(key, "name");
+        assert_eq!(String::from(value), "a_value_longer_than_inline_capacity");
+
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn param_str_hash_as_str() {
+        use core::hash::BuildHasher;
+
+        let hasher = std::hash::RandomState::new();
+        let s = ParamStr(SmallStr::from("foo"));
+        assert_eq!(hasher.hash_one(&s), hasher.hash_one("foo"));
     }
 }

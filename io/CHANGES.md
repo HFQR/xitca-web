@@ -1,4 +1,9 @@
-# unreleased
+# unreleased 0.7.0
+## Remove
+- remove `bytes::EitherBuf` re-export and its `BufInterest`/`BufWrite` impls
+
+## Change
+- update `xitca-unsafe-collection` to `0.3.0`
 
 # 0.6.0
 ## Add

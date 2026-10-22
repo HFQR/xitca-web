@@ -1,4 +1,12 @@
-# unreleased 0.8.3
+# unreleased 0.9.0
+## Change
+- update `xitca-http` to `0.10.0`
+- update `xitca-io` to `0.7.0`
+- update `xitca-server` to `0.8.0`
+- update `xitca-tls` to `0.7.0`
+- update `xitca-unsafe-collection` to `0.3.0`
+
+# 0.8.3
 ## Add
 - expand header value extractor coverage of `handler::header::HeaderRef` throuhg more `handler::header::<const HeaderName>` types
 

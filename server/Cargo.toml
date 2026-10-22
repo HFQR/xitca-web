@@ -1,6 +1,6 @@
 [package]
 name = "xitca-server"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "http server for xitca"
@@ -21,7 +21,6 @@ io-uring = ["dep:tokio-uring-xitca"]
 [dependencies]
 xitca-io = { workspace = true, features = ["runtime"] }
 xitca-service = { workspace = true, features = ["alloc"] }
-xitca-unsafe-collection = { workspace = true }
 
 tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { workspace = true }

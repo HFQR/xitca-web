@@ -40,7 +40,7 @@ dangerous = []
 [dependencies]
 xitca-http = { workspace = true, default-features = false, features = ["runtime"] }
 xitca-io = { workspace = true }
-xitca-unsafe-collection = { workspace = true }
+xitca-unsafe-collection = { workspace = true, features = ["bytes"] }
 
 futures-core = { workspace = true, default-features = false }
 futures-sink = { workspace = true }
