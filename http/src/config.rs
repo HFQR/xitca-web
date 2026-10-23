@@ -19,7 +19,7 @@ pub const DEFAULT_WRITE_BUF_LIMIT: usize = 8192 + 4096 * 100;
 /// 64 chosen for no particular reason.
 pub const DEFAULT_HEADER_LIMIT: usize = 64;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct HttpServiceConfig<
     const HEADER_LIMIT: usize = DEFAULT_HEADER_LIMIT,
     const READ_BUF_LIMIT: usize = DEFAULT_READ_BUF_LIMIT,
